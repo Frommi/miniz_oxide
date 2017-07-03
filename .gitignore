@@ -1,3 +1,11 @@
+amalgamation/
+
+miniz_tester
+test_scratch
+
+Cargo.lock
+target/
+
 # Prerequisites
 *.d
 

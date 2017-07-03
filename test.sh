@@ -4,11 +4,11 @@ set -e
 
 . amalgamate.sh
 
-g++ tests/miniz_tester.cpp tests/timer.cpp amalgamation/miniz.c bin/miniz-rs.c.o -o miniz_tester -I. -ggdb -O2
+g++ tests/miniz_tester.cpp tests/timer.cpp amalgamation/miniz.c -o miniz_tester -I. -ggdb -O2 -L./target/release -lminiz_oxide
 
 for i in 1 2 3 4 5 6
 do
-    gcc examples/example$i.c amalgamation/miniz.c bin/miniz-rs.c.o -o example$i -lm -I. -ggdb
+    gcc examples/example$i.c amalgamation/miniz.c -o example$i -lm -I. -ggdb -L./target/release -lminiz_oxide
 done
 
 mkdir -p test_scratch
