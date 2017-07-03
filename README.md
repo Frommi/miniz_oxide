@@ -1,2 +1,2 @@
-# miniz_oxide
+# miniz-rs
 Rust replacement for miniz
