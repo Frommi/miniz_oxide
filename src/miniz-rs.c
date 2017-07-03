@@ -1,4 +1,4 @@
-#include "miniz.h"
+#include "../miniz.h"
 
 mz_ulong mz_adler32(mz_ulong adler, const unsigned char *ptr, size_t buf_len) {
     mz_uint32 i, s1 = (mz_uint32)(adler & 0xffff), s2 = (mz_uint32)(adler >> 16);
