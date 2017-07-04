@@ -1,7 +1,15 @@
+src/.idea
+
 amalgamation/
 
 miniz_tester
 test_scratch
+CMakeCache.txt
+CMakeFiles/
+Makefile
+bin/
+cmake_install.cmake
+miniz_oxide-prefix/
 
 Cargo.lock
 target/

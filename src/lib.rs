@@ -66,6 +66,8 @@ pub unsafe extern fn mz_adler32(
 // use libc::*;
 
 // #[no_mangle]
-// pub unsafe extern "C" fn mz_adler32(adler: c_ulong, ptr: *const uint8_t, buf_len: size_t) -> c_ulong {
+// pub unsafe extern "C" fn mz_adler32(adler: c_ulong, ptr: *const uint8_t, mut buf_len: size_t) -> c_ulong {
+//     // let mut s1 = (adler & 0xffff) as u32;
+//     // let mut s2 = (adler >> 16) as u32;
 //     0
 // }
