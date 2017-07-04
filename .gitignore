@@ -1,12 +1,17 @@
-src/.idea
+src/.idea/
+.idea/
 
 amalgamation/
 
+example?
 miniz_tester
 test_scratch
+
 CMakeCache.txt
+cmake-build-debug
 CMakeFiles/
 Makefile
+
 bin/
 cmake_install.cmake
 miniz_oxide-prefix/
