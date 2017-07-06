@@ -6,6 +6,8 @@ links = "miniz"
 license = "MIT"
 authors = ["Frommi <daniil.liferenko@gmail.com>"]
 
+[workspace]
+
 [lib]
 name = "miniz_oxide"
 crate-type = ["staticlib"]

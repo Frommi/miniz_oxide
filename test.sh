@@ -6,6 +6,7 @@ set -e
 
 cargo build --release
 
+mkdir bin
 g++ tests/miniz_tester.cpp tests/timer.cpp amalgamation/miniz.c -o bin/miniz_tester -I. -ggdb -O2 -L./target/release -lminiz_oxide
 
 for i in 1 2 3 4 5 6
