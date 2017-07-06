@@ -1,6 +1,8 @@
 [package]
 name = "miniz_oxide"
 version = "0.1.0"
+build = "src/build.rs"
+license = "MIT"
 authors = ["Frommi <daniil.liferenko@gmail.com>"]
 
 [lib]
@@ -9,6 +11,15 @@ crate-type = ["staticlib"]
 
 [dependencies]
 libc="0.2.22"
+afl = { version = "0.1", optional = true }
+afl-plugin = { version = "0.1", optional = true }
+
+[build-dependencies]
+gcc = "0.3"
+
+[features]
+default = []
+afl_test = ["afl", "afl-plugin"]
 
 [profile.dev]
 panic = "abort"
