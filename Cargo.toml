@@ -2,6 +2,7 @@
 name = "miniz_oxide"
 version = "0.1.0"
 build = "src/build.rs"
+links = "miniz"
 license = "MIT"
 authors = ["Frommi <daniil.liferenko@gmail.com>"]
 
