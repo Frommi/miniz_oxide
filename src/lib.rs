@@ -3,6 +3,9 @@ extern crate libc;
 use std::slice;
 use self::libc::*;
 
+mod tdef;
+pub use tdef::tdefl_radix_sort_syms;
+
 #[no_mangle]
 pub unsafe extern "C" fn mz_adler32(adler: c_ulong, ptr: *const u8, buf_len: usize) -> c_ulong {
     if ptr.is_null() {

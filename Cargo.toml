@@ -10,7 +10,11 @@ authors = ["Frommi <daniil.liferenko@gmail.com>"]
 
 [lib]
 name = "miniz_oxide"
-crate-type = ["staticlib"]
+crate-type = ["staticlib", "rlib"]
+
+[[bin]]
+path = "src/main.rs"
+name = "afl_test_test"
 
 [dependencies]
 libc="0.2.22"

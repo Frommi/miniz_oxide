@@ -4,7 +4,8 @@
 #[cfg(feature="afl_test")]
 extern crate afl;
 
-mod lib;
+extern crate miniz_oxide;
+
 
 use std::io;
 use std::io::BufRead;
@@ -12,7 +13,7 @@ use std::io::BufRead;
 #[cfg(feature="afl_test")]
 fn main() {
     afl::handle_string(|s| {
-        lib::mz_adler32_oxide(239, &(s.into_bytes()));
+        miniz_oxide::mz_adler32_oxide(239, &(s.into_bytes()));
     })
 }
 
