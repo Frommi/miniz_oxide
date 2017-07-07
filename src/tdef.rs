@@ -8,20 +8,21 @@ use std::mem;
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub struct SymFreq {
+#[allow(bad_style)]
+pub struct tdefl_sym_freq {
     m_key: u16,
     m_sym_index: u16,
 }
 
 #[no_mangle]
 #[allow(bad_style)]
-pub unsafe extern "C" fn tdefl_radix_sort_syms(num_syms : c_uint, pSyms0: *mut SymFreq, pSyms1: *mut SymFreq) -> *mut SymFreq {
+pub unsafe extern "C" fn tdefl_radix_sort_syms(num_syms : c_uint, pSyms0: *mut tdefl_sym_freq, pSyms1: *mut tdefl_sym_freq) -> *mut tdefl_sym_freq {
     let syms0 = slice::from_raw_parts_mut(pSyms0, num_syms as usize);
     let syms1 = slice::from_raw_parts_mut(pSyms1, num_syms as usize);
     tdefl_radix_sort_syms_oxide(syms0, syms1).as_mut_ptr()
 }
 
-pub fn tdefl_radix_sort_syms_oxide<'a>(syms0: &'a mut [SymFreq], syms1: &'a mut [SymFreq]) -> &'a mut [SymFreq] {
+pub fn tdefl_radix_sort_syms_oxide<'a>(syms0: &'a mut [tdefl_sym_freq], syms1: &'a mut [tdefl_sym_freq]) -> &'a mut [tdefl_sym_freq] {
     let mut hist = [[0; 256]; 2];
 
     for freq in syms0.iter() {

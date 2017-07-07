@@ -14,7 +14,7 @@ crate-type = ["staticlib", "rlib"]
 
 [[bin]]
 path = "src/main.rs"
-name = "afl_test_test"
+name = "miniz_oxide"
 
 [dependencies]
 libc="0.2.22"
