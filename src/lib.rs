@@ -7,27 +7,8 @@ use std::ptr;
 mod tdef;
 pub use tdef::tdefl_radix_sort_syms;
 
+
 pub const MZ_ADLER32_INIT: c_ulong = 1;
-
-#[no_mangle]
-pub unsafe extern "C" fn mz_adler32(adler: c_ulong, ptr: *const u8, buf_len: usize) -> c_ulong {
-    if ptr.is_null() {
-        MZ_ADLER32_INIT
-    } else {
-        let data_slice = slice::from_raw_parts(ptr, buf_len);
-        mz_adler32_oxide(adler, data_slice)
-    }
-}
-
-pub fn mz_adler32_oxide(adler: c_ulong, data: &[u8]) -> c_ulong {
-    let mut s1 = adler & 0xffff;
-    let mut s2 = adler >> 16;
-    for x in data {
-        s1 = (s1 + *x as c_ulong) % 65521;
-        s2 = (s1 + s2) % 65521;
-    }
-    (s2 << 16) + s1
-}
 
 pub const MZ_NO_FLUSH: c_int = 0;
 pub const MZ_PARTIAL_FLUSH: c_int = 1;
@@ -50,6 +31,34 @@ pub const MZ_PARAM_ERROR: c_int = -10000;
 pub const MZ_DEFLATED: c_int = 8;
 pub const MZ_DEFAULT_WINDOW_BITS: c_int = 15;
 pub const MZ_DEFAULT_STRATEGY: c_int = 0;
+
+pub const MZ_DEFAULT_COMPRESSION: c_int = 6;
+
+
+#[no_mangle]
+pub unsafe extern "C" fn mz_adler32(adler: c_ulong, ptr: *const u8, buf_len: usize) -> c_ulong {
+    if ptr.is_null() {
+        MZ_ADLER32_INIT
+    } else {
+        let data_slice = slice::from_raw_parts(ptr, buf_len);
+        mz_adler32_oxide(adler, data_slice)
+    }
+}
+
+pub fn mz_adler32_oxide(adler: c_ulong, data: &[u8]) -> c_ulong {
+    let mut s1 = adler & 0xffff;
+    let mut s2 = adler >> 16;
+    for x in data {
+        s1 = (s1 + *x as c_ulong) % 65521;
+        s2 = (s1 + s2) % 65521;
+    }
+    (s2 << 16) + s1
+}
+
+
+pub enum mz_internal_state {}
+pub type mz_alloc_func = extern "C" fn(*mut c_void, size_t, size_t) -> *mut c_void;
+pub type mz_free_func = extern "C" fn(*mut c_void, *mut c_void);
 
 #[repr(C)]
 pub struct mz_stream {
@@ -93,30 +102,29 @@ impl Default for mz_stream {
 
             data_type: 0,
             adler: 0,
-            reserved: 0
+            reserved: 0,
         }
     }
 }
 
-pub enum mz_internal_state {}
+pub struct StreamOxide<'s> {
+    stream: &'s mut mz_stream,
+}
 
-pub type mz_alloc_func = extern fn(*mut c_void,
-                                   size_t,
-                                   size_t) -> *mut c_void;
-pub type mz_free_func = extern fn(*mut c_void, *mut c_void);
+impl<'s> StreamOxide<'s> {
+    pub fn reduce(&mut self) -> &mut mz_stream {
+        self.stream
+    }
+}
+
 
 extern {
-    pub fn mz_deflateInit(stream: *mut mz_stream,
-                           level: c_int)
-                           -> c_int;
+    pub fn mz_deflateInit(stream: *mut mz_stream, level: c_int) -> c_int;
     pub fn mz_deflate(stream: *mut mz_stream, flush: c_int) -> c_int;
     pub fn mz_deflateEnd(stream: *mut mz_stream) -> c_int;
-
     pub fn mz_compressBound(source_len: c_ulong) -> c_ulong;
     pub fn mz_uncompress(pDest: *mut u8, pDest_len: *mut c_ulong, pSource: *const u8, source_len: c_ulong) -> c_int;
 }
-
-pub const MZ_DEFAULT_COMPRESSION: c_int = 6;
 
 #[no_mangle]
 pub unsafe extern "C" fn mz_compress(pDest: *mut u8, pDest_len: *mut c_ulong, pSource: *const u8, source_len: c_ulong) -> c_int {
@@ -138,17 +146,24 @@ pub unsafe extern "C" fn mz_compress2(pDest: *mut u8, pDest_len: *mut c_ulong, p
         ..Default::default()
     };
 
-    let mut status: c_int = mz_deflateInit(&mut stream, level);
+    let mut stream_oxide = StreamOxide { stream : &mut stream };
+    let status = mz_compress2_oxide(&mut stream_oxide, level);
+    *pDest_len = stream_oxide.reduce().total_out;
+
+    status
+}
+
+pub fn mz_compress2_oxide(stream_oxide: &mut StreamOxide, level: c_int) -> c_int {
+    let mut status: c_int = unsafe { mz_deflateInit(stream_oxide.reduce(), level) };
     if status != MZ_OK {
         return status;
     }
 
-    status = mz_deflate(&mut stream, MZ_FINISH);
+    status = unsafe { mz_deflate(stream_oxide.reduce(), MZ_FINISH) };
     if status != MZ_STREAM_END {
-        mz_deflateEnd(&mut stream);
+        unsafe { mz_deflateEnd(stream_oxide.reduce()) };
         return if status == MZ_OK { MZ_BUF_ERROR } else { status };
     }
 
-    *pDest_len = stream.total_out;
-    mz_deflateEnd(&mut stream)
+    unsafe { mz_deflateEnd(stream_oxide.reduce()) }
 }
