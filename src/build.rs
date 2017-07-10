@@ -1,8 +1,18 @@
 extern crate gcc;
 
-use std::env;
+use std::process::Command;
 
+#[cfg(not(feature="afl_test"))]
 fn main() {
-    gcc::compile_library("libminiz.a",
+    gcc::compile_library("bin/libminiz.a",
                          &["miniz.c", "miniz_zip.c", "miniz_tinfl.c", "miniz_tdef.c"]);
+    println!("cargo:rustc-link-search=native=bin");
+    println!("cargo:rustc-link-lib=static=miniz");
+}
+
+#[cfg(feature="afl_test")]
+fn main() {
+    Command::new("./build_afl.sh").status().unwrap();
+    println!("cargo:rustc-link-search=native=bin");
+    println!("cargo:rustc-link-lib=static=miniz");
 }

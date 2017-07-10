@@ -7,9 +7,7 @@ extern crate afl;
 extern crate libc;
 extern crate miniz_oxide;
 
-use self::libc::*;
-use std::io;
-use std::io::BufRead;
+use libc::*;
 
 #[cfg(feature="afl_test")]
 fn main() {
@@ -19,11 +17,11 @@ fn main() {
         } else {
             let s_cp = s.clone();
 
+            let uncmp_size = s.len() as c_ulong;
             let mut cmp_size: c_ulong = 2048;
             let mut decmp_size: c_ulong = 2048;
             let mut cmp_buf = [0u8; 2048];
             let mut decmp_buf = [0u8; 2048];
-            let mut uncmp_size = s.len() as c_ulong;
             let mut status = unsafe { miniz_oxide::mz_compress(cmp_buf.as_mut_ptr(), &mut cmp_size, s.into_bytes().as_mut_ptr(), uncmp_size) };
             assert!(status == miniz_oxide::MZ_OK);
             status = unsafe { miniz_oxide::mz_uncompress(decmp_buf.as_mut_ptr(), &mut decmp_size, cmp_buf.as_mut_ptr(), cmp_size) };
