@@ -166,7 +166,7 @@ pub unsafe extern "C" fn mz_compress2(pDest: *mut u8, pDest_len: *mut c_ulong, p
 }
 
 pub fn mz_compress2_oxide(stream_oxide: &mut StreamOxide, level: c_int) -> c_int {
-    let mut status: c_int = unsafe { mz_deflateInit(stream_oxide.reduce(), level) };
+    let mut status: c_int = mz_deflate_init_oxide(stream_oxide, level);
     if status != MZ_OK {
         return status;
     }
@@ -200,6 +200,10 @@ pub unsafe extern "C" fn mz_deflateInit2(stream: *mut mz_stream, level: c_int, m
 
 pub use tdef::TDEFL_COMPUTE_ADLER32;
 pub use tdef::TDEFL_STATUS_OKAY;
+
+pub fn mz_deflate_init_oxide(stream_oxide: &mut StreamOxide, level: c_int) -> c_int {
+    mz_deflate_init2_oxide(stream_oxide, level, MZ_DEFLATED, MZ_DEFAULT_WINDOW_BITS, 9, MZ_DEFAULT_STRATEGY)
+}
 
 pub fn mz_deflate_init2_oxide(stream_oxide: &mut StreamOxide, level: c_int, method: c_int,
                               window_bits: c_int, mem_level: c_int, strategy: c_int) -> c_int {
