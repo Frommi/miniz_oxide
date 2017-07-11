@@ -22,9 +22,11 @@ fn main() {
             let mut decmp_size: c_ulong = 2048;
             let mut cmp_buf = [0u8; 2048];
             let mut decmp_buf = [0u8; 2048];
-            let mut status = unsafe { miniz_oxide::mz_compress(cmp_buf.as_mut_ptr(), &mut cmp_size, s.into_bytes().as_mut_ptr(), uncmp_size) };
+            let mut status = unsafe { miniz_oxide::mz_compress(cmp_buf.as_mut_ptr(), &mut cmp_size,
+                                                               s.into_bytes().as_mut_ptr(), uncmp_size) };
             assert!(status == miniz_oxide::MZ_OK);
-            status = unsafe { miniz_oxide::mz_uncompress(decmp_buf.as_mut_ptr(), &mut decmp_size, cmp_buf.as_mut_ptr(), cmp_size) };
+            status = unsafe { miniz_oxide::mz_uncompress(decmp_buf.as_mut_ptr(), &mut decmp_size,
+                                                         cmp_buf.as_mut_ptr(), cmp_size) };
             assert!(status == miniz_oxide::MZ_OK);
             assert!(decmp_size == uncmp_size);
             let t = s_cp.into_bytes();

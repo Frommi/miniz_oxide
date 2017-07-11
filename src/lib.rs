@@ -5,10 +5,14 @@ use self::libc::*;
 use std::ptr;
 use std::mem;
 
+mod lib_oxide;
+pub use lib_oxide::*;
+
 mod tdef;
 pub use tdef::tdefl_radix_sort_syms;
 pub use tdef::tdefl_compressor;
 pub use tdef::tdefl_put_buf_func_ptr;
+
 
 pub const MZ_ADLER32_INIT: c_ulong = 1;
 
@@ -45,16 +49,6 @@ pub unsafe extern "C" fn mz_adler32(adler: c_ulong, ptr: *const u8, buf_len: usi
         let data_slice = slice::from_raw_parts(ptr, buf_len);
         mz_adler32_oxide(adler, data_slice)
     }
-}
-
-pub fn mz_adler32_oxide(adler: c_ulong, data: &[u8]) -> c_ulong {
-    let mut s1 = adler & 0xffff;
-    let mut s2 = adler >> 16;
-    for x in data {
-        s1 = (s1 + *x as c_ulong) % 65521;
-        s2 = (s1 + s2) % 65521;
-    }
-    (s2 << 16) + s1
 }
 
 #[allow(bad_style)]
@@ -112,15 +106,6 @@ impl Default for mz_stream {
     }
 }
 
-pub struct StreamOxide<'s> {
-    stream: &'s mut mz_stream,
-}
-
-impl<'s> StreamOxide<'s> {
-    pub fn reduce(&mut self) -> &mut mz_stream {
-        self.stream
-    }
-}
 
 #[allow(bad_style)]
 extern {
@@ -158,28 +143,12 @@ pub unsafe extern "C" fn mz_compress2(pDest: *mut u8, pDest_len: *mut c_ulong, p
         ..Default::default()
     };
 
-    let mut stream_oxide = StreamOxide { stream : &mut stream };
+    let mut stream_oxide = StreamOxide::new(&mut stream);
     let status = mz_compress2_oxide(&mut stream_oxide, level);
-    *pDest_len = stream_oxide.reduce().total_out;
+    *pDest_len = stream_oxide.as_mz_stream().total_out;
 
     status
 }
-
-pub fn mz_compress2_oxide(stream_oxide: &mut StreamOxide, level: c_int) -> c_int {
-    let mut status: c_int = mz_deflate_init_oxide(stream_oxide, level);
-    if status != MZ_OK {
-        return status;
-    }
-
-    status = unsafe { mz_deflate(stream_oxide.reduce(), MZ_FINISH) };
-    if status != MZ_STREAM_END {
-        unsafe { mz_deflateEnd(stream_oxide.reduce()) };
-        return if status == MZ_OK { MZ_BUF_ERROR } else { status };
-    }
-
-    unsafe { mz_deflateEnd(stream_oxide.reduce()) }
-}
-
 
 #[no_mangle]
 #[allow(bad_style)]
@@ -194,57 +163,6 @@ pub unsafe extern "C" fn mz_deflateInit2(stream: *mut mz_stream, level: c_int, m
     if stream.is_null() {
         return MZ_STREAM_ERROR;
     }
-    let mut stream_oxide = StreamOxide { stream: &mut *stream };
-    mz_deflate_init2_oxide(&mut stream_oxide, level, method, window_bits, mem_level, strategy)
-}
-
-pub use tdef::TDEFL_COMPUTE_ADLER32;
-pub use tdef::TDEFL_STATUS_OKAY;
-
-pub fn mz_deflate_init_oxide(stream_oxide: &mut StreamOxide, level: c_int) -> c_int {
-    mz_deflate_init2_oxide(stream_oxide, level, MZ_DEFLATED, MZ_DEFAULT_WINDOW_BITS, 9, MZ_DEFAULT_STRATEGY)
-}
-
-pub fn mz_deflate_init2_oxide(stream_oxide: &mut StreamOxide, level: c_int, method: c_int,
-                              window_bits: c_int, mem_level: c_int, strategy: c_int) -> c_int {
-    let comp_flags = TDEFL_COMPUTE_ADLER32 as u32 | unsafe { tdefl_create_comp_flags_from_zip_params(level, window_bits, strategy) };
-
-    if (method != MZ_DEFLATED) || ((mem_level < 1) || (mem_level > 9)) ||
-        ((window_bits != MZ_DEFAULT_WINDOW_BITS) && (-window_bits != MZ_DEFAULT_WINDOW_BITS)) {
-        return MZ_PARAM_ERROR;
-    }
-
-    stream_oxide.reduce().data_type = 0;
-    stream_oxide.reduce().adler = MZ_ADLER32_INIT;
-    stream_oxide.reduce().msg = ptr::null();
-    stream_oxide.reduce().reserved = 0;
-    stream_oxide.reduce().total_in = 0;
-    stream_oxide.reduce().total_out = 0;
-
-    if stream_oxide.reduce().zalloc.is_none() {
-        stream_oxide.reduce().zalloc = Some(miniz_def_alloc_func);
-    }
-    if stream_oxide.reduce().zfree.is_none() {
-        stream_oxide.reduce().zfree = Some(miniz_def_free_func);
-    }
-
-    let comp = unsafe {
-        stream_oxide.reduce().zalloc.unwrap()(
-            stream_oxide.reduce().opaque,
-            1,
-            mem::size_of::<tdefl_compressor>()
-        ) as *mut tdefl_compressor
-    };
-
-    if comp.is_null() {
-        return MZ_MEM_ERROR;
-    }
-
-    stream_oxide.reduce().state = comp as *mut mz_internal_state;
-    if unsafe { tdefl_init(comp, None, ptr::null_mut(), comp_flags as c_int) } != TDEFL_STATUS_OKAY {
-        unsafe { mz_deflateEnd(stream_oxide.reduce()) };
-        return MZ_PARAM_ERROR;
-    }
-
-    MZ_OK
+    let mut stream_oxide = StreamOxide::new(&mut *stream);
+    lib_oxide::mz_deflate_init2_oxide(&mut stream_oxide, level, method, window_bits, mem_level, strategy)
 }
