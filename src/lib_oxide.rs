@@ -140,7 +140,8 @@ macro_rules! free {
     )
 }
 
-pub fn mz_compress2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, level: c_int, dest_len: &mut c_ulong) -> c_int {
+pub fn mz_compress2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>,
+                          level: c_int, dest_len: &mut c_ulong) -> c_int {
     let mut status: c_int = mz_deflate_init_oxide(stream_oxide, level);
     if status != MZ_OK {
         return status;
@@ -274,4 +275,23 @@ pub fn mz_deflate_end_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) ->
             MZ_OK
         }
     }
+}
+
+pub fn mz_uncompress2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>,
+                            dest_len: &mut c_ulong) -> c_int {
+
+    let mut stream = stream_oxide.as_mz_stream();
+    let mut status = unsafe { mz_inflateInit(&mut stream) };
+    if status != MZ_OK {
+        return status;
+    }
+
+    status = unsafe { mz_inflate(&mut stream, MZ_FINISH) };
+    if status != MZ_STREAM_END {
+        unsafe { mz_inflateEnd(&mut stream) };
+        return if (status == MZ_BUF_ERROR) && (stream.avail_in == 0) { MZ_DATA_ERROR } else { status }
+    }
+    *dest_len = stream.total_out;
+
+    unsafe { mz_inflateEnd(&mut stream) }
 }
