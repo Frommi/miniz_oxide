@@ -133,7 +133,6 @@ extern {
     pub fn miniz_def_alloc_func(opaque: *mut c_void, items: size_t, size: size_t) -> *mut c_void;
     pub fn miniz_def_free_func(opaque: *mut c_void, address: *mut c_void);
 
-    pub fn mz_deflate(stream: *mut mz_stream, flush: c_int) -> c_int;
     pub fn mz_deflateEnd(stream: *mut mz_stream) -> c_int;
     pub fn mz_compressBound(source_len: c_ulong) -> c_ulong;
     pub fn mz_uncompress(pDest: *mut u8, pDest_len: *mut c_ulong,
@@ -142,6 +141,9 @@ extern {
     pub fn tdefl_create_comp_flags_from_zip_params(level: c_int, window_bits: c_int, strategy: c_int) -> c_uint;
     pub fn tdefl_init(d: *mut tdefl_compressor, pPut_buf_func: Option<tdefl_put_buf_func_ptr>,
                       pPut_buf_user: *mut c_void, flags: c_int) -> c_int;
+
+    pub fn tdefl_compress(d: *mut tdefl_compressor, pIn_buf: *const c_void, pIn_buf_size: *mut size_t,
+                          pOut_buf: *mut c_void, pOut_buf_size: *mut size_t, flush: c_int) -> c_int;
 }
 
 #[no_mangle]
@@ -188,11 +190,24 @@ pub unsafe extern "C" fn mz_deflateInit2(stream: *mut mz_stream, level: c_int, m
                                          window_bits: c_int, mem_level: c_int, strategy: c_int) -> c_int {
     match stream.as_mut() {
         None => MZ_STREAM_ERROR,
-        Some(ref_stream) => {
-            let mut stream_oxide = StreamOxide::new(&mut *ref_stream);
+        Some(stream) => {
+            let mut stream_oxide = StreamOxide::new(&mut *stream);
             let status = lib_oxide::mz_deflate_init2_oxide(
                 &mut stream_oxide, level, method, window_bits, mem_level, strategy);
-            *ref_stream = stream_oxide.as_mz_stream();
+            *stream = stream_oxide.as_mz_stream();
+            status
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mz_deflate(stream: *mut mz_stream, flush: c_int) -> c_int {
+    match stream.as_mut() {
+        None => MZ_STREAM_ERROR,
+        Some(stream) => {
+            let mut stream_oxide = StreamOxide::new(&mut *stream);
+            let status = mz_deflate_oxide(&mut stream_oxide, flush);
+            *stream = stream_oxide.as_mz_stream();
             status
         }
     }

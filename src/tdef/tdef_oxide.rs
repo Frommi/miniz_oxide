@@ -36,3 +36,7 @@ pub fn tdefl_radix_sort_syms_oxide<'a>(syms0: &'a mut [tdefl_sym_freq],
 
     current_syms
 }
+
+pub fn tdefl_get_adler32_oxide(d: &tdefl_compressor) -> c_uint {
+    d.m_adler32
+}

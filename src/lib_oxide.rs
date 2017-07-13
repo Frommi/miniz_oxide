@@ -51,14 +51,14 @@ impl<'io, 'state, ST: StateType> StreamOxide<'io, 'state, ST> {
 
         StreamOxide {
             next_in: in_slice,
-            total_in: 0,
+            total_in: stream.total_in,
             next_out: out_slice,
-            total_out: 0,
-            state: None,
-            alloc: None,
-            free: None,
-            opaque: ptr::null_mut(),
-            adler: 0
+            total_out: stream.total_out,
+            state: (stream.state as *mut ST).as_mut(),
+            alloc: stream.zalloc,
+            free: stream.zfree,
+            opaque: stream.opaque,
+            adler: stream.adler
         }
     }
 
@@ -152,8 +152,10 @@ pub fn mz_compress2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, leve
 }
 
 
-pub use tdef::TDEFL_COMPUTE_ADLER32;
-pub use tdef::TDEFL_STATUS_OKAY;
+use tdef::TDEFL_COMPUTE_ADLER32;
+use tdef::TDEFL_STATUS_OKAY;
+use tdef::TDEFL_STATUS_DONE;
+use tdef::tdefl_get_adler32_oxide;
 
 pub fn mz_deflate_init_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, level: c_int) -> c_int {
     mz_deflate_init2_oxide(stream_oxide, level, MZ_DEFLATED, MZ_DEFAULT_WINDOW_BITS, 9, MZ_DEFAULT_STRATEGY)
@@ -181,7 +183,9 @@ pub fn mz_deflate_init2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, 
     match unsafe { alloc_one!(stream_oxide, tdefl_compressor) } {
         None => MZ_MEM_ERROR,
         Some(compressor_state) => {
-            if unsafe { tdefl_init(compressor_state, None, ptr::null_mut(), comp_flags as c_int) } != TDEFL_STATUS_OKAY {
+            if unsafe {
+                tdefl_init(compressor_state, None, ptr::null_mut(), comp_flags as c_int)
+            } != TDEFL_STATUS_OKAY {
                 let mut stream = stream_oxide.as_mz_stream();
                 unsafe { mz_deflateEnd(&mut stream) };
                 *stream_oxide = unsafe { StreamOxide::new(&mut stream) };
@@ -189,6 +193,69 @@ pub fn mz_deflate_init2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, 
             }
             stream_oxide.state = Some(compressor_state);
             MZ_OK
+        }
+    }
+}
+
+pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, flush: c_int) -> c_int {
+    match stream_oxide.state {
+        None => MZ_STREAM_ERROR,
+        Some(ref mut state) => {
+            match (flush, &mut stream_oxide.next_in, &mut stream_oxide.next_out) {
+                (mut flush @ 0 ... MZ_FINISH, &mut Some(ref mut next_in), &mut Some(ref mut next_out)) => {
+                    if next_out.len() == 0 {
+                        return MZ_BUF_ERROR;
+                    }
+
+                    if flush == MZ_PARTIAL_FLUSH {
+                        flush = MZ_SYNC_FLUSH;
+                    }
+
+                    if state.m_prev_return_status == TDEFL_STATUS_DONE {
+                        return if flush == MZ_FINISH { MZ_STREAM_END } else { MZ_BUF_ERROR };
+                    }
+
+                    let original_total_in = stream_oxide.total_in;
+                    let original_total_out = stream_oxide.total_out;
+
+                    let mut status = MZ_OK;
+                    loop {
+                        let mut in_bytes = next_in.len();
+                        let mut out_bytes = next_out.len();
+                        let defl_status = unsafe {
+                            tdefl_compress(*state, next_in.as_ptr() as *const c_void, &mut in_bytes,
+                                           next_out.as_mut_ptr() as *mut c_void, &mut out_bytes, flush)
+                        };
+
+                        *next_in = &next_in[in_bytes..];
+
+                        // A bit of magic from https://stackoverflow.com/questions/34384089
+                        *next_out = &mut mem::replace(next_out, &mut [])[out_bytes..];
+
+                        stream_oxide.total_in += in_bytes as c_ulong;
+                        stream_oxide.total_out += out_bytes as c_ulong;
+                        stream_oxide.adler = tdefl_get_adler32_oxide(*state) as c_ulong;
+
+                        if defl_status < 0 {
+                            status = MZ_STREAM_ERROR;
+                            break;
+                        } else if defl_status == TDEFL_STATUS_DONE {
+                            status = MZ_STREAM_END;
+                            break;
+                        } else if next_out.len() == 0 {
+                            break;
+                        } else if (next_in.len() == 0) && (flush != MZ_FINISH) {
+                            if (flush != 0) || (stream_oxide.total_in != original_total_in) ||
+                                               (stream_oxide.total_out != original_total_out) {
+                                break;
+                            }
+                            return MZ_BUF_ERROR;
+                        }
+                    }
+                    status
+                },
+                _ => MZ_STREAM_ERROR
+            }
         }
     }
 }
