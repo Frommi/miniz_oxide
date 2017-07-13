@@ -4,6 +4,7 @@ use std::slice;
 use self::libc::*;
 use std::ptr;
 use std::mem;
+use std::cmp;
 
 mod lib_oxide;
 pub use lib_oxide::*;
@@ -133,8 +134,6 @@ extern {
     pub fn miniz_def_alloc_func(opaque: *mut c_void, items: size_t, size: size_t) -> *mut c_void;
     pub fn miniz_def_free_func(opaque: *mut c_void, address: *mut c_void);
 
-//    pub fn mz_deflateEnd(stream: *mut mz_stream) -> c_int;
-    pub fn mz_compressBound(source_len: c_ulong) -> c_ulong;
     pub fn mz_uncompress(pDest: *mut u8, pDest_len: *mut c_ulong,
                          pSource: *const u8, source_len: c_ulong) -> c_int;
 
@@ -226,4 +225,16 @@ pub unsafe extern "C" fn mz_deflateEnd(stream: *mut mz_stream) -> c_int {
             status
         }
     }
+}
+
+#[no_mangle]
+#[allow(bad_style, unused_variables)]
+pub extern "C" fn mz_deflateBound(stream: *mut mz_stream, source_len: c_ulong) -> c_ulong {
+    cmp::max(128 + (source_len * 110) / 100, 128 + source_len + ((source_len / (31 * 1024)) + 1) * 5)
+}
+
+#[no_mangle]
+#[allow(bad_style)]
+pub extern "C" fn mz_compressBound(source_len: c_ulong) -> c_ulong {
+    mz_deflateBound(ptr::null_mut(), source_len)
 }
