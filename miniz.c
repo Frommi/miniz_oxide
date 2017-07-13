@@ -288,17 +288,17 @@ int mz_deflateReset(mz_streamp pStream)
 //    return mz_status;
 //}
 
-int mz_deflateEnd(mz_streamp pStream)
-{
-    if (!pStream)
-        return MZ_STREAM_ERROR;
-    if (pStream->state)
-    {
-        pStream->zfree(pStream->opaque, pStream->state);
-        pStream->state = NULL;
-    }
-    return MZ_OK;
-}
+//int mz_deflateEnd(mz_streamp pStream)
+//{
+//    if (!pStream)
+//        return MZ_STREAM_ERROR;
+//    if (pStream->state)
+//    {
+//        pStream->zfree(pStream->opaque, pStream->state);
+//        pStream->state = NULL;
+//    }
+//    return MZ_OK;
+//}
 
 mz_ulong mz_deflateBound(mz_streamp pStream, mz_ulong source_len)
 {

@@ -131,6 +131,14 @@ macro_rules! alloc_array {
     )
 }
 
+macro_rules! free {
+    ($stream_oxide:expr, $ptr:expr) => (
+        match $stream_oxide.free {
+            None => (),
+            Some(free) => { free($stream_oxide.opaque, $ptr); }
+        }
+    )
+}
 
 pub fn mz_compress2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, level: c_int, dest_len: &mut c_ulong) -> c_int {
     let mut status: c_int = mz_deflate_init_oxide(stream_oxide, level);
@@ -138,15 +146,13 @@ pub fn mz_compress2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, leve
         return status;
     }
 
-    let mut stream = stream_oxide.as_mz_stream();
-    status = unsafe { mz_deflate(&mut stream, MZ_FINISH) };
+    status = mz_deflate_oxide(stream_oxide, MZ_FINISH);
     if status != MZ_STREAM_END {
-        unsafe { mz_deflateEnd(&mut stream) };
+        mz_deflate_end_oxide(stream_oxide);
         return if status == MZ_OK { MZ_BUF_ERROR } else { status };
     }
 
-    let res = unsafe { mz_deflateEnd(&mut stream) };
-    *stream_oxide = unsafe { StreamOxide::new(&mut stream) };
+    let res = mz_deflate_end_oxide(stream_oxide);
     *dest_len = stream_oxide.total_out;
     res
 }
@@ -186,9 +192,7 @@ pub fn mz_deflate_init2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, 
             if unsafe {
                 tdefl_init(compressor_state, None, ptr::null_mut(), comp_flags as c_int)
             } != TDEFL_STATUS_OKAY {
-                let mut stream = stream_oxide.as_mz_stream();
-                unsafe { mz_deflateEnd(&mut stream) };
-                *stream_oxide = unsafe { StreamOxide::new(&mut stream) };
+                mz_deflate_end_oxide(stream_oxide);
                 return MZ_PARAM_ERROR;
             }
             stream_oxide.state = Some(compressor_state);
@@ -256,6 +260,18 @@ pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, flush:
                 },
                 _ => MZ_STREAM_ERROR
             }
+        }
+    }
+}
+
+pub fn mz_deflate_end_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) -> c_int {
+    match &mut stream_oxide.state {
+        &mut None => MZ_OK,
+        &mut Some(ref mut state) => {
+            unsafe {
+                free!(stream_oxide, (*state as *mut tdefl_compressor) as *mut c_void);
+            }
+            MZ_OK
         }
     }
 }

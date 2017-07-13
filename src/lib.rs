@@ -133,7 +133,7 @@ extern {
     pub fn miniz_def_alloc_func(opaque: *mut c_void, items: size_t, size: size_t) -> *mut c_void;
     pub fn miniz_def_free_func(opaque: *mut c_void, address: *mut c_void);
 
-    pub fn mz_deflateEnd(stream: *mut mz_stream) -> c_int;
+//    pub fn mz_deflateEnd(stream: *mut mz_stream) -> c_int;
     pub fn mz_compressBound(source_len: c_ulong) -> c_ulong;
     pub fn mz_uncompress(pDest: *mut u8, pDest_len: *mut c_ulong,
                          pSource: *const u8, source_len: c_ulong) -> c_int;
@@ -207,6 +207,21 @@ pub unsafe extern "C" fn mz_deflate(stream: *mut mz_stream, flush: c_int) -> c_i
         Some(stream) => {
             let mut stream_oxide = StreamOxide::new(&mut *stream);
             let status = mz_deflate_oxide(&mut stream_oxide, flush);
+            *stream = stream_oxide.as_mz_stream();
+            status
+        }
+    }
+}
+
+
+#[no_mangle]
+#[allow(bad_style)]
+pub unsafe extern "C" fn mz_deflateEnd(stream: *mut mz_stream) -> c_int {
+    match stream.as_mut() {
+        None => MZ_STREAM_ERROR,
+        Some(stream) => {
+            let mut stream_oxide = StreamOxide::new(&mut *stream);
+            let status = mz_deflate_end_oxide(&mut stream_oxide);
             *stream = stream_oxide.as_mz_stream();
             status
         }
