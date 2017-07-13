@@ -10,6 +10,20 @@ pub fn mz_adler32_oxide(adler: c_ulong, data: &[u8]) -> c_ulong {
     (s2 << 16) + s1
 }
 
+static S_CRC32: [c_uint; 16] = [0, 0x1db71064, 0x3b6e20c8, 0x26d930ac, 0x76dc4190,
+    0x6b6b51f4, 0x4db26158, 0x5005713c, 0xedb88320, 0xf00f9344, 0xd6d6a3e8,
+    0xcb61b38c, 0x9b64c2b0, 0x86d3d2d4, 0xa00ae278, 0xbdbdf21c];
+
+pub fn mz_crc32_oxide(crc: c_ulong, data: &[u8]) -> c_ulong {
+    let mut crcu32 = crc as c_uint;
+    crcu32 = crcu32;
+    data.iter().map(|b| {
+        crcu32 = (crcu32 >> 4) ^ S_CRC32[(((crcu32 & 0xF) as u8) ^ (b & 0xF)) as usize];
+        crcu32 = (crcu32 >> 4) ^ S_CRC32[(((crcu32 & 0xF) as u8) ^ (b >> 4)) as usize];
+    }).collect::<Vec<_>>();
+    !crcu32 as c_ulong
+}
+
 
 pub trait StateType {}
 impl StateType for tdefl_compressor {}

@@ -18,6 +18,7 @@ mod tinfl;
 pub use tinfl::tinfl_decompressor;
 
 pub const MZ_ADLER32_INIT: c_ulong = 1;
+pub const MZ_CRC32_INIT: c_ulong = 0;
 
 pub const MZ_NO_FLUSH: c_int = 0;
 pub const MZ_PARTIAL_FLUSH: c_int = 1;
@@ -46,11 +47,24 @@ pub const MZ_DEFAULT_COMPRESSION: c_int = 6;
 
 #[no_mangle]
 pub unsafe extern "C" fn mz_adler32(adler: c_ulong, ptr: *const u8, buf_len: usize) -> c_ulong {
-    if ptr.is_null() {
-        MZ_ADLER32_INIT
-    } else {
-        let data_slice = slice::from_raw_parts(ptr, buf_len);
-        mz_adler32_oxide(adler, data_slice)
+    match ptr.as_ref() {
+        None => MZ_ADLER32_INIT,
+        Some(r) => {
+            let data = slice::from_raw_parts(r, buf_len);
+            mz_adler32_oxide(adler, data)
+        }
+    }
+}
+
+#[no_mangle]
+// TODO: not tested
+pub unsafe extern "C" fn mz_crc32(crc: c_ulong, ptr: *const u8, buf_len: size_t) -> c_ulong {
+    match ptr.as_ref() {
+        None => MZ_CRC32_INIT,
+        Some(r) => {
+            let data = slice::from_raw_parts(r, buf_len);
+            mz_crc32_oxide(crc, data)
+        }
     }
 }
 
