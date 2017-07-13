@@ -10,16 +10,14 @@ pub fn mz_adler32_oxide(adler: c_ulong, data: &[u8]) -> c_ulong {
     (s2 << 16) + s1
 }
 
-#[allow(bad_style)]
-pub struct tinfl_decompressor_mock();
 
 pub trait StateType {}
 impl StateType for tdefl_compressor {}
-impl StateType for tinfl_decompressor_mock {}
+impl StateType for inflate_state {}
 
 pub enum StateOxide<'a> {
     Compressor(&'a mut tdefl_compressor),
-    Decompressor(&'a mut tinfl_decompressor_mock)
+    Decompressor(&'a mut tinfl_decompressor)
 }
 
 pub struct StreamOxide<'io, 'state, ST: 'state> {
@@ -294,4 +292,33 @@ pub fn mz_uncompress2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>,
     *dest_len = stream.total_out;
 
     unsafe { mz_inflateEnd(&mut stream) }
+}
+
+pub fn mz_inflate_init2_oxide(stream_oxide: &mut StreamOxide<inflate_state>,
+                              window_bits: c_int) -> c_int {
+    if (window_bits != MZ_DEFAULT_WINDOW_BITS) && (window_bits != -MZ_DEFAULT_WINDOW_BITS) {
+        return MZ_PARAM_ERROR;
+    }
+
+    stream_oxide.adler = 0;
+    stream_oxide.total_in = 0;
+    stream_oxide.total_out = 0;
+
+    stream_oxide.set_alloc_if_none(miniz_def_alloc_func);
+    stream_oxide.set_free_if_none(miniz_def_free_func);
+
+    match unsafe { alloc_one!(stream_oxide, inflate_state) } {
+        None => MZ_MEM_ERROR,
+        Some(decompressor_state) => {
+            decompressor_state.m_decomp.m_state = 0;
+            decompressor_state.m_dict_ofs = 0;
+            decompressor_state.m_dict_avail = 0;
+            decompressor_state.m_last_status = TINFL_STATUS_NEEDS_MORE_INPUT;
+            decompressor_state.m_first_call = 1;
+            decompressor_state.m_has_flushed = 0;
+            decompressor_state.m_window_bits = window_bits;
+            stream_oxide.state = Some(decompressor_state);
+            MZ_OK
+        }
+    }
 }

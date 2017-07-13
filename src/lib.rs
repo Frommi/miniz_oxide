@@ -14,6 +14,8 @@ pub use tdef::tdefl_radix_sort_syms;
 pub use tdef::tdefl_compressor;
 pub use tdef::tdefl_put_buf_func_ptr;
 
+mod tinfl;
+pub use tinfl::tinfl_decompressor;
 
 pub const MZ_ADLER32_INIT: c_ulong = 1;
 
@@ -134,7 +136,6 @@ extern {
     pub fn miniz_def_alloc_func(opaque: *mut c_void, items: size_t, size: size_t) -> *mut c_void;
     pub fn miniz_def_free_func(opaque: *mut c_void, address: *mut c_void);
 
-    pub fn mz_inflateInit(stream: *mut mz_stream) -> c_int;
     pub fn mz_inflate(stream: *mut mz_stream, flush: c_int) -> c_int;
     pub fn mz_inflateEnd(stream: *mut mz_stream) -> c_int;
 
@@ -236,6 +237,24 @@ pub extern "C" fn mz_compressBound(source_len: c_ulong) -> c_ulong {
     mz_deflateBound(ptr::null_mut(), source_len)
 }
 
+use tinfl::TINFL_LZ_DICT_SIZE;
+use tinfl::TINFL_STATUS_NEEDS_MORE_INPUT;
+
+#[repr(C)]
+#[allow(bad_style)]
+pub struct inflate_state {
+    pub m_decomp: tinfl_decompressor,
+
+    pub m_dict_ofs: c_uint,
+    pub m_dict_avail: c_uint,
+    pub m_first_call: c_uint,
+    pub m_has_flushed: c_uint,
+
+    pub m_window_bits: c_int,
+    pub m_dict: [u8; TINFL_LZ_DICT_SIZE],
+    pub m_last_status: c_int
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mz_uncompress(dest: *mut u8, dest_len: *mut c_ulong,
                                        source: *const u8, source_len: c_ulong) -> c_int {
@@ -256,6 +275,26 @@ pub unsafe extern "C" fn mz_uncompress(dest: *mut u8, dest_len: *mut c_ulong,
 
             let mut stream_oxide = StreamOxide::new(&mut stream);
             mz_uncompress2_oxide(&mut stream_oxide, dest_len)
+        }
+    }
+}
+
+#[no_mangle]
+#[allow(bad_style)]
+pub unsafe extern "C" fn mz_inflateInit(stream: *mut mz_stream) -> c_int {
+    mz_inflateInit2(stream, MZ_DEFAULT_WINDOW_BITS)
+}
+
+#[no_mangle]
+#[allow(bad_style)]
+pub unsafe extern "C" fn mz_inflateInit2(stream: *mut mz_stream, window_bits: c_int) -> c_int {
+    match stream.as_mut() {
+        None => MZ_STREAM_ERROR,
+        Some(stream) => {
+            let mut stream_oxide = StreamOxide::new(&mut *stream);
+            let status = lib_oxide::mz_inflate_init2_oxide(&mut stream_oxide, window_bits);
+            *stream = stream_oxide.as_mz_stream();
+            status
         }
     }
 }
