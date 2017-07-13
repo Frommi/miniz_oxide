@@ -81,6 +81,27 @@ pub struct mz_stream {
     pub reserved: c_ulong,
 }
 
+pub fn write_mz_stream(stream: &mz_stream) {
+    println!("next_in: {}", stream.next_in as usize);
+    println!("avail_in: {}", stream.avail_in);
+    println!("total_in: {}", stream.total_in);
+    println!();
+    println!("next_out: {}", stream.next_out as usize);
+    println!("avail_out: {}", stream.avail_out);
+    println!("total_out: {}", stream.total_out);
+    println!();
+    println!("msg");
+    println!("state: {}", stream.state as usize);
+    println!();
+    println!("zalloc");
+    println!("zfree");
+    println!("opaque");
+    println!();
+    println!("data_type: {}", stream.data_type);
+    println!("adler: {}", stream.adler);
+    println!("reserved: {}", stream.reserved);
+}
+
 impl Default for mz_stream {
     fn default () -> mz_stream {
         mz_stream {
@@ -115,39 +136,44 @@ extern {
     pub fn mz_deflate(stream: *mut mz_stream, flush: c_int) -> c_int;
     pub fn mz_deflateEnd(stream: *mut mz_stream) -> c_int;
     pub fn mz_compressBound(source_len: c_ulong) -> c_ulong;
-    pub fn mz_uncompress(pDest: *mut u8, pDest_len: *mut c_ulong, pSource: *const u8, source_len: c_ulong) -> c_int;
+    pub fn mz_uncompress(pDest: *mut u8, pDest_len: *mut c_ulong,
+                         pSource: *const u8, source_len: c_ulong) -> c_int;
 
     pub fn tdefl_create_comp_flags_from_zip_params(level: c_int, window_bits: c_int, strategy: c_int) -> c_uint;
-    pub fn tdefl_init(d: *mut tdefl_compressor, pPut_buf_func: Option<tdefl_put_buf_func_ptr>, pPut_buf_user: *mut c_void, flags: c_int) -> c_int;
+    pub fn tdefl_init(d: *mut tdefl_compressor, pPut_buf_func: Option<tdefl_put_buf_func_ptr>,
+                      pPut_buf_user: *mut c_void, flags: c_int) -> c_int;
 }
 
 #[no_mangle]
 #[allow(bad_style)]
-pub unsafe extern "C" fn mz_compress(pDest: *mut u8, pDest_len: *mut c_ulong, pSource: *const u8, source_len: c_ulong) -> c_int {
+pub unsafe extern "C" fn mz_compress(pDest: *mut u8, pDest_len: *mut c_ulong,
+                                     pSource: *const u8, source_len: c_ulong) -> c_int {
     mz_compress2(pDest, pDest_len, pSource, source_len, MZ_DEFAULT_COMPRESSION)
 }
 
 #[no_mangle]
 #[allow(bad_style)]
-pub unsafe extern "C" fn mz_compress2(pDest: *mut u8, pDest_len: *mut c_ulong, pSource: *const u8, source_len: c_ulong, level: c_int) -> c_int {
-    assert!(!pDest_len.is_null());
-    if (source_len | *pDest_len) > 0xFFFFFFFF {
-        return MZ_PARAM_ERROR;
+pub unsafe extern "C" fn mz_compress2(pDest: *mut u8, pDest_len: *mut c_ulong,
+                                      pSource: *const u8, source_len: c_ulong, level: c_int) -> c_int {
+    match pDest_len.as_mut() {
+        None => return MZ_PARAM_ERROR,
+        Some(dest_len) => {
+            if (source_len | *dest_len) > 0xFFFFFFFF {
+                return MZ_PARAM_ERROR;
+            }
+
+            let mut stream: mz_stream = mz_stream {
+                next_in: pSource,
+                avail_in: source_len as c_uint,
+                next_out: pDest,
+                avail_out: (*pDest_len) as c_uint,
+                ..Default::default()
+            };
+
+            let mut stream_oxide = StreamOxide::new(&mut stream);
+            mz_compress2_oxide(&mut stream_oxide, level, dest_len)
+        }
     }
-
-    let mut stream : mz_stream = mz_stream {
-        next_in: pSource,
-        avail_in: source_len as c_uint,
-        next_out: pDest,
-        avail_out: (*pDest_len) as c_uint,
-        ..Default::default()
-    };
-
-    let mut stream_oxide = StreamOxide::new(&mut stream);
-    let status = mz_compress2_oxide(&mut stream_oxide, level);
-    *pDest_len = stream_oxide.as_mz_stream().total_out;
-
-    status
 }
 
 #[no_mangle]
@@ -160,9 +186,14 @@ pub unsafe extern "C" fn mz_deflateInit(stream: *mut mz_stream, level: c_int) ->
 #[allow(bad_style)]
 pub unsafe extern "C" fn mz_deflateInit2(stream: *mut mz_stream, level: c_int, method: c_int,
                                          window_bits: c_int, mem_level: c_int, strategy: c_int) -> c_int {
-    if stream.is_null() {
-        return MZ_STREAM_ERROR;
+    match stream.as_mut() {
+        None => MZ_STREAM_ERROR,
+        Some(ref_stream) => {
+            let mut stream_oxide = StreamOxide::new(&mut *ref_stream);
+            let status = lib_oxide::mz_deflate_init2_oxide(
+                &mut stream_oxide, level, method, window_bits, mem_level, strategy);
+            *ref_stream = stream_oxide.as_mz_stream();
+            status
+        }
     }
-    let mut stream_oxide = StreamOxide::new(&mut *stream);
-    lib_oxide::mz_deflate_init2_oxide(&mut stream_oxide, level, method, window_bits, mem_level, strategy)
 }
