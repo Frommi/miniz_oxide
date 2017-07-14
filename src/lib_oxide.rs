@@ -482,7 +482,7 @@ pub fn mz_inflate_end_oxide(stream_oxide: &mut StreamOxide<inflate_state>) -> c_
 // TODO: probably not covered by tests
 pub fn mz_deflate_reset_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) -> c_int {
     match (&mut stream_oxide.state, &stream_oxide.alloc, &stream_oxide.free) {
-        (&mut Some(ref mut compressor_state), &Some(ref alloc), &Some(ref free)) => {
+        (&mut Some(ref mut compressor_state), &Some(_), &Some(_)) => {
             stream_oxide.total_in = 0;
             stream_oxide.total_out = 0;
             unsafe {
