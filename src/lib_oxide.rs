@@ -14,25 +14,17 @@ static S_CRC32: [c_uint; 16] = [0, 0x1db71064, 0x3b6e20c8, 0x26d930ac, 0x76dc419
     0x6b6b51f4, 0x4db26158, 0x5005713c, 0xedb88320, 0xf00f9344, 0xd6d6a3e8,
     0xcb61b38c, 0x9b64c2b0, 0x86d3d2d4, 0xa00ae278, 0xbdbdf21c];
 
-pub fn mz_crc32_oxide(crc: c_ulong, data: &[u8]) -> c_ulong {
-    let mut crcu32 = crc as c_uint;
-    crcu32 = crcu32;
-    data.iter().map(|b| {
+pub fn mz_crc32_oxide(crc32: c_uint, data: &[u8]) -> c_uint {
+    !data.iter().fold(!crc32, |mut crcu32, &b| {
         crcu32 = (crcu32 >> 4) ^ S_CRC32[(((crcu32 & 0xF) as u8) ^ (b & 0xF)) as usize];
-        crcu32 = (crcu32 >> 4) ^ S_CRC32[(((crcu32 & 0xF) as u8) ^ (b >> 4)) as usize];
-    }).collect::<Vec<_>>();
-    !crcu32 as c_ulong
+        (crcu32 >> 4) ^ S_CRC32[(((crcu32 & 0xF) as u8) ^ (b >> 4)) as usize]
+    })
 }
 
 
 pub trait StateType {}
 impl StateType for tdefl_compressor {}
 impl StateType for inflate_state {}
-
-pub enum StateOxide<'a> {
-    Compressor(&'a mut tdefl_compressor),
-    Decompressor(&'a mut tinfl_decompressor)
-}
 
 pub struct StreamOxide<'io, 'state, ST: 'state> {
     pub next_in: Option<&'io [u8]>,
@@ -289,23 +281,30 @@ pub fn mz_deflate_end_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) ->
     }
 }
 
-pub fn mz_uncompress2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>,
+pub fn mz_uncompress2_oxide(stream_oxide: &mut StreamOxide<inflate_state>,
                             dest_len: &mut c_ulong) -> c_int {
 
-    let mut stream = stream_oxide.as_mz_stream();
-    let mut status = unsafe { mz_inflateInit(&mut stream) };
+    let mut status = mz_inflate_init_oxide(stream_oxide);
     if status != MZ_OK {
         return status;
     }
 
-    status = unsafe { mz_inflate(&mut stream, MZ_FINISH) };
+    status = mz_inflate_oxide(stream_oxide, MZ_FINISH);
     if status != MZ_STREAM_END {
-        unsafe { mz_inflateEnd(&mut stream) };
-        return if (status == MZ_BUF_ERROR) && (stream.avail_in == 0) { MZ_DATA_ERROR } else { status }
+        mz_inflate_end_oxide(stream_oxide);
+        let in_len = match stream_oxide.next_in {
+            None => 0,
+            Some(data) => data.len()
+        };
+        return if (status == MZ_BUF_ERROR) && (in_len == 0) { MZ_DATA_ERROR } else { status }
     }
-    *dest_len = stream.total_out;
+    *dest_len = stream_oxide.total_out;
 
-    unsafe { mz_inflateEnd(&mut stream) }
+    mz_inflate_end_oxide(stream_oxide)
+}
+
+pub fn mz_inflate_init_oxide(stream_oxide: &mut StreamOxide<inflate_state>) -> c_int {
+    mz_inflate_init2_oxide(stream_oxide, MZ_DEFAULT_WINDOW_BITS)
 }
 
 pub fn mz_inflate_init2_oxide(stream_oxide: &mut StreamOxide<inflate_state>,
@@ -334,5 +333,163 @@ pub fn mz_inflate_init2_oxide(stream_oxide: &mut StreamOxide<inflate_state>,
             stream_oxide.state = Some(decompressor_state);
             MZ_OK
         }
+    }
+}
+
+use tinfl::TINFL_FLAG_COMPUTE_ADLER32;
+use tinfl::TINFL_FLAG_PARSE_ZLIB_HEADER;
+use tinfl::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
+use tinfl::TINFL_FLAG_HAS_MORE_INPUT;
+use tinfl::TINFL_STATUS_DONE;
+use tinfl::TINFL_STATUS_FAILED;
+
+pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, mut flush: c_int) -> c_int {
+    match stream_oxide.state {
+        None => MZ_STREAM_ERROR,
+        Some(ref mut state) => {
+            if flush == MZ_PARTIAL_FLUSH {
+                flush = MZ_SYNC_FLUSH;
+            }
+
+            if (flush != MZ_NO_FLUSH) && (flush != MZ_SYNC_FLUSH) && (flush != MZ_FINISH) {
+                return MZ_STREAM_ERROR;
+            }
+
+            let mut decomp_flags = TINFL_FLAG_COMPUTE_ADLER32;
+            if state.m_window_bits > 0 {
+                decomp_flags |= TINFL_FLAG_PARSE_ZLIB_HEADER;
+            }
+
+            let first_call = state.m_first_call;
+            state.m_first_call = 0;
+            if state.m_last_status < 0 {
+                return MZ_DATA_ERROR;
+            }
+
+            if (state.m_has_flushed != 0) && (flush != MZ_FINISH) {
+                return MZ_STREAM_ERROR;
+            }
+            state.m_has_flushed |= (flush == MZ_FINISH) as c_uint;
+
+            match (&mut stream_oxide.next_in, &mut stream_oxide.next_out) {
+                (&mut Some(ref mut next_in), &mut Some(ref mut next_out)) => {
+                    let orig_avail_in = next_in.len() as size_t;
+                    if (flush == MZ_FINISH) && (first_call != 0) {
+                        decomp_flags |= TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
+                        let mut in_bytes = next_in.len() as size_t;
+                        let mut out_bytes = next_out.len() as size_t;
+
+                        let status = unsafe { tinfl_decompress(
+                            &mut state.m_decomp, next_in.as_ptr(), &mut in_bytes,
+                            next_out.as_mut_ptr(), next_out.as_mut_ptr(), &mut out_bytes,
+                            decomp_flags as c_uint
+                        ) };
+
+                        state.m_last_status = status;
+
+                        *next_in = &next_in[in_bytes..];
+                        *next_out = &mut mem::replace(next_out, &mut [])[out_bytes..];
+                        stream_oxide.total_in += in_bytes as c_ulong;
+                        stream_oxide.total_out += out_bytes as c_ulong;
+                        stream_oxide.adler = state.m_decomp.m_check_adler32 as c_ulong;
+
+                        if status < 0 {
+                            return MZ_DATA_ERROR;
+                        } else if status != TINFL_STATUS_DONE {
+                            state.m_last_status = TINFL_STATUS_FAILED;
+                            return MZ_BUF_ERROR;
+                        }
+                        return MZ_STREAM_END;
+                    }
+
+                    if flush != MZ_FINISH {
+                        decomp_flags |= TINFL_FLAG_HAS_MORE_INPUT;
+                    }
+
+                    if state.m_dict_avail != 0 {
+                        let n = cmp::min(state.m_dict_avail as usize, next_out.len());
+                        (next_out[..n]).copy_from_slice(&state.m_dict[state.m_dict_ofs as usize..state.m_dict_ofs as usize + n]);
+                        *next_out = &mut mem::replace(next_out, &mut [])[n..];
+                        stream_oxide.total_out += n as c_ulong;
+                        state.m_dict_avail -= n as c_uint;
+                        state.m_dict_ofs = (state.m_dict_ofs + (n as c_uint)) & ((TINFL_LZ_DICT_SIZE - 1) as c_uint);
+                        return if (state.m_last_status == TINFL_STATUS_DONE) && (state.m_dict_avail == 0) {
+                            MZ_STREAM_END
+                        } else {
+                            MZ_OK
+                        };
+                    }
+
+                    let mut status: c_int;
+                    loop {
+                        let mut in_bytes = next_in.len() as usize;
+                        let mut out_bytes = TINFL_LZ_DICT_SIZE - state.m_dict_ofs as usize;
+
+                        status = unsafe { tinfl_decompress(
+                            &mut state.m_decomp, next_in.as_ptr(), &mut in_bytes,
+                            state.m_dict.as_mut_ptr(), state.m_dict.as_mut_ptr().offset(state.m_dict_ofs as isize), &mut out_bytes,
+                            decomp_flags as c_uint
+                        ) };
+                        state.m_last_status = status;
+
+                        *next_in = &next_in[in_bytes..];
+                        stream_oxide.total_in += in_bytes as c_ulong;
+                        stream_oxide.adler = state.m_decomp.m_check_adler32 as c_ulong;
+
+                        state.m_dict_avail = out_bytes as c_uint;
+                        let n = cmp::min(state.m_dict_avail as usize, next_out.len());
+                        (next_out[..n]).copy_from_slice(&state.m_dict[state.m_dict_ofs as usize..state.m_dict_ofs as usize + n]);
+                        *next_out = &mut mem::replace(next_out, &mut [])[n..];
+                        stream_oxide.total_out += n as c_ulong;
+                        state.m_dict_avail -= n as c_uint;
+                        state.m_dict_ofs = (state.m_dict_ofs + (n as c_uint)) & ((TINFL_LZ_DICT_SIZE - 1) as c_uint);
+
+                        if status < 0 {
+                            return MZ_DATA_ERROR;
+                        } else if (status == TINFL_STATUS_NEEDS_MORE_INPUT) && (orig_avail_in == 0) {
+                            return MZ_BUF_ERROR;
+                        } else if flush == MZ_FINISH {
+                            if status == TINFL_STATUS_DONE {
+                                return if state.m_dict_avail != 0 { MZ_BUF_ERROR } else { MZ_STREAM_END };
+                            } else if next_out.len() == 0 {
+                                return MZ_BUF_ERROR;
+                            }
+                        } else if (status == TINFL_STATUS_DONE) || (next_in.len() == 0) ||
+                                  (next_out.len() == 0) || (state.m_dict_avail != 0) {
+                            break;
+                        }
+                    }
+                    if (status == TINFL_STATUS_DONE) && (state.m_dict_avail == 0) { MZ_STREAM_END } else { MZ_OK }
+                },
+                _ => MZ_STREAM_ERROR
+            }
+        }
+    }
+}
+
+pub fn mz_inflate_end_oxide(stream_oxide: &mut StreamOxide<inflate_state>) -> c_int {
+    match stream_oxide.state {
+        None => MZ_OK,
+        Some(ref mut state) => {
+            unsafe {
+                free!(stream_oxide, (*state as *mut inflate_state) as *mut c_void);
+            }
+            MZ_OK
+        }
+    }
+}
+
+// TODO: probably not covered by tests
+pub fn mz_deflate_reset_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) -> c_int {
+    match (&mut stream_oxide.state, &stream_oxide.alloc, &stream_oxide.free) {
+        (&mut Some(ref mut compressor_state), &Some(ref alloc), &Some(ref free)) => {
+            stream_oxide.total_in = 0;
+            stream_oxide.total_out = 0;
+            unsafe {
+                tdefl_init(*compressor_state, None, ptr::null_mut(), compressor_state.m_flags as c_int);
+            }
+            MZ_OK
+        },
+        _ => MZ_STREAM_ERROR
     }
 }

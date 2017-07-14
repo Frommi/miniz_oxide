@@ -4,8 +4,6 @@ use self::libc::*;
 
 pub const TINFL_LZ_DICT_SIZE: usize = 32768;
 
-pub const TINFL_STATUS_NEEDS_MORE_INPUT: c_int = 1;
-
 #[repr(C)]
 #[allow(bad_style)]
 pub struct tinfl_huff_table {
@@ -18,6 +16,19 @@ const TINFL_MAX_HUFF_TABLES: usize = 3;
 const TINFL_MAX_HUFF_SYMBOLS_0: usize = 288;
 const TINFL_MAX_HUFF_SYMBOLS_1: usize = 32;
 const TINFL_MAX_HUFF_SYMBOLS_2: usize = 19;
+
+pub const TINFL_FLAG_PARSE_ZLIB_HEADER: c_int = 1;
+pub const TINFL_FLAG_HAS_MORE_INPUT: c_int = 2;
+pub const TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF: c_int = 4;
+pub const TINFL_FLAG_COMPUTE_ADLER32: c_int = 8;
+
+pub const TINFL_STATUS_FAILED_CANNOT_MAKE_PROGRESS: c_int = -4;
+pub const TINFL_STATUS_BAD_PARAM: c_int = -3;
+pub const TINFL_STATUS_ADLER32_MISMATCH: c_int = -2;
+pub const TINFL_STATUS_FAILED: c_int = -1;
+pub const TINFL_STATUS_DONE: c_int = 0;
+pub const TINFL_STATUS_NEEDS_MORE_INPUT: c_int = 1;
+pub const TINFL_STATUS_HAS_MORE_OUTPUT: c_int = 2;
 
 #[repr(C)]
 #[allow(bad_style)]

@@ -57,13 +57,12 @@ pub unsafe extern "C" fn mz_adler32(adler: c_ulong, ptr: *const u8, buf_len: usi
 }
 
 #[no_mangle]
-// TODO: not tested
 pub unsafe extern "C" fn mz_crc32(crc: c_ulong, ptr: *const u8, buf_len: size_t) -> c_ulong {
     match ptr.as_ref() {
         None => MZ_CRC32_INIT,
         Some(r) => {
             let data = slice::from_raw_parts(r, buf_len);
-            mz_crc32_oxide(crc, data)
+            mz_crc32_oxide(crc as c_uint, data) as c_ulong
         }
     }
 }
@@ -150,14 +149,15 @@ extern {
     pub fn miniz_def_alloc_func(opaque: *mut c_void, items: size_t, size: size_t) -> *mut c_void;
     pub fn miniz_def_free_func(opaque: *mut c_void, address: *mut c_void);
 
-    pub fn mz_inflate(stream: *mut mz_stream, flush: c_int) -> c_int;
-    pub fn mz_inflateEnd(stream: *mut mz_stream) -> c_int;
-
     pub fn tdefl_create_comp_flags_from_zip_params(level: c_int, window_bits: c_int, strategy: c_int) -> c_uint;
     pub fn tdefl_init(d: *mut tdefl_compressor, pPut_buf_func: Option<tdefl_put_buf_func_ptr>,
                       pPut_buf_user: *mut c_void, flags: c_int) -> c_int;
     pub fn tdefl_compress(d: *mut tdefl_compressor, pIn_buf: *const c_void, pIn_buf_size: *mut size_t,
                           pOut_buf: *mut c_void, pOut_buf_size: *mut size_t, flush: c_int) -> c_int;
+
+    pub fn tinfl_decompress(r: *mut tinfl_decompressor, pIn_buf_next: *const u8, pIn_buf_size: *mut size_t,
+                            pOut_buf_start: *mut u8, pOut_buf_next: *mut u8, pOut_buf_size: *mut size_t,
+                            decomp_flags: c_uint) -> c_int;
 }
 
 #[no_mangle]
@@ -307,6 +307,47 @@ pub unsafe extern "C" fn mz_inflateInit2(stream: *mut mz_stream, window_bits: c_
         Some(stream) => {
             let mut stream_oxide = StreamOxide::new(&mut *stream);
             let status = lib_oxide::mz_inflate_init2_oxide(&mut stream_oxide, window_bits);
+            *stream = stream_oxide.as_mz_stream();
+            status
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn mz_inflate(stream: *mut mz_stream, flush: c_int) -> c_int {
+    match stream.as_mut() {
+        None => MZ_STREAM_ERROR,
+        Some(stream) => {
+            let mut stream_oxide = StreamOxide::new(&mut *stream);
+            let status = lib_oxide::mz_inflate_oxide(&mut stream_oxide, flush);
+            *stream = stream_oxide.as_mz_stream();
+            status
+        }
+    }
+}
+
+#[no_mangle]
+#[allow(bad_style)]
+pub unsafe extern "C" fn mz_inflateEnd(stream: *mut mz_stream) -> c_int {
+    match stream.as_mut() {
+        None => MZ_STREAM_ERROR,
+        Some(stream) => {
+            let mut stream_oxide = StreamOxide::new(&mut *stream);
+            let status = mz_inflate_end_oxide(&mut stream_oxide);
+            *stream = stream_oxide.as_mz_stream();
+            status
+        }
+    }
+}
+
+#[no_mangle]
+#[allow(bad_style)]
+pub unsafe extern "C" fn mz_deflateReset(stream: *mut mz_stream) -> c_int {
+    match stream.as_mut() {
+        None => MZ_STREAM_ERROR,
+        Some(stream) => {
+            let mut stream_oxide = StreamOxide::new(&mut *stream);
+            let status = mz_deflate_reset_oxide(&mut stream_oxide);
             *stream = stream_oxide.as_mz_stream();
             status
         }
