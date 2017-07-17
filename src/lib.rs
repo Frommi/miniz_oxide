@@ -149,14 +149,28 @@ extern {
     pub fn miniz_def_alloc_func(opaque: *mut c_void, items: size_t, size: size_t) -> *mut c_void;
     pub fn miniz_def_free_func(opaque: *mut c_void, address: *mut c_void);
 
-    pub fn tdefl_create_comp_flags_from_zip_params(level: c_int, window_bits: c_int, strategy: c_int) -> c_uint;
-    pub fn tdefl_init(d: *mut tdefl_compressor, pPut_buf_func: Option<tdefl_put_buf_func_ptr>,
-                      pPut_buf_user: *mut c_void, flags: c_int) -> c_int;
-    pub fn tdefl_compress(d: *mut tdefl_compressor, pIn_buf: *const c_void, pIn_buf_size: *mut size_t,
-                          pOut_buf: *mut c_void, pOut_buf_size: *mut size_t, flush: c_int) -> c_int;
+    pub fn tdefl_create_comp_flags_from_zip_params(level: c_int,
+                                                   window_bits: c_int,
+                                                   strategy: c_int) -> c_uint;
 
-    pub fn tinfl_decompress(r: *mut tinfl_decompressor, pIn_buf_next: *const u8, pIn_buf_size: *mut size_t,
-                            pOut_buf_start: *mut u8, pOut_buf_next: *mut u8, pOut_buf_size: *mut size_t,
+    pub fn tdefl_init(d: *mut tdefl_compressor,
+                      pPut_buf_func: Option<tdefl_put_buf_func_ptr>,
+                      pPut_buf_user: *mut c_void,
+                      flags: c_int) -> c_int;
+
+    pub fn tdefl_compress(d: *mut tdefl_compressor,
+                          pIn_buf: *const c_void,
+                          pIn_buf_size: *mut size_t,
+                          pOut_buf: *mut c_void,
+                          pOut_buf_size: *mut size_t,
+                          flush: c_int) -> c_int;
+
+    pub fn tinfl_decompress(r: *mut tinfl_decompressor,
+                            pIn_buf_next: *const u8,
+                            pIn_buf_size: *mut size_t,
+                            pOut_buf_start: *mut u8,
+                            pOut_buf_next: *mut u8,
+                            pOut_buf_size: *mut size_t,
                             decomp_flags: c_uint) -> c_int;
 }
 
@@ -169,8 +183,7 @@ macro_rules! oxidize {
                 None => MZ_STREAM_ERROR,
                 Some(stream) => {
                     let mut stream_oxide = StreamOxide::new(&mut *stream);
-                    let status = lib_oxide::$mz_func_oxide(
-                        &mut stream_oxide, $($arg_name),*);
+                    let status = lib_oxide::$mz_func_oxide(&mut stream_oxide, $($arg_name),*);
                     *stream = stream_oxide.as_mz_stream();
                     status
                 }
@@ -180,14 +193,21 @@ macro_rules! oxidize {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn mz_compress(dest: *mut u8, dest_len: *mut c_ulong,
-                                     source: *const u8, source_len: c_ulong) -> c_int {
+pub unsafe extern "C" fn mz_compress(dest: *mut u8,
+                                     dest_len: *mut c_ulong,
+                                     source: *const u8,
+                                     source_len: c_ulong) -> c_int
+{
     mz_compress2(dest, dest_len, source, source_len, MZ_DEFAULT_COMPRESSION)
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn mz_compress2(dest: *mut u8, dest_len: *mut c_ulong,
-                                      source: *const u8, source_len: c_ulong, level: c_int) -> c_int {
+pub unsafe extern "C" fn mz_compress2(dest: *mut u8,
+                                      dest_len: *mut c_ulong,
+                                      source: *const u8,
+                                      source_len: c_ulong,
+                                      level: c_int) -> c_int
+{
     match dest_len.as_mut() {
         None => return MZ_PARAM_ERROR,
         Some(dest_len) => {
@@ -253,8 +273,11 @@ pub struct inflate_state {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn mz_uncompress(dest: *mut u8, dest_len: *mut c_ulong,
-                                       source: *const u8, source_len: c_ulong) -> c_int {
+pub unsafe extern "C" fn mz_uncompress(dest: *mut u8,
+                                       dest_len: *mut c_ulong,
+                                       source: *const u8,
+                                       source_len: c_ulong) -> c_int
+{
     match dest_len.as_mut() {
         None => return MZ_PARAM_ERROR,
         Some(dest_len) => {

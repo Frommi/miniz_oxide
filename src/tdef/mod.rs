@@ -119,8 +119,10 @@ pub struct tdefl_sym_freq {
 
 #[no_mangle]
 #[allow(bad_style)]
-pub unsafe extern "C" fn tdefl_radix_sort_syms(num_syms : c_uint, pSyms0: *mut tdefl_sym_freq,
-                                               pSyms1: *mut tdefl_sym_freq) -> *mut tdefl_sym_freq {
+pub unsafe extern "C" fn tdefl_radix_sort_syms(num_syms : c_uint,
+                                               pSyms0: *mut tdefl_sym_freq,
+                                               pSyms1: *mut tdefl_sym_freq) -> *mut tdefl_sym_freq
+{
     let syms0 = slice::from_raw_parts_mut(pSyms0, num_syms as usize);
     let syms1 = slice::from_raw_parts_mut(pSyms1, num_syms as usize);
     tdefl_radix_sort_syms_oxide(syms0, syms1).as_mut_ptr()

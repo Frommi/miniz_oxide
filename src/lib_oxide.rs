@@ -145,7 +145,9 @@ macro_rules! free {
 }
 
 pub fn mz_compress2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>,
-                          level: c_int, dest_len: &mut c_ulong) -> c_int {
+                          level: c_int,
+                          dest_len: &mut c_ulong) -> c_int
+{
     let mut status: c_int = mz_deflate_init_oxide(stream_oxide, level);
     if status != MZ_OK {
         return status;
@@ -172,8 +174,13 @@ pub fn mz_deflate_init_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, l
     mz_deflate_init2_oxide(stream_oxide, level, MZ_DEFLATED, MZ_DEFAULT_WINDOW_BITS, 9, MZ_DEFAULT_STRATEGY)
 }
 
-pub fn mz_deflate_init2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, level: c_int, method: c_int,
-                              window_bits: c_int, mem_level: c_int, strategy: c_int) -> c_int {
+pub fn mz_deflate_init2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>,
+                              level: c_int,
+                              method: c_int,
+                              window_bits: c_int,
+                              mem_level: c_int,
+                              strategy: c_int) -> c_int
+{
     let comp_flags = TDEFL_COMPUTE_ADLER32 as u32 |
         unsafe {
             tdefl_create_comp_flags_from_zip_params(level, window_bits, strategy)
@@ -237,8 +244,6 @@ pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, flush:
                         };
 
                         *next_in = &next_in[in_bytes..];
-
-                        // A bit of magic from https://stackoverflow.com/questions/34384089
                         *next_out = &mut mem::replace(next_out, &mut [])[out_bytes..];
 
                         stream_oxide.total_in += in_bytes as c_ulong;

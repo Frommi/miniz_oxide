@@ -1,7 +1,8 @@
 use super::*;
 
 pub fn tdefl_radix_sort_syms_oxide<'a>(syms0: &'a mut [tdefl_sym_freq],
-                                       syms1: &'a mut [tdefl_sym_freq]) -> &'a mut [tdefl_sym_freq] {
+                                       syms1: &'a mut [tdefl_sym_freq]) -> &'a mut [tdefl_sym_freq]
+{
     let mut hist = [[0; 256]; 2];
 
     for freq in syms0.iter() {
