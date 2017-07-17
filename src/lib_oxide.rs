@@ -360,11 +360,6 @@ pub fn mz_inflate_init2_oxide(stream_oxide: &mut StreamOxide<inflate_state>,
     }
 }
 
-use tinfl::TINFL_FLAG_COMPUTE_ADLER32;
-use tinfl::TINFL_FLAG_PARSE_ZLIB_HEADER;
-use tinfl::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
-use tinfl::TINFL_FLAG_HAS_MORE_INPUT;
-
 use tinfl::TINFL_STATUS_DONE;
 use tinfl::TINFL_STATUS_FAILED;
 
@@ -389,9 +384,9 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, mut flush
                 return MZ_STREAM_ERROR;
             }
 
-            let mut decomp_flags = TINFL_FLAG_COMPUTE_ADLER32;
+            let mut decomp_flags = tinfl::TINFL_FLAG_COMPUTE_ADLER32;
             if state.m_window_bits > 0 {
-                decomp_flags |= TINFL_FLAG_PARSE_ZLIB_HEADER;
+                decomp_flags |= tinfl::TINFL_FLAG_PARSE_ZLIB_HEADER;
             }
 
             let first_call = state.m_first_call;
@@ -409,7 +404,7 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, mut flush
                 (&mut Some(ref mut next_in), &mut Some(ref mut next_out)) => {
                     let orig_avail_in = next_in.len() as size_t;
                     if (flush == MZ_FINISH) && (first_call != 0) {
-                        decomp_flags |= TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
+                        decomp_flags |= tinfl::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
                         let mut in_bytes = next_in.len() as size_t;
                         let mut out_bytes = next_out.len() as size_t;
 
@@ -441,7 +436,7 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, mut flush
                     }
 
                     if flush != MZ_FINISH {
-                        decomp_flags |= TINFL_FLAG_HAS_MORE_INPUT;
+                        decomp_flags |= tinfl::TINFL_FLAG_HAS_MORE_INPUT;
                     }
 
                     if state.m_dict_avail != 0 {
