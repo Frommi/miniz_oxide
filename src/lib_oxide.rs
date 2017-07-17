@@ -159,9 +159,9 @@ pub fn mz_compress2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>,
         return if status == MZ_OK { MZ_BUF_ERROR } else { status };
     }
 
-    let res = mz_deflate_end_oxide(stream_oxide);
+    status = mz_deflate_end_oxide(stream_oxide);
     *dest_len = stream_oxide.total_out;
-    res
+    status
 }
 
 
@@ -275,9 +275,9 @@ pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, flush:
 }
 
 pub fn mz_deflate_end_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) -> c_int {
-    match &mut stream_oxide.state {
-        &mut None => MZ_OK,
-        &mut Some(ref mut state) => {
+    match stream_oxide.state {
+        None => MZ_OK,
+        Some(ref mut state) => {
             unsafe {
                 free!(stream_oxide, (*state as *mut tdefl_compressor) as *mut c_void);
             }
@@ -287,8 +287,8 @@ pub fn mz_deflate_end_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) ->
 }
 
 pub fn mz_uncompress2_oxide(stream_oxide: &mut StreamOxide<inflate_state>,
-                            dest_len: &mut c_ulong) -> c_int {
-
+                            dest_len: &mut c_ulong) -> c_int
+{
     let mut status = mz_inflate_init_oxide(stream_oxide);
     if status != MZ_OK {
         return status;
