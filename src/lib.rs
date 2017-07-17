@@ -160,6 +160,25 @@ extern {
                             decomp_flags: c_uint) -> c_int;
 }
 
+macro_rules! oxidize {
+    ($mz_func:ident, $mz_func_oxide:ident, $($arg_name:ident: $type_name:ident),*) => {
+        #[no_mangle]
+        #[allow(bad_style)]
+        pub unsafe extern "C" fn $mz_func(stream: *mut mz_stream, $($arg_name : $type_name),*) -> c_int {
+            match stream.as_mut() {
+                None => MZ_STREAM_ERROR,
+                Some(stream) => {
+                    let mut stream_oxide = StreamOxide::new(&mut *stream);
+                    let status = lib_oxide::$mz_func_oxide(
+                        &mut stream_oxide, $($arg_name),*);
+                    *stream = stream_oxide.as_mz_stream();
+                    status
+                }
+            }
+        }
+    };
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn mz_compress(dest: *mut u8, dest_len: *mut c_ulong,
                                      source: *const u8, source_len: c_ulong) -> c_int {
@@ -196,48 +215,12 @@ pub unsafe extern "C" fn mz_deflateInit(stream: *mut mz_stream, level: c_int) ->
     mz_deflateInit2(stream, level, MZ_DEFLATED, MZ_DEFAULT_WINDOW_BITS, 9, MZ_DEFAULT_STRATEGY)
 }
 
-#[no_mangle]
-#[allow(bad_style)]
-pub unsafe extern "C" fn mz_deflateInit2(stream: *mut mz_stream, level: c_int, method: c_int,
-                                         window_bits: c_int, mem_level: c_int, strategy: c_int) -> c_int {
-    match stream.as_mut() {
-        None => MZ_STREAM_ERROR,
-        Some(stream) => {
-            let mut stream_oxide = StreamOxide::new(&mut *stream);
-            let status = lib_oxide::mz_deflate_init2_oxide(
-                &mut stream_oxide, level, method, window_bits, mem_level, strategy);
-            *stream = stream_oxide.as_mz_stream();
-            status
-        }
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn mz_deflate(stream: *mut mz_stream, flush: c_int) -> c_int {
-    match stream.as_mut() {
-        None => MZ_STREAM_ERROR,
-        Some(stream) => {
-            let mut stream_oxide = StreamOxide::new(&mut *stream);
-            let status = mz_deflate_oxide(&mut stream_oxide, flush);
-            *stream = stream_oxide.as_mz_stream();
-            status
-        }
-    }
-}
-
-#[no_mangle]
-#[allow(bad_style)]
-pub unsafe extern "C" fn mz_deflateEnd(stream: *mut mz_stream) -> c_int {
-    match stream.as_mut() {
-        None => MZ_STREAM_ERROR,
-        Some(stream) => {
-            let mut stream_oxide = StreamOxide::new(&mut *stream);
-            let status = mz_deflate_end_oxide(&mut stream_oxide);
-            *stream = stream_oxide.as_mz_stream();
-            status
-        }
-    }
-}
+oxidize!(mz_deflateInit2, mz_deflate_init2_oxide,
+         level: c_int, method: c_int, window_bits: c_int, mem_level: c_int, strategy: c_int);
+oxidize!(mz_deflate, mz_deflate_oxide,
+         flush: c_int);
+oxidize!(mz_deflateEnd, mz_deflate_end_oxide, );
+oxidize!(mz_deflateReset, mz_deflate_reset_oxide, );
 
 #[no_mangle]
 #[allow(bad_style, unused_variables)]
@@ -299,57 +282,8 @@ pub unsafe extern "C" fn mz_inflateInit(stream: *mut mz_stream) -> c_int {
     mz_inflateInit2(stream, MZ_DEFAULT_WINDOW_BITS)
 }
 
-#[no_mangle]
-#[allow(bad_style)]
-pub unsafe extern "C" fn mz_inflateInit2(stream: *mut mz_stream, window_bits: c_int) -> c_int {
-    match stream.as_mut() {
-        None => MZ_STREAM_ERROR,
-        Some(stream) => {
-            let mut stream_oxide = StreamOxide::new(&mut *stream);
-            let status = lib_oxide::mz_inflate_init2_oxide(&mut stream_oxide, window_bits);
-            *stream = stream_oxide.as_mz_stream();
-            status
-        }
-    }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn mz_inflate(stream: *mut mz_stream, flush: c_int) -> c_int {
-    match stream.as_mut() {
-        None => MZ_STREAM_ERROR,
-        Some(stream) => {
-            let mut stream_oxide = StreamOxide::new(&mut *stream);
-            let status = lib_oxide::mz_inflate_oxide(&mut stream_oxide, flush);
-            *stream = stream_oxide.as_mz_stream();
-            status
-        }
-    }
-}
-
-#[no_mangle]
-#[allow(bad_style)]
-pub unsafe extern "C" fn mz_inflateEnd(stream: *mut mz_stream) -> c_int {
-    match stream.as_mut() {
-        None => MZ_STREAM_ERROR,
-        Some(stream) => {
-            let mut stream_oxide = StreamOxide::new(&mut *stream);
-            let status = mz_inflate_end_oxide(&mut stream_oxide);
-            *stream = stream_oxide.as_mz_stream();
-            status
-        }
-    }
-}
-
-#[no_mangle]
-#[allow(bad_style)]
-pub unsafe extern "C" fn mz_deflateReset(stream: *mut mz_stream) -> c_int {
-    match stream.as_mut() {
-        None => MZ_STREAM_ERROR,
-        Some(stream) => {
-            let mut stream_oxide = StreamOxide::new(&mut *stream);
-            let status = mz_deflate_reset_oxide(&mut stream_oxide);
-            *stream = stream_oxide.as_mz_stream();
-            status
-        }
-    }
-}
+oxidize!(mz_inflateInit2, mz_inflate_init2_oxide,
+         window_bits: c_int);
+oxidize!(mz_inflate, mz_inflate_oxide,
+         flush: c_int);
+oxidize!(mz_inflateEnd, mz_inflate_end_oxide, );
