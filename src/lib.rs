@@ -44,6 +44,36 @@ pub const MZ_DEFAULT_STRATEGY: c_int = 0;
 
 pub const MZ_DEFAULT_COMPRESSION: c_int = 6;
 
+#[allow(bad_style)]
+extern {
+    pub fn miniz_def_alloc_func(opaque: *mut c_void, items: size_t, size: size_t) -> *mut c_void;
+    pub fn miniz_def_free_func(opaque: *mut c_void, address: *mut c_void);
+
+    pub fn tdefl_create_comp_flags_from_zip_params(level: c_int,
+                                                   window_bits: c_int,
+                                                   strategy: c_int) -> c_uint;
+
+    pub fn tdefl_init(d: *mut tdefl_compressor,
+                      pPut_buf_func: Option<tdefl_put_buf_func_ptr>,
+                      pPut_buf_user: *mut c_void,
+                      flags: c_int) -> c_int;
+
+    pub fn tdefl_compress(d: *mut tdefl_compressor,
+                          pIn_buf: *const c_void,
+                          pIn_buf_size: *mut size_t,
+                          pOut_buf: *mut c_void,
+                          pOut_buf_size: *mut size_t,
+                          flush: c_int) -> c_int;
+
+    pub fn tinfl_decompress(r: *mut tinfl_decompressor,
+                            pIn_buf_next: *const u8,
+                            pIn_buf_size: *mut size_t,
+                            pOut_buf_start: *mut u8,
+                            pOut_buf_next: *mut u8,
+                            pOut_buf_size: *mut size_t,
+                            decomp_flags: c_uint) -> c_int;
+}
+
 
 #[no_mangle]
 pub unsafe extern "C" fn mz_adler32(adler: c_ulong, ptr: *const u8, buf_len: usize) -> c_ulong {
@@ -75,6 +105,7 @@ pub type mz_alloc_func = unsafe extern "C" fn(*mut c_void, size_t, size_t) -> *m
 pub type mz_free_func = unsafe extern "C" fn(*mut c_void, *mut c_void);
 
 #[repr(C)]
+#[derive(Debug)]
 #[allow(bad_style)]
 pub struct mz_stream {
     pub next_in: *const u8,
@@ -95,27 +126,6 @@ pub struct mz_stream {
     pub data_type: c_int,
     pub adler: c_ulong,
     pub reserved: c_ulong,
-}
-
-pub fn write_mz_stream(stream: &mz_stream) {
-    println!("next_in: {}", stream.next_in as usize);
-    println!("avail_in: {}", stream.avail_in);
-    println!("total_in: {}", stream.total_in);
-    println!();
-    println!("next_out: {}", stream.next_out as usize);
-    println!("avail_out: {}", stream.avail_out);
-    println!("total_out: {}", stream.total_out);
-    println!();
-    println!("msg");
-    println!("state: {}", stream.state as usize);
-    println!();
-    println!("zalloc");
-    println!("zfree");
-    println!("opaque");
-    println!();
-    println!("data_type: {}", stream.data_type);
-    println!("adler: {}", stream.adler);
-    println!("reserved: {}", stream.reserved);
 }
 
 impl Default for mz_stream {
@@ -143,37 +153,6 @@ impl Default for mz_stream {
     }
 }
 
-
-#[allow(bad_style)]
-extern {
-    pub fn miniz_def_alloc_func(opaque: *mut c_void, items: size_t, size: size_t) -> *mut c_void;
-    pub fn miniz_def_free_func(opaque: *mut c_void, address: *mut c_void);
-
-    pub fn tdefl_create_comp_flags_from_zip_params(level: c_int,
-                                                   window_bits: c_int,
-                                                   strategy: c_int) -> c_uint;
-
-    pub fn tdefl_init(d: *mut tdefl_compressor,
-                      pPut_buf_func: Option<tdefl_put_buf_func_ptr>,
-                      pPut_buf_user: *mut c_void,
-                      flags: c_int) -> c_int;
-
-    pub fn tdefl_compress(d: *mut tdefl_compressor,
-                          pIn_buf: *const c_void,
-                          pIn_buf_size: *mut size_t,
-                          pOut_buf: *mut c_void,
-                          pOut_buf_size: *mut size_t,
-                          flush: c_int) -> c_int;
-
-    pub fn tinfl_decompress(r: *mut tinfl_decompressor,
-                            pIn_buf_next: *const u8,
-                            pIn_buf_size: *mut size_t,
-                            pOut_buf_start: *mut u8,
-                            pOut_buf_next: *mut u8,
-                            pOut_buf_size: *mut size_t,
-                            decomp_flags: c_uint) -> c_int;
-}
-
 macro_rules! oxidize {
     ($mz_func:ident, $mz_func_oxide:ident, $($arg_name:ident: $type_name:ident),*) => {
         #[no_mangle]
@@ -190,6 +169,27 @@ macro_rules! oxidize {
             }
         }
     };
+}
+
+oxidize!(mz_deflateInit2, mz_deflate_init2_oxide,
+         level: c_int, method: c_int, window_bits: c_int, mem_level: c_int, strategy: c_int);
+oxidize!(mz_deflate, mz_deflate_oxide,
+         flush: c_int);
+oxidize!(mz_deflateEnd, mz_deflate_end_oxide, );
+oxidize!(mz_deflateReset, mz_deflate_reset_oxide, );
+
+
+oxidize!(mz_inflateInit2, mz_inflate_init2_oxide,
+         window_bits: c_int);
+oxidize!(mz_inflate, mz_inflate_oxide,
+         flush: c_int);
+oxidize!(mz_inflateEnd, mz_inflate_end_oxide, );
+
+
+#[no_mangle]
+#[allow(bad_style)]
+pub unsafe extern "C" fn mz_deflateInit(stream: *mut mz_stream, level: c_int) -> c_int {
+    mz_deflateInit2(stream, level, MZ_DEFLATED, MZ_DEFAULT_WINDOW_BITS, 9, MZ_DEFAULT_STRATEGY)
 }
 
 #[no_mangle]
@@ -230,46 +230,16 @@ pub unsafe extern "C" fn mz_compress2(dest: *mut u8,
 }
 
 #[no_mangle]
-#[allow(bad_style)]
-pub unsafe extern "C" fn mz_deflateInit(stream: *mut mz_stream, level: c_int) -> c_int {
-    mz_deflateInit2(stream, level, MZ_DEFLATED, MZ_DEFAULT_WINDOW_BITS, 9, MZ_DEFAULT_STRATEGY)
-}
-
-oxidize!(mz_deflateInit2, mz_deflate_init2_oxide,
-         level: c_int, method: c_int, window_bits: c_int, mem_level: c_int, strategy: c_int);
-oxidize!(mz_deflate, mz_deflate_oxide,
-         flush: c_int);
-oxidize!(mz_deflateEnd, mz_deflate_end_oxide, );
-oxidize!(mz_deflateReset, mz_deflate_reset_oxide, );
-
-#[no_mangle]
 #[allow(bad_style, unused_variables)]
 pub extern "C" fn mz_deflateBound(stream: *mut mz_stream, source_len: c_ulong) -> c_ulong {
     cmp::max(128 + (source_len * 110) / 100, 128 + source_len + ((source_len / (31 * 1024)) + 1) * 5)
 }
 
+
 #[no_mangle]
 #[allow(bad_style)]
-pub extern "C" fn mz_compressBound(source_len: c_ulong) -> c_ulong {
-    mz_deflateBound(ptr::null_mut(), source_len)
-}
-
-use tinfl::TINFL_LZ_DICT_SIZE;
-use tinfl::TINFL_STATUS_NEEDS_MORE_INPUT;
-
-#[repr(C)]
-#[allow(bad_style)]
-pub struct inflate_state {
-    pub m_decomp: tinfl_decompressor,
-
-    pub m_dict_ofs: c_uint,
-    pub m_dict_avail: c_uint,
-    pub m_first_call: c_uint,
-    pub m_has_flushed: c_uint,
-
-    pub m_window_bits: c_int,
-    pub m_dict: [u8; TINFL_LZ_DICT_SIZE],
-    pub m_last_status: c_int
+pub unsafe extern "C" fn mz_inflateInit(stream: *mut mz_stream) -> c_int {
+    mz_inflateInit2(stream, MZ_DEFAULT_WINDOW_BITS)
 }
 
 #[no_mangle]
@@ -301,12 +271,6 @@ pub unsafe extern "C" fn mz_uncompress(dest: *mut u8,
 
 #[no_mangle]
 #[allow(bad_style)]
-pub unsafe extern "C" fn mz_inflateInit(stream: *mut mz_stream) -> c_int {
-    mz_inflateInit2(stream, MZ_DEFAULT_WINDOW_BITS)
+pub extern "C" fn mz_compressBound(source_len: c_ulong) -> c_ulong {
+    mz_deflateBound(ptr::null_mut(), source_len)
 }
-
-oxidize!(mz_inflateInit2, mz_inflate_init2_oxide,
-         window_bits: c_int);
-oxidize!(mz_inflate, mz_inflate_oxide,
-         flush: c_int);
-oxidize!(mz_inflateEnd, mz_inflate_end_oxide, );

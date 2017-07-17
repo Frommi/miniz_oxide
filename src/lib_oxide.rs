@@ -22,6 +22,21 @@ pub fn mz_crc32_oxide(crc32: c_uint, data: &[u8]) -> c_uint {
 }
 
 
+#[repr(C)]
+#[allow(bad_style)]
+pub struct inflate_state {
+    pub m_decomp: tinfl_decompressor,
+
+    pub m_dict_ofs: c_uint,
+    pub m_dict_avail: c_uint,
+    pub m_first_call: c_uint,
+    pub m_has_flushed: c_uint,
+
+    pub m_window_bits: c_int,
+    pub m_dict: [u8; tinfl::TINFL_LZ_DICT_SIZE],
+    pub m_last_status: c_int
+}
+
 pub trait StateType {}
 impl StateType for tdefl_compressor {}
 impl StateType for inflate_state {}
@@ -331,7 +346,7 @@ pub fn mz_inflate_init2_oxide(stream_oxide: &mut StreamOxide<inflate_state>,
             decompressor_state.m_decomp.m_state = 0;
             decompressor_state.m_dict_ofs = 0;
             decompressor_state.m_dict_avail = 0;
-            decompressor_state.m_last_status = TINFL_STATUS_NEEDS_MORE_INPUT;
+            decompressor_state.m_last_status = tinfl::TINFL_STATUS_NEEDS_MORE_INPUT;
             decompressor_state.m_first_call = 1;
             decompressor_state.m_has_flushed = 0;
             decompressor_state.m_window_bits = window_bits;
@@ -417,7 +432,7 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, mut flush
                         *next_out = &mut mem::replace(next_out, &mut [])[n..];
                         stream_oxide.total_out += n as c_ulong;
                         state.m_dict_avail -= n as c_uint;
-                        state.m_dict_ofs = (state.m_dict_ofs + (n as c_uint)) & ((TINFL_LZ_DICT_SIZE - 1) as c_uint);
+                        state.m_dict_ofs = (state.m_dict_ofs + (n as c_uint)) & ((tinfl::TINFL_LZ_DICT_SIZE - 1) as c_uint);
                         return if (state.m_last_status == TINFL_STATUS_DONE) && (state.m_dict_avail == 0) {
                             MZ_STREAM_END
                         } else {
@@ -428,7 +443,7 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, mut flush
                     let mut status: c_int;
                     loop {
                         let mut in_bytes = next_in.len() as usize;
-                        let mut out_bytes = TINFL_LZ_DICT_SIZE - state.m_dict_ofs as usize;
+                        let mut out_bytes = tinfl::TINFL_LZ_DICT_SIZE - state.m_dict_ofs as usize;
 
                         status = unsafe { tinfl_decompress(
                             &mut state.m_decomp, next_in.as_ptr(), &mut in_bytes,
@@ -447,11 +462,11 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, mut flush
                         *next_out = &mut mem::replace(next_out, &mut [])[n..];
                         stream_oxide.total_out += n as c_ulong;
                         state.m_dict_avail -= n as c_uint;
-                        state.m_dict_ofs = (state.m_dict_ofs + (n as c_uint)) & ((TINFL_LZ_DICT_SIZE - 1) as c_uint);
+                        state.m_dict_ofs = (state.m_dict_ofs + (n as c_uint)) & ((tinfl::TINFL_LZ_DICT_SIZE - 1) as c_uint);
 
                         if status < 0 {
                             return MZ_DATA_ERROR;
-                        } else if (status == TINFL_STATUS_NEEDS_MORE_INPUT) && (orig_avail_in == 0) {
+                        } else if (status == tinfl::TINFL_STATUS_NEEDS_MORE_INPUT) && (orig_avail_in == 0) {
                             return MZ_BUF_ERROR;
                         } else if flush == MZ_FINISH {
                             if status == TINFL_STATUS_DONE {
