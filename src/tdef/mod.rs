@@ -149,9 +149,10 @@ pub unsafe extern "C" fn tdefl_radix_sort_syms(num_syms : c_uint,
     tdefl_radix_sort_syms_oxide(syms0, syms1).as_mut_ptr()
 }
 
-pub fn tdefl_create_comp_flags_from_zip_params(level: c_int,
-                                               window_bits: c_int,
-                                               strategy: c_int) -> c_uint
+#[no_mangle]
+pub extern "C" fn tdefl_create_comp_flags_from_zip_params(level: c_int,
+                                                          window_bits: c_int,
+                                                          strategy: c_int) -> c_uint
 {
     tdefl_create_comp_flags_from_zip_params_oxide(level, window_bits, strategy)
 }

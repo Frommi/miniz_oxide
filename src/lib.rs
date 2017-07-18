@@ -11,6 +11,7 @@ pub use lib_oxide::*;
 
 mod tdef;
 pub use tdef::tdefl_radix_sort_syms;
+pub use tdef::tdefl_create_comp_flags_from_zip_params;
 pub use tdef::tdefl_compressor;
 pub use tdef::tdefl_put_buf_func_ptr;
 
