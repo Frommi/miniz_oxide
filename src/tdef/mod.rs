@@ -15,15 +15,12 @@ use std::cmp;
 #[allow(bad_style)]
 pub type tdefl_put_buf_func_ptr = unsafe extern "C" fn(*const c_void, c_int, *mut c_void);
 
-pub const TDEFL_STATUS_BAD_PARAM: c_int = -2;
-pub const TDEFL_STATUS_PUT_BUF_FAILED: c_int = -1;
-pub const TDEFL_STATUS_OKAY: c_int = 0;
-pub const TDEFL_STATUS_DONE: c_int = 1;
-
-pub const TDEFL_NO_FLUSH: c_int = 0;
-pub const TDEFL_SYNC_FLUSH: c_int = 2;
-pub const TDEFL_FULL_FLUSH: c_int = 3;
-pub const TDEFL_FINISH: c_int = 4;
+pub enum TDEFLStatus {
+    BadParam = -2,
+    PutBufFailed = -1,
+    Okay = 0,
+    Done = 1
+}
 
 pub const TDEFL_LZ_CODE_BUF_SIZE: c_int = 64 * 1024;
 pub const TDEFL_OUT_BUF_SIZE: c_int = (TDEFL_LZ_CODE_BUF_SIZE * 13) / 10;
