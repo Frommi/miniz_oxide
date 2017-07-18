@@ -18,6 +18,9 @@ pub use tdef::tdefl_put_buf_func_ptr;
 mod tinfl;
 pub use tinfl::tinfl_decompressor;
 
+pub const MZ_DEFLATED: c_int = 8;
+pub const MZ_DEFAULT_WINDOW_BITS: c_int = 15;
+
 pub const MZ_ADLER32_INIT: c_ulong = 1;
 pub const MZ_CRC32_INIT: c_ulong = 0;
 
@@ -28,32 +31,38 @@ pub const MZ_FULL_FLUSH: c_int = 3;
 pub const MZ_FINISH: c_int = 4;
 pub const MZ_BLOCK: c_int = 5;
 
-pub const MZ_OK: c_int = 0;
-pub const MZ_STREAM_END: c_int = 1;
-pub const MZ_NEED_DICT: c_int = 2;
-pub const MZ_ERRNO: c_int = -1;
-pub const MZ_STREAM_ERROR: c_int = -2;
-pub const MZ_DATA_ERROR: c_int = -3;
-pub const MZ_MEM_ERROR: c_int = -4;
-pub const MZ_BUF_ERROR: c_int = -5;
-pub const MZ_VERSION_ERROR: c_int = -6;
-pub const MZ_PARAM_ERROR: c_int = -10000;
+pub enum MZStatus {
+    Ok = 0,
+    StreamEnd = 1,
+    NeedDict = 2
+}
 
-pub const MZ_DEFLATED: c_int = 8;
-pub const MZ_DEFAULT_WINDOW_BITS: c_int = 15;
+pub enum MZError {
+    Errno = -1,
+    StreamError = -2,
+    DataError = -3,
+    MemError = -4,
+    BufError = -5,
+    VersionError = -6,
+    ParamError = -10000
+}
 
-pub const MZ_NO_COMPRESSION: c_int = 0;
-pub const MZ_BEST_SPEED: c_int = 1;
-pub const MZ_BEST_COMPRESSION: c_int = 9;
-pub const MZ_UBER_COMPRESSION: c_int = 10;
-pub const MZ_DEFAULT_LEVEL: c_int = 6;
-pub const MZ_DEFAULT_COMPRESSION: c_int = -1;
+pub enum CompressionLevel {
+    NoCompression = 0,
+    BestSpeed = 1,
+    BestCompression = 9,
+    UberCompression = 10,
+    DefaultLevel = 6,
+    DefaultCompression = -1
+}
 
-pub const MZ_DEFAULT_STRATEGY: c_int = 0;
-pub const MZ_FILTERED: c_int = 1;
-pub const MZ_HUFFMAN_ONLY: c_int = 2;
-pub const MZ_RLE: c_int = 3;
-pub const MZ_FIXED: c_int = 4;
+pub enum CompressionStrategy {
+    Default = 0,
+    Filtered = 1,
+    HuffmanOnly = 2,
+    RLE = 3,
+    Fixed = 4
+}
 
 
 #[allow(bad_style)]
@@ -142,42 +151,45 @@ impl Default for mz_stream {
 }
 
 macro_rules! oxidize {
-    ($mz_func:ident, $mz_func_oxide:ident, $($arg_name:ident: $type_name:ident),*) => {
+    ($mz_func:ident, $mz_func_oxide:ident; $($arg_name:ident: $type_name:ident),*) => {
         #[no_mangle]
         #[allow(bad_style)]
         pub unsafe extern "C" fn $mz_func(stream: *mut mz_stream, $($arg_name : $type_name),*) -> c_int {
             match stream.as_mut() {
-                None => MZ_STREAM_ERROR,
+                None => MZError::StreamError as c_int,
                 Some(stream) => {
                     let mut stream_oxide = StreamOxide::new(&mut *stream);
                     let status = lib_oxide::$mz_func_oxide(&mut stream_oxide, $($arg_name),*);
                     *stream = stream_oxide.as_mz_stream();
-                    status
+                    match status {
+                        Ok(status) => status as c_int,
+                        Err(error) => error as c_int
+                    }
                 }
             }
         }
     };
 }
 
-oxidize!(mz_deflateInit2, mz_deflate_init2_oxide,
+oxidize!(mz_deflateInit2, mz_deflate_init2_oxide;
          level: c_int, method: c_int, window_bits: c_int, mem_level: c_int, strategy: c_int);
-oxidize!(mz_deflate, mz_deflate_oxide,
+oxidize!(mz_deflate, mz_deflate_oxide;
          flush: c_int);
-oxidize!(mz_deflateEnd, mz_deflate_end_oxide, );
-oxidize!(mz_deflateReset, mz_deflate_reset_oxide, );
+oxidize!(mz_deflateEnd, mz_deflate_end_oxide;);
+oxidize!(mz_deflateReset, mz_deflate_reset_oxide;);
 
 
-oxidize!(mz_inflateInit2, mz_inflate_init2_oxide,
+oxidize!(mz_inflateInit2, mz_inflate_init2_oxide;
          window_bits: c_int);
-oxidize!(mz_inflate, mz_inflate_oxide,
+oxidize!(mz_inflate, mz_inflate_oxide;
          flush: c_int);
-oxidize!(mz_inflateEnd, mz_inflate_end_oxide, );
+oxidize!(mz_inflateEnd, mz_inflate_end_oxide;);
 
 
 #[no_mangle]
 #[allow(bad_style)]
 pub unsafe extern "C" fn mz_deflateInit(stream: *mut mz_stream, level: c_int) -> c_int {
-    mz_deflateInit2(stream, level, MZ_DEFLATED, MZ_DEFAULT_WINDOW_BITS, 9, MZ_DEFAULT_STRATEGY)
+    mz_deflateInit2(stream, level, MZ_DEFLATED, MZ_DEFAULT_WINDOW_BITS, 9, CompressionStrategy::Default as c_int)
 }
 
 #[no_mangle]
@@ -186,7 +198,7 @@ pub unsafe extern "C" fn mz_compress(dest: *mut u8,
                                      source: *const u8,
                                      source_len: c_ulong) -> c_int
 {
-    mz_compress2(dest, dest_len, source, source_len, MZ_DEFAULT_COMPRESSION)
+    mz_compress2(dest, dest_len, source, source_len, CompressionLevel::DefaultCompression as c_int)
 }
 
 #[no_mangle]
@@ -196,25 +208,25 @@ pub unsafe extern "C" fn mz_compress2(dest: *mut u8,
                                       source_len: c_ulong,
                                       level: c_int) -> c_int
 {
-    match dest_len.as_mut() {
-        None => return MZ_PARAM_ERROR,
-        Some(dest_len) => {
-            if (source_len | *dest_len) > 0xFFFFFFFF {
-                return MZ_PARAM_ERROR;
-            }
-
-            let mut stream: mz_stream = mz_stream {
-                next_in: source,
-                avail_in: source_len as c_uint,
-                next_out: dest,
-                avail_out: (*dest_len) as c_uint,
-                ..Default::default()
-            };
-
-            let mut stream_oxide = StreamOxide::new(&mut stream);
-            mz_compress2_oxide(&mut stream_oxide, level, dest_len)
+    dest_len.as_mut().map_or(MZError::ParamError as c_int, |dest_len| {
+        if (source_len | *dest_len) > 0xFFFFFFFF {
+            return MZError::ParamError as c_int;
         }
-    }
+
+        let mut stream: mz_stream = mz_stream {
+            next_in: source,
+            avail_in: source_len as c_uint,
+            next_out: dest,
+            avail_out: (*dest_len) as c_uint,
+            ..Default::default()
+        };
+
+        let mut stream_oxide = StreamOxide::new(&mut stream);
+        match mz_compress2_oxide(&mut stream_oxide, level, dest_len) {
+            Ok(status) => status as c_int,
+            Err(error) => error as c_int
+        }
+    })
 }
 
 #[no_mangle]
@@ -236,25 +248,25 @@ pub unsafe extern "C" fn mz_uncompress(dest: *mut u8,
                                        source: *const u8,
                                        source_len: c_ulong) -> c_int
 {
-    match dest_len.as_mut() {
-        None => return MZ_PARAM_ERROR,
-        Some(dest_len) => {
-            if (source_len | *dest_len) > 0xFFFFFFFF {
-                return MZ_PARAM_ERROR;
-            }
-
-            let mut stream: mz_stream = mz_stream {
-                next_in: source,
-                avail_in: source_len as c_uint,
-                next_out: dest,
-                avail_out: (*dest_len) as c_uint,
-                ..Default::default()
-            };
-
-            let mut stream_oxide = StreamOxide::new(&mut stream);
-            mz_uncompress2_oxide(&mut stream_oxide, dest_len)
+    dest_len.as_mut().map_or(MZError::ParamError as c_int, |dest_len| {
+        if (source_len | *dest_len) > 0xFFFFFFFF {
+            return MZError::ParamError as c_int;
         }
-    }
+
+        let mut stream: mz_stream = mz_stream {
+            next_in: source,
+            avail_in: source_len as c_uint,
+            next_out: dest,
+            avail_out: (*dest_len) as c_uint,
+            ..Default::default()
+        };
+
+        let mut stream_oxide = StreamOxide::new(&mut stream);
+        match mz_uncompress2_oxide(&mut stream_oxide, dest_len) {
+            Ok(status) => status as c_int,
+            Err(error) => error as c_int
+        }
+    })
 }
 
 #[no_mangle]

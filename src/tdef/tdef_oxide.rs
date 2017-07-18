@@ -49,7 +49,11 @@ pub fn tdefl_create_comp_flags_from_zip_params_oxide(level: c_int,
                                                      window_bits: c_int,
                                                      strategy: c_int) -> c_uint
 {
-    let num_probes = (if level >= 0 { cmp::min(10, level) } else { ::MZ_DEFAULT_LEVEL }) as usize;
+    let num_probes = (if level >= 0 {
+        cmp::min(10, level)
+    } else {
+        ::CompressionLevel::DefaultLevel as c_int
+    }) as usize;
     let greedy = if level <= 3 { TDEFL_GREEDY_PARSING_FLAG } else { 0 } as c_uint;
     let mut comp_flags = s_tdefl_num_probes[num_probes] | greedy;
 
@@ -59,13 +63,13 @@ pub fn tdefl_create_comp_flags_from_zip_params_oxide(level: c_int,
 
     if level == 0 {
         comp_flags |= TDEFL_FORCE_ALL_RAW_BLOCKS as c_uint;
-    } else if strategy == ::MZ_FILTERED {
+    } else if strategy == ::CompressionStrategy::Filtered as c_int {
         comp_flags |= TDEFL_FILTER_MATCHES as c_uint;
-    } else if strategy == ::MZ_HUFFMAN_ONLY {
+    } else if strategy == ::CompressionStrategy::HuffmanOnly as c_int {
         comp_flags &= !TDEFL_MAX_PROBES_MASK as c_uint;
-    } else if strategy == ::MZ_FIXED {
+    } else if strategy == ::CompressionStrategy::Fixed as c_int {
         comp_flags |= TDEFL_FORCE_ALL_STATIC_BLOCKS as c_uint;
-    } else if strategy == ::MZ_RLE {
+    } else if strategy == ::CompressionStrategy::RLE as c_int {
         comp_flags |= TDEFL_RLE_MATCHES as c_uint;
     }
 
