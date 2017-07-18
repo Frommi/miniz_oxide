@@ -198,7 +198,7 @@ pub fn mz_deflate_init2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>,
 {
     let comp_flags = TDEFL_COMPUTE_ADLER32 as u32 |
         unsafe {
-            tdefl_create_comp_flags_from_zip_params(level, window_bits, strategy)
+            tdef::tdefl_create_comp_flags_from_zip_params(level, window_bits, strategy)
         };
 
     if (method != MZ_DEFLATED) || ((mem_level < 1) || (mem_level > 9)) ||
@@ -217,7 +217,7 @@ pub fn mz_deflate_init2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>,
         None => MZ_MEM_ERROR,
         Some(compressor_state) => {
             if unsafe {
-                tdefl_init(compressor_state, None, ptr::null_mut(), comp_flags as c_int)
+                tdef::tdefl_init(compressor_state, None, ptr::null_mut(), comp_flags as c_int)
             } != TDEFL_STATUS_OKAY {
                 mz_deflate_end_oxide(stream_oxide);
                 return MZ_PARAM_ERROR;
@@ -253,7 +253,7 @@ pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, flush:
                     loop {
                         let mut in_bytes = next_in.len();
                         let mut out_bytes = next_out.len();
-                        let defl_status = unsafe { tdefl_compress(
+                        let defl_status = unsafe { tdef::tdefl_compress(
                             *state,
                             next_in.as_ptr() as *const c_void,
                             &mut in_bytes,
@@ -408,7 +408,7 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, mut flush
                         let mut in_bytes = next_in.len() as size_t;
                         let mut out_bytes = next_out.len() as size_t;
 
-                        let status = unsafe { tinfl_decompress(
+                        let status = unsafe { tinfl::tinfl_decompress(
                             &mut state.m_decomp,
                             next_in.as_ptr(),
                             &mut in_bytes,
@@ -453,7 +453,7 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, mut flush
                         let mut in_bytes = next_in.len() as usize;
                         let mut out_bytes = tinfl::TINFL_LZ_DICT_SIZE - state.m_dict_ofs as usize;
 
-                        status = unsafe { tinfl_decompress(
+                        status = unsafe { tinfl::tinfl_decompress(
                             &mut state.m_decomp,
                             next_in.as_ptr(),
                             &mut in_bytes,
@@ -514,7 +514,7 @@ pub fn mz_deflate_reset_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) 
             stream_oxide.total_in = 0;
             stream_oxide.total_out = 0;
             unsafe {
-                tdefl_init(*compressor_state, None, ptr::null_mut(), compressor_state.m_flags as c_int);
+                tdef::tdefl_init(*compressor_state, None, ptr::null_mut(), compressor_state.m_flags as c_int);
             }
             MZ_OK
         },

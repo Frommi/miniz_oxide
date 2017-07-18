@@ -40,38 +40,25 @@ pub const MZ_PARAM_ERROR: c_int = -10000;
 
 pub const MZ_DEFLATED: c_int = 8;
 pub const MZ_DEFAULT_WINDOW_BITS: c_int = 15;
-pub const MZ_DEFAULT_STRATEGY: c_int = 0;
 
-pub const MZ_DEFAULT_COMPRESSION: c_int = 6;
+pub const MZ_NO_COMPRESSION: c_int = 0;
+pub const MZ_BEST_SPEED: c_int = 1;
+pub const MZ_BEST_COMPRESSION: c_int = 9;
+pub const MZ_UBER_COMPRESSION: c_int = 10;
+pub const MZ_DEFAULT_LEVEL: c_int = 6;
+pub const MZ_DEFAULT_COMPRESSION: c_int = -1;
+
+pub const MZ_DEFAULT_STRATEGY: c_int = 0;
+pub const MZ_FILTERED: c_int = 1;
+pub const MZ_HUFFMAN_ONLY: c_int = 2;
+pub const MZ_RLE: c_int = 3;
+pub const MZ_FIXED: c_int = 4;
+
 
 #[allow(bad_style)]
 extern {
     pub fn miniz_def_alloc_func(opaque: *mut c_void, items: size_t, size: size_t) -> *mut c_void;
     pub fn miniz_def_free_func(opaque: *mut c_void, address: *mut c_void);
-
-    pub fn tdefl_create_comp_flags_from_zip_params(level: c_int,
-                                                   window_bits: c_int,
-                                                   strategy: c_int) -> c_uint;
-
-    pub fn tdefl_init(d: *mut tdefl_compressor,
-                      pPut_buf_func: Option<tdefl_put_buf_func_ptr>,
-                      pPut_buf_user: *mut c_void,
-                      flags: c_int) -> c_int;
-
-    pub fn tdefl_compress(d: *mut tdefl_compressor,
-                          pIn_buf: *const c_void,
-                          pIn_buf_size: *mut size_t,
-                          pOut_buf: *mut c_void,
-                          pOut_buf_size: *mut size_t,
-                          flush: c_int) -> c_int;
-
-    pub fn tinfl_decompress(r: *mut tinfl_decompressor,
-                            pIn_buf_next: *const u8,
-                            pIn_buf_size: *mut size_t,
-                            pOut_buf_start: *mut u8,
-                            pOut_buf_next: *mut u8,
-                            pOut_buf_size: *mut size_t,
-                            decomp_flags: c_uint) -> c_int;
 }
 
 

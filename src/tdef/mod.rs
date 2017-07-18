@@ -5,10 +5,12 @@ extern crate libc;
 mod tdef_oxide;
 pub use self::tdef_oxide::tdefl_radix_sort_syms_oxide;
 pub use self::tdef_oxide::tdefl_get_adler32_oxide;
+pub use self::tdef_oxide::tdefl_create_comp_flags_from_zip_params_oxide;
 
 use self::libc::*;
 use std::slice;
 use std::mem;
+use std::cmp;
 
 #[allow(bad_style)]
 pub type tdefl_put_buf_func_ptr = unsafe extern "C" fn(*const c_void, c_int, *mut c_void);
@@ -48,6 +50,10 @@ pub const TDEFL_RLE_MATCHES: c_int = 0x10000;
 pub const TDEFL_FILTER_MATCHES: c_int = 0x20000;
 pub const TDEFL_FORCE_ALL_STATIC_BLOCKS: c_int = 0x40000;
 pub const TDEFL_FORCE_ALL_RAW_BLOCKS: c_int = 0x80000;
+
+pub const TDEFL_HUFFMAN_ONLY: c_int = 0;
+pub const TDEFL_DEFAULT_MAX_PROBES: c_int = 128;
+pub const TDEFL_MAX_PROBES_MASK: c_int = 0xFFF;
 
 #[repr(C)]
 #[allow(bad_style)]
@@ -109,6 +115,21 @@ pub struct tdefl_compressor {
     pub m_output_buf: [u8; TDEFL_OUT_BUF_SIZE as usize],
 }
 
+#[allow(bad_style)]
+extern {
+    pub fn tdefl_init(d: *mut tdefl_compressor,
+                      pPut_buf_func: Option<tdefl_put_buf_func_ptr>,
+                      pPut_buf_user: *mut c_void,
+                      flags: c_int) -> c_int;
+
+    pub fn tdefl_compress(d: *mut tdefl_compressor,
+                          pIn_buf: *const c_void,
+                          pIn_buf_size: *mut size_t,
+                          pOut_buf: *mut c_void,
+                          pOut_buf_size: *mut size_t,
+                          flush: c_int) -> c_int;
+}
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 #[allow(bad_style)]
@@ -126,4 +147,11 @@ pub unsafe extern "C" fn tdefl_radix_sort_syms(num_syms : c_uint,
     let syms0 = slice::from_raw_parts_mut(pSyms0, num_syms as usize);
     let syms1 = slice::from_raw_parts_mut(pSyms1, num_syms as usize);
     tdefl_radix_sort_syms_oxide(syms0, syms1).as_mut_ptr()
+}
+
+pub fn tdefl_create_comp_flags_from_zip_params(level: c_int,
+                                               window_bits: c_int,
+                                               strategy: c_int) -> c_uint
+{
+    tdefl_create_comp_flags_from_zip_params_oxide(level, window_bits, strategy)
 }

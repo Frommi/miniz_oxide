@@ -41,3 +41,33 @@ pub fn tdefl_radix_sort_syms_oxide<'a>(syms0: &'a mut [tdefl_sym_freq],
 pub fn tdefl_get_adler32_oxide(d: &tdefl_compressor) -> c_uint {
     d.m_adler32
 }
+
+#[allow(bad_style)]
+const s_tdefl_num_probes: [c_uint; 11] = [0, 1, 6, 32, 16, 32, 128, 256, 512, 768, 1500];
+
+pub fn tdefl_create_comp_flags_from_zip_params_oxide(level: c_int,
+                                                     window_bits: c_int,
+                                                     strategy: c_int) -> c_uint
+{
+    let num_probes = (if level >= 0 { cmp::min(10, level) } else { ::MZ_DEFAULT_LEVEL }) as usize;
+    let greedy = if level <= 3 { TDEFL_GREEDY_PARSING_FLAG } else { 0 } as c_uint;
+    let mut comp_flags = s_tdefl_num_probes[num_probes] | greedy;
+
+    if window_bits > 0 {
+        comp_flags |= TDEFL_WRITE_ZLIB_HEADER as c_uint;
+    }
+
+    if level == 0 {
+        comp_flags |= TDEFL_FORCE_ALL_RAW_BLOCKS as c_uint;
+    } else if strategy == ::MZ_FILTERED {
+        comp_flags |= TDEFL_FILTER_MATCHES as c_uint;
+    } else if strategy == ::MZ_HUFFMAN_ONLY {
+        comp_flags &= !TDEFL_MAX_PROBES_MASK as c_uint;
+    } else if strategy == ::MZ_FIXED {
+        comp_flags |= TDEFL_FORCE_ALL_STATIC_BLOCKS as c_uint;
+    } else if strategy == ::MZ_RLE {
+        comp_flags |= TDEFL_RLE_MATCHES as c_uint;
+    }
+
+    comp_flags
+}
