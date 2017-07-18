@@ -24,12 +24,15 @@ pub const MZ_DEFAULT_WINDOW_BITS: c_int = 15;
 pub const MZ_ADLER32_INIT: c_ulong = 1;
 pub const MZ_CRC32_INIT: c_ulong = 0;
 
-pub const MZ_NO_FLUSH: c_int = 0;
-pub const MZ_PARTIAL_FLUSH: c_int = 1;
-pub const MZ_SYNC_FLUSH: c_int = 2;
-pub const MZ_FULL_FLUSH: c_int = 3;
-pub const MZ_FINISH: c_int = 4;
-pub const MZ_BLOCK: c_int = 5;
+#[derive(Clone, Copy, PartialEq)]
+enum MZFlush {
+    None = 0,
+    Partial = 1,
+    Sync = 2,
+    Full = 3,
+    Finish = 4,
+    Block = 5
+}
 
 pub enum MZStatus {
     Ok = 0,
@@ -62,6 +65,19 @@ pub enum CompressionStrategy {
     HuffmanOnly = 2,
     RLE = 3,
     Fixed = 4
+}
+
+impl MZFlush {
+    pub fn new(flush: c_int) -> Result<Self, MZError> {
+        match flush {
+            0 => Ok(MZFlush::None),
+            1 => Ok(MZFlush::Sync),
+            2 => Ok(MZFlush::Sync),
+            3 => Ok(MZFlush::Full),
+            4 => Ok(MZFlush::Finish),
+            _ => Err(MZError::Param)
+        }
+    }
 }
 
 
