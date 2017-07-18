@@ -172,7 +172,7 @@ pub fn mz_compress2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>,
             *dest_len = stream_oxide.total_out;
             Ok(MZStatus::Ok)
         },
-        Ok(MZStatus::Ok) => { Err(MZError::BufError) },
+        Ok(MZStatus::Ok) => { Err(MZError::Buf) },
         _ => status
     }
 }
@@ -199,7 +199,7 @@ pub fn mz_deflate_init2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>,
 
     if (method != MZ_DEFLATED) || ((mem_level < 1) || (mem_level > 9)) ||
         ((window_bits != MZ_DEFAULT_WINDOW_BITS) && (-window_bits != MZ_DEFAULT_WINDOW_BITS)) {
-        return Err(MZError::ParamError);
+        return Err(MZError::Param);
     }
 
     stream_oxide.adler = MZ_ADLER32_INIT;
@@ -211,12 +211,12 @@ pub fn mz_deflate_init2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>,
 
     unsafe {
         alloc_one!(stream_oxide, tdefl_compressor)
-    }.map_or(Err(MZError::MemError), |compressor_state| {
+    }.map_or(Err(MZError::Mem), |compressor_state| {
         if unsafe {
             tdef::tdefl_init(compressor_state, None, ptr::null_mut(), comp_flags as c_int)
         } != TDEFL_STATUS_OKAY {
             mz_deflate_end_oxide(stream_oxide);
-            return Err(MZError::ParamError);
+            return Err(MZError::Param);
         }
         stream_oxide.state = Some(compressor_state);
         Ok(MZStatus::Ok)
@@ -225,12 +225,12 @@ pub fn mz_deflate_init2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>,
 
 pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, flush: c_int) -> Result<MZStatus, MZError> {
     match stream_oxide.state {
-        None => Err(MZError::StreamError),
+        None => Err(MZError::Stream),
         Some(ref mut state) => {
             match (flush, &mut stream_oxide.next_in, &mut stream_oxide.next_out) {
                 (mut flush @ 0 ... MZ_FINISH, &mut Some(ref mut next_in), &mut Some(ref mut next_out)) => {
                     if next_out.len() == 0 {
-                        return Err(MZError::BufError);
+                        return Err(MZError::Buf);
                     }
 
                     if flush == MZ_PARTIAL_FLUSH {
@@ -238,7 +238,7 @@ pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, flush:
                     }
 
                     if state.m_prev_return_status == TDEFL_STATUS_DONE {
-                        return Err(if flush == MZ_FINISH { MZError::StreamError } else { MZError::BufError });
+                        return Err(if flush == MZ_FINISH { MZError::Stream } else { MZError::Buf });
                     }
 
                     let original_total_in = stream_oxide.total_in;
@@ -266,7 +266,7 @@ pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, flush:
                         stream_oxide.adler = tdefl_get_adler32_oxide(*state) as c_ulong;
 
                         if defl_status < 0 {
-                            status = Err(MZError::StreamError);
+                            status = Err(MZError::Stream);
                             break;
                         } else if defl_status == TDEFL_STATUS_DONE {
                             status = Ok(MZStatus::StreamEnd);
@@ -278,12 +278,12 @@ pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, flush:
                                 (stream_oxide.total_out != original_total_out) {
                                 break;
                             }
-                            return Err(MZError::BufError);
+                            return Err(MZError::Buf);
                         }
                     }
                     status
                 },
-                _ => Err(MZError::StreamError)
+                _ => Err(MZError::Stream)
             }
         }
     }
@@ -311,7 +311,7 @@ pub fn mz_uncompress2_oxide(stream_oxide: &mut StreamOxide<inflate_state>,
             *dest_len = stream_oxide.total_out;
             Ok(MZStatus::Ok)
         },
-        (Err(MZError::BufError), 0) => Err(MZError::DataError),
+        (Err(MZError::Buf), 0) => Err(MZError::Data),
         (status, _) => status
     }
 }
@@ -324,7 +324,7 @@ pub fn mz_inflate_init2_oxide(stream_oxide: &mut StreamOxide<inflate_state>,
                               window_bits: c_int) -> Result<MZStatus, MZError>
 {
     if (window_bits != MZ_DEFAULT_WINDOW_BITS) && (window_bits != -MZ_DEFAULT_WINDOW_BITS) {
-        return Err(MZError::ParamError);
+        return Err(MZError::Param);
     }
 
     stream_oxide.adler = 0;
@@ -336,7 +336,7 @@ pub fn mz_inflate_init2_oxide(stream_oxide: &mut StreamOxide<inflate_state>,
 
     unsafe {
         alloc_one!(stream_oxide, inflate_state)
-    }.map_or(Err(MZError::MemError), |decompressor_state| {
+    }.map_or(Err(MZError::Mem), |decompressor_state| {
         decompressor_state.m_decomp.m_state = 0;
         decompressor_state.m_dict_ofs = 0;
         decompressor_state.m_dict_avail = 0;
@@ -363,14 +363,14 @@ fn push_dict_out(state: &mut inflate_state, next_out: &mut &mut [u8]) -> c_ulong
 
 pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, mut flush: c_int) -> Result<MZStatus, MZError> {
     match stream_oxide.state {
-        None => Err(MZError::StreamError),
+        None => Err(MZError::Stream),
         Some(ref mut state) => {
             if flush == MZ_PARTIAL_FLUSH {
                 flush = MZ_SYNC_FLUSH;
             }
 
             if (flush != MZ_NO_FLUSH) && (flush != MZ_SYNC_FLUSH) && (flush != MZ_FINISH) {
-                return Err(MZError::StreamError);
+                return Err(MZError::Stream);
             }
 
             let mut decomp_flags = tinfl::TINFL_FLAG_COMPUTE_ADLER32;
@@ -381,11 +381,11 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, mut flush
             let first_call = state.m_first_call;
             state.m_first_call = 0;
             if state.m_last_status < 0 {
-                return Err(MZError::DataError);
+                return Err(MZError::Data);
             }
 
             if (state.m_has_flushed != 0) && (flush != MZ_FINISH) {
-                return Err(MZError::StreamError);
+                return Err(MZError::Stream);
             }
             state.m_has_flushed |= (flush == MZ_FINISH) as c_uint;
 
@@ -416,10 +416,10 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, mut flush
                         stream_oxide.adler = state.m_decomp.m_check_adler32 as c_ulong;
 
                         if status < 0 {
-                            return Err(MZError::DataError);
+                            return Err(MZError::Data);
                         } else if status != TINFL_STATUS_DONE {
                             state.m_last_status = TINFL_STATUS_FAILED;
-                            return Err(MZError::BufError);
+                            return Err(MZError::Buf);
                         }
                         return Ok(MZStatus::StreamEnd);
                     }
@@ -462,14 +462,14 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, mut flush
                         stream_oxide.adler = state.m_decomp.m_check_adler32 as c_ulong;
 
                         if status < 0 {
-                            return Err(MZError::DataError);
+                            return Err(MZError::Data);
                         } else if (status == tinfl::TINFL_STATUS_NEEDS_MORE_INPUT) && (orig_avail_in == 0) {
-                            return Err(MZError::BufError);
+                            return Err(MZError::Buf);
                         } else if flush == MZ_FINISH {
                             if status == TINFL_STATUS_DONE {
-                                return if state.m_dict_avail != 0 { Err(MZError::BufError) } else { Ok(MZStatus::StreamEnd) };
+                                return if state.m_dict_avail != 0 { Err(MZError::Buf) } else { Ok(MZStatus::StreamEnd) };
                             } else if next_out.len() == 0 {
-                                return Err(MZError::BufError);
+                                return Err(MZError::Buf);
                             }
                         } else if (status == TINFL_STATUS_DONE) || (next_in.len() == 0) ||
                                   (next_out.len() == 0) || (state.m_dict_avail != 0) {
@@ -478,7 +478,7 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, mut flush
                     }
                     if (status == TINFL_STATUS_DONE) && (state.m_dict_avail == 0) { Ok(MZStatus::StreamEnd) } else { Ok(MZStatus::Ok) }
                 },
-                _ => Err(MZError::StreamError)
+                _ => Err(MZError::Stream)
             }
         }
     }
@@ -505,6 +505,6 @@ pub fn mz_deflate_reset_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) 
             }
             Ok(MZStatus::Ok)
         },
-        _ => Err(MZError::StreamError)
+        _ => Err(MZError::Stream)
     }
 }

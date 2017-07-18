@@ -38,13 +38,13 @@ pub enum MZStatus {
 }
 
 pub enum MZError {
-    Errno = -1,
-    StreamError = -2,
-    DataError = -3,
-    MemError = -4,
-    BufError = -5,
-    VersionError = -6,
-    ParamError = -10000
+    ErrNo = -1,
+    Stream = -2,
+    Data = -3,
+    Mem = -4,
+    Buf = -5,
+    Version = -6,
+    Param = -10000
 }
 
 pub enum CompressionLevel {
@@ -156,7 +156,7 @@ macro_rules! oxidize {
         #[allow(bad_style)]
         pub unsafe extern "C" fn $mz_func(stream: *mut mz_stream, $($arg_name : $type_name),*) -> c_int {
             match stream.as_mut() {
-                None => MZError::StreamError as c_int,
+                None => MZError::Stream as c_int,
                 Some(stream) => {
                     let mut stream_oxide = StreamOxide::new(&mut *stream);
                     let status = lib_oxide::$mz_func_oxide(&mut stream_oxide, $($arg_name),*);
@@ -208,9 +208,9 @@ pub unsafe extern "C" fn mz_compress2(dest: *mut u8,
                                       source_len: c_ulong,
                                       level: c_int) -> c_int
 {
-    dest_len.as_mut().map_or(MZError::ParamError as c_int, |dest_len| {
+    dest_len.as_mut().map_or(MZError::Param as c_int, |dest_len| {
         if (source_len | *dest_len) > 0xFFFFFFFF {
-            return MZError::ParamError as c_int;
+            return MZError::Param as c_int;
         }
 
         let mut stream: mz_stream = mz_stream {
@@ -248,9 +248,9 @@ pub unsafe extern "C" fn mz_uncompress(dest: *mut u8,
                                        source: *const u8,
                                        source_len: c_ulong) -> c_int
 {
-    dest_len.as_mut().map_or(MZError::ParamError as c_int, |dest_len| {
+    dest_len.as_mut().map_or(MZError::Param as c_int, |dest_len| {
         if (source_len | *dest_len) > 0xFFFFFFFF {
-            return MZError::ParamError as c_int;
+            return MZError::Param as c_int;
         }
 
         let mut stream: mz_stream = mz_stream {
