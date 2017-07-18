@@ -1,10 +1,10 @@
 use super::*;
 
-pub fn mz_adler32_oxide(adler: c_ulong, data: &[u8]) -> c_ulong {
+pub fn mz_adler32_oxide(adler: c_uint, data: &[u8]) -> c_uint {
     let mut s1 = adler & 0xffff;
     let mut s2 = adler >> 16;
-    for x in data {
-        s1 = (s1 + *x as c_ulong) % 65521;
+    for &x in data {
+        s1 = (s1 + x as c_uint) % 65521;
         s2 = (s1 + s2) % 65521;
     }
     (s2 << 16) + s1
@@ -165,10 +165,10 @@ pub fn mz_compress2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>,
 {
     mz_deflate_init_oxide(stream_oxide, level)?;
     let status = mz_deflate_oxide(stream_oxide, MZ_FINISH);
-    mz_deflate_end_oxide(stream_oxide);
+    mz_deflate_end_oxide(stream_oxide)?;
 
     match status {
-        Ok(MZ_STREAM_END) => {
+        Ok(MZStatus::StreamEnd) => {
             *dest_len = stream_oxide.total_out;
             Ok(MZStatus::Ok)
         },
@@ -215,7 +215,7 @@ pub fn mz_deflate_init2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>,
         if unsafe {
             tdef::tdefl_init(compressor_state, None, ptr::null_mut(), comp_flags as c_int)
         } != TDEFL_STATUS_OKAY {
-            mz_deflate_end_oxide(stream_oxide);
+            mz_deflate_end_oxide(stream_oxide)?;
             return Err(MZError::Param);
         }
         stream_oxide.state = Some(compressor_state);
@@ -304,7 +304,7 @@ pub fn mz_uncompress2_oxide(stream_oxide: &mut StreamOxide<inflate_state>,
 {
     mz_inflate_init_oxide(stream_oxide)?;
     let status = mz_inflate_oxide(stream_oxide, MZ_FINISH);
-    mz_inflate_end_oxide(stream_oxide);
+    mz_inflate_end_oxide(stream_oxide)?;
 
     match (status, stream_oxide.next_in.map_or(0, |next_in| next_in.len())) {
         (Ok(MZStatus::StreamEnd), _) => {

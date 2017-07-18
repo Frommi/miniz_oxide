@@ -74,24 +74,18 @@ extern {
 
 #[no_mangle]
 pub unsafe extern "C" fn mz_adler32(adler: c_ulong, ptr: *const u8, buf_len: usize) -> c_ulong {
-    match ptr.as_ref() {
-        None => MZ_ADLER32_INIT,
-        Some(r) => {
-            let data = slice::from_raw_parts(r, buf_len);
-            mz_adler32_oxide(adler, data)
-        }
-    }
+    ptr.as_ref().map_or(MZ_ADLER32_INIT, |r| {
+        let data = slice::from_raw_parts(r, buf_len);
+        mz_adler32_oxide(adler as c_uint, data) as c_ulong
+    })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn mz_crc32(crc: c_ulong, ptr: *const u8, buf_len: size_t) -> c_ulong {
-    match ptr.as_ref() {
-        None => MZ_CRC32_INIT,
-        Some(r) => {
-            let data = slice::from_raw_parts(r, buf_len);
-            mz_crc32_oxide(crc as c_uint, data) as c_ulong
-        }
-    }
+    ptr.as_ref().map_or(MZ_CRC32_INIT, |r| {
+        let data = slice::from_raw_parts(r, buf_len);
+        mz_crc32_oxide(crc as c_uint, data) as c_ulong
+    })
 }
 
 #[allow(bad_style)]
