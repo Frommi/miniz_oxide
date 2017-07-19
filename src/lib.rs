@@ -164,7 +164,7 @@ macro_rules! oxidize {
     ($mz_func:ident, $mz_func_oxide:ident; $($arg_name:ident: $type_name:ident),*) => {
         #[no_mangle]
         #[allow(bad_style)]
-        pub unsafe extern "C" fn $mz_func(stream: *mut mz_stream, $($arg_name : $type_name),*) -> c_int {
+        pub unsafe extern "C" fn $mz_func(stream: *mut mz_stream, $($arg_name: $type_name),*) -> c_int {
             match stream.as_mut() {
                 None => MZError::Stream as c_int,
                 Some(stream) => {

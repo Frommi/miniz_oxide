@@ -3,8 +3,8 @@ use super::*;
 pub fn mz_adler32_oxide(adler: c_uint, data: &[u8]) -> c_uint {
     let mut s1 = adler & 0xffff;
     let mut s2 = adler >> 16;
-    for &x in data {
-        s1 = (s1 + x as c_uint) % 65521;
+    for x in data {
+        s1 = (s1 + *x as c_uint) % 65521;
         s2 = (s1 + s2) % 65521;
     }
     (s2 << 16) + s1
@@ -270,8 +270,10 @@ pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, flush:
                         } else if next_out.len() == 0 {
                             break;
                         } else if (next_in.len() == 0) && (flush != MZFlush::Finish) {
-                            if (flush != MZFlush::None) || (stream_oxide.total_in != original_total_in) ||
-                                (stream_oxide.total_out != original_total_out) {
+                            if (flush != MZFlush::None) ||
+                               (stream_oxide.total_in != original_total_in) ||
+                               (stream_oxide.total_out != original_total_out)
+                            {
                                 break;
                             }
                             return Err(MZError::Buf);
@@ -469,7 +471,11 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, flush: c_
                             break;
                         }
                     }
-                    if (status == TINFL_STATUS_DONE) && (state.m_dict_avail == 0) { Ok(MZStatus::StreamEnd) } else { Ok(MZStatus::Ok) }
+                    if (status == TINFL_STATUS_DONE) && (state.m_dict_avail == 0) {
+                        Ok(MZStatus::StreamEnd)
+                    } else {
+                        Ok(MZStatus::Ok)
+                    }
                 },
                 _ => Err(MZError::Stream)
             }
