@@ -21,22 +21,6 @@ pub fn mz_crc32_oxide(crc32: c_uint, data: &[u8]) -> c_uint {
     })
 }
 
-
-#[repr(C)]
-#[allow(bad_style)]
-pub struct inflate_state {
-    pub m_decomp: tinfl_decompressor,
-
-    pub m_dict_ofs: c_uint,
-    pub m_dict_avail: c_uint,
-    pub m_first_call: c_uint,
-    pub m_has_flushed: c_uint,
-
-    pub m_window_bits: c_int,
-    pub m_dict: [u8; tinfl::TINFL_LZ_DICT_SIZE],
-    pub m_last_status: c_int
-}
-
 pub trait StateType {}
 impl StateType for tdefl_compressor {}
 impl StateType for inflate_state {}

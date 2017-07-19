@@ -112,6 +112,21 @@ pub type mz_alloc_func = unsafe extern "C" fn(*mut c_void, size_t, size_t) -> *m
 pub type mz_free_func = unsafe extern "C" fn(*mut c_void, *mut c_void);
 
 #[repr(C)]
+#[allow(bad_style)]
+pub struct inflate_state {
+    pub m_decomp: tinfl_decompressor,
+
+    pub m_dict_ofs: c_uint,
+    pub m_dict_avail: c_uint,
+    pub m_first_call: c_uint,
+    pub m_has_flushed: c_uint,
+
+    pub m_window_bits: c_int,
+    pub m_dict: [u8; tinfl::TINFL_LZ_DICT_SIZE],
+    pub m_last_status: c_int
+}
+
+#[repr(C)]
 #[derive(Debug)]
 #[allow(bad_style)]
 pub struct mz_stream {
