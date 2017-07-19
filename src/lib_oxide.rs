@@ -184,7 +184,11 @@ pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, flush:
     }
 
     if state.m_prev_return_status == TDEFLStatus::Done as c_int {
-        return Err(if flush == MZFlush::Finish { MZError::Stream } else { MZError::Buf });
+        return if flush == MZFlush::Finish {
+            Ok(MZStatus::StreamEnd)
+        } else {
+            Err(MZError::Buf)
+        };
     }
 
     let original_total_in = stream_oxide.total_in;
