@@ -2,15 +2,18 @@ extern crate gcc;
 
 use std::process::Command;
 
-#[cfg(not(feature="afl_test"))]
+#[cfg(not(feature = "fuzzing"))]
 fn main() {
     gcc::compile_library("libminiz.a",
-                         &["miniz.c", "miniz_zip.c", "miniz_tinfl.c", "miniz_tdef.c"]);
+                         &["miniz_stub/miniz.c",
+                           "miniz_stub/miniz_zip.c",
+                           "miniz_stub/miniz_tinfl.c",
+                           "miniz_stub/miniz_tdef.c"]);
 }
 
-#[cfg(feature="afl_test")]
+#[cfg(feature = "fuzzing")]
 fn main() {
-    Command::new("./build_afl.sh").status().unwrap();
+    Command::new("./build_fuzz.sh").status().unwrap();
     println!("cargo:rustc-link-search=native=bin");
     println!("cargo:rustc-link-lib=static=miniz");
 }

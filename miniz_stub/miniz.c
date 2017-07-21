@@ -24,7 +24,7 @@
  *
  **************************************************************************/
 
-#include "miniz.h"
+#include "../miniz.h"
 
 typedef unsigned char mz_validate_uint16[sizeof(mz_uint16) == 2 ? 1 : -1];
 typedef unsigned char mz_validate_uint32[sizeof(mz_uint32) == 4 ? 1 : -1];
@@ -35,35 +35,35 @@ extern "C" {
 #endif
 
 /* ------------------- zlib-style API's */
-/*
-mz_ulong mz_adler32(mz_ulong adler, const unsigned char *ptr, size_t buf_len)
-{
-    mz_uint32 i, s1 = (mz_uint32)(adler & 0xffff), s2 = (mz_uint32)(adler >> 16);
-    size_t block_len = buf_len % 5552;
-    if (!ptr)
-        return MZ_ADLER32_INIT;
-    while (buf_len)
-    {
-        for (i = 0; i + 7 < block_len; i += 8, ptr += 8)
-        {
-            s1 += ptr[0], s2 += s1;
-            s1 += ptr[1], s2 += s1;
-            s1 += ptr[2], s2 += s1;
-            s1 += ptr[3], s2 += s1;
-            s1 += ptr[4], s2 += s1;
-            s1 += ptr[5], s2 += s1;
-            s1 += ptr[6], s2 += s1;
-            s1 += ptr[7], s2 += s1;
-        }
-        for (; i < block_len; ++i)
-            s1 += *ptr++, s2 += s1;
-        s1 %= 65521U, s2 %= 65521U;
-        buf_len -= block_len;
-        block_len = 5552;
-    }
-    return (s2 << 16) + s1;
-}
-*/
+
+//mz_ulong mz_adler32(mz_ulong adler, const unsigned char *ptr, size_t buf_len)
+//{
+//    mz_uint32 i, s1 = (mz_uint32)(adler & 0xffff), s2 = (mz_uint32)(adler >> 16);
+//    size_t block_len = buf_len % 5552;
+//    if (!ptr)
+//        return MZ_ADLER32_INIT;
+//    while (buf_len)
+//    {
+//        for (i = 0; i + 7 < block_len; i += 8, ptr += 8)
+//        {
+//            s1 += ptr[0], s2 += s1;
+//            s1 += ptr[1], s2 += s1;
+//            s1 += ptr[2], s2 += s1;
+//            s1 += ptr[3], s2 += s1;
+//            s1 += ptr[4], s2 += s1;
+//            s1 += ptr[5], s2 += s1;
+//            s1 += ptr[6], s2 += s1;
+//            s1 += ptr[7], s2 += s1;
+//        }
+//        for (; i < block_len; ++i)
+//            s1 += *ptr++, s2 += s1;
+//        s1 %= 65521U, s2 %= 65521U;
+//        buf_len -= block_len;
+//        block_len = 5552;
+//    }
+//    return (s2 << 16) + s1;
+//}
+//
 ///* Karl Malbrain's compact CRC-32. See "A compact CCITT crc16 and crc32 C implementation that balances processor cache usage against speed": http://www.geocities.com/malbrain/ */
 //#if 0
 //    mz_ulong mz_crc32(mz_ulong crc, const mz_uint8 *ptr, size_t buf_len)
@@ -220,7 +220,7 @@ const char *mz_version(void)
 //
 //    return MZ_OK;
 //}
-
+//
 //int mz_deflateReset(mz_streamp pStream)
 //{
 //    if ((!pStream) || (!pStream->state) || (!pStream->zalloc) || (!pStream->zfree))
@@ -229,7 +229,7 @@ const char *mz_version(void)
 //    tdefl_init((tdefl_compressor *)pStream->state, NULL, NULL, ((tdefl_compressor *)pStream->state)->m_flags);
 //    return MZ_OK;
 //}
-
+//
 //int mz_deflate(mz_streamp pStream, int flush)
 //{
 //    size_t in_bytes, out_bytes;
@@ -287,7 +287,7 @@ const char *mz_version(void)
 //    }
 //    return mz_status;
 //}
-
+//
 //int mz_deflateEnd(mz_streamp pStream)
 //{
 //    if (!pStream)
@@ -299,14 +299,14 @@ const char *mz_version(void)
 //    }
 //    return MZ_OK;
 //}
-
+//
 //mz_ulong mz_deflateBound(mz_streamp pStream, mz_ulong source_len)
 //{
 //    (void)pStream;
 //    /* This is really over conservative. (And lame, but it's actually pretty tricky to compute a true upper bound given the way tdefl's blocking works.) */
 //    return MZ_MAX(128 + (source_len * 110) / 100, 128 + source_len + ((source_len / (31 * 1024)) + 1) * 5);
 //}
-
+//
 //int mz_compress2(unsigned char *pDest, mz_ulong *pDest_len, const unsigned char *pSource, mz_ulong source_len, int level)
 //{
 //    int status;
@@ -341,7 +341,7 @@ const char *mz_version(void)
 //{
 //    return mz_compress2(pDest, pDest_len, pSource, source_len, MZ_DEFAULT_COMPRESSION);
 //}
-
+//
 //mz_ulong mz_compressBound(mz_ulong source_len)
 //{
 //    return mz_deflateBound(NULL, source_len);
@@ -396,7 +396,7 @@ typedef struct
 //{
 //    return mz_inflateInit2(pStream, MZ_DEFAULT_WINDOW_BITS);
 //}
-
+//
 //int mz_inflate(mz_streamp pStream, int flush)
 //{
 //    inflate_state *pState;
@@ -508,7 +508,7 @@ typedef struct
 //
 //    return ((status == TINFL_STATUS_DONE) && (!pState->m_dict_avail)) ? MZ_STREAM_END : MZ_OK;
 //}
-
+//
 //int mz_inflateEnd(mz_streamp pStream)
 //{
 //    if (!pStream)
@@ -520,7 +520,7 @@ typedef struct
 //    }
 //    return MZ_OK;
 //}
-
+//
 //int mz_uncompress(unsigned char *pDest, mz_ulong *pDest_len, const unsigned char *pSource, mz_ulong source_len)
 //{
 //    mz_stream stream;
@@ -550,23 +550,23 @@ typedef struct
 //
 //    return mz_inflateEnd(&stream);
 //}
-
-const char *mz_error(int err)
-{
-    static struct
-    {
-        int m_err;
-        const char *m_pDesc;
-    } s_error_descs[] =
-        {
-          { MZ_OK, "" }, { MZ_STREAM_END, "stream end" }, { MZ_NEED_DICT, "need dictionary" }, { MZ_ERRNO, "file error" }, { MZ_STREAM_ERROR, "stream error" }, { MZ_DATA_ERROR, "data error" }, { MZ_MEM_ERROR, "out of memory" }, { MZ_BUF_ERROR, "buf error" }, { MZ_VERSION_ERROR, "version error" }, { MZ_PARAM_ERROR, "parameter error" }
-        };
-    mz_uint i;
-    for (i = 0; i < sizeof(s_error_descs) / sizeof(s_error_descs[0]); ++i)
-        if (s_error_descs[i].m_err == err)
-            return s_error_descs[i].m_pDesc;
-    return NULL;
-}
+//
+//const char *mz_error(int err)
+//{
+//    static struct
+//    {
+//        int m_err;
+//        const char *m_pDesc;
+//    } s_error_descs[] =
+//        {
+//          { MZ_OK, "" }, { MZ_STREAM_END, "stream end" }, { MZ_NEED_DICT, "need dictionary" }, { MZ_ERRNO, "file error" }, { MZ_STREAM_ERROR, "stream error" }, { MZ_DATA_ERROR, "data error" }, { MZ_MEM_ERROR, "out of memory" }, { MZ_BUF_ERROR, "buf error" }, { MZ_VERSION_ERROR, "version error" }, { MZ_PARAM_ERROR, "parameter error" }
+//        };
+//    mz_uint i;
+//    for (i = 0; i < sizeof(s_error_descs) / sizeof(s_error_descs[0]); ++i)
+//        if (s_error_descs[i].m_err == err)
+//            return s_error_descs[i].m_pDesc;
+//    return NULL;
+//}
 
 #endif /*MINIZ_NO_ZLIB_APIS */
 

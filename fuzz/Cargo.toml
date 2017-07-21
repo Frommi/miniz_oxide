@@ -1,0 +1,29 @@
+
+[package]
+name = "miniz_oxide-fuzz"
+version = "0.0.1"
+authors = ["Automatically generated"]
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libc="0.2.22"
+
+[dependencies.miniz_oxide]
+path = ".."
+[dependencies.libfuzzer-sys]
+git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "fuzz_compress"
+path = "fuzz_targets/fuzz_compress.rs"
+
+[features]
+default = ["fuzzing"]
+fuzzing = ["miniz_oxide/fuzzing"]

@@ -24,7 +24,7 @@
  *
  **************************************************************************/
 
-#include "miniz_tinfl.h"
+#include "../miniz_tinfl.h"
 
 #ifdef __cplusplus
 extern "C" {
