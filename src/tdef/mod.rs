@@ -3,9 +3,7 @@
 extern crate libc;
 
 mod tdef_oxide;
-pub use self::tdef_oxide::tdefl_radix_sort_syms_oxide;
-pub use self::tdef_oxide::tdefl_get_adler32_oxide;
-pub use self::tdef_oxide::tdefl_create_comp_flags_from_zip_params_oxide;
+pub use self::tdef_oxide::*;
 
 use self::libc::*;
 use std::slice;
@@ -144,6 +142,13 @@ pub unsafe extern "C" fn tdefl_radix_sort_syms(num_syms : c_uint,
     let syms0 = slice::from_raw_parts_mut(pSyms0, num_syms as usize);
     let syms1 = slice::from_raw_parts_mut(pSyms1, num_syms as usize);
     tdefl_radix_sort_syms_oxide(syms0, syms1).as_mut_ptr()
+}
+
+#[no_mangle]
+#[allow(bad_style)]
+pub unsafe extern "C" fn tdefl_calculate_minimum_redundancy(A: *mut tdefl_sym_freq, n: c_int) {
+    let symbols = slice::from_raw_parts_mut(A, n as usize);
+    tdefl_calculate_minimum_redundancy_oxide(symbols)
 }
 
 #[no_mangle]
