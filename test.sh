@@ -2,7 +2,7 @@
 
 set -e
 
-. build.sh
+./build.sh --debug
 
 mkdir -p bin
 g++ tests/miniz_tester.cpp tests/timer.cpp -o bin/miniz_tester -I. -ggdb -O2 -L. -lminiz_oxide -lutil -ldl -lrt -lpthread -lgcc_s -lc -lm -lrt -lpthread -lutil

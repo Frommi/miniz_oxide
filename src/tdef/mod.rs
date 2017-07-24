@@ -50,6 +50,8 @@ pub const TDEFL_HUFFMAN_ONLY: c_int = 0;
 pub const TDEFL_DEFAULT_MAX_PROBES: c_int = 128;
 pub const TDEFL_MAX_PROBES_MASK: c_int = 0xFFF;
 
+const TDEFL_MAX_SUPPORTED_HUFF_CODESIZE: c_int = 32;
+
 #[repr(C)]
 #[allow(bad_style)]
 pub struct tdefl_compressor {
@@ -149,6 +151,16 @@ pub unsafe extern "C" fn tdefl_radix_sort_syms(num_syms : c_uint,
 pub unsafe extern "C" fn tdefl_calculate_minimum_redundancy(A: *mut tdefl_sym_freq, n: c_int) {
     let symbols = slice::from_raw_parts_mut(A, n as usize);
     tdefl_calculate_minimum_redundancy_oxide(symbols)
+}
+
+#[no_mangle]
+#[allow(bad_style)]
+pub unsafe extern "C" fn tdefl_huffman_enforce_max_code_size(pNum_codes: *mut c_int,
+                                                             code_list_len: c_int,
+                                                             max_code_size: c_int)
+{
+    let num_codes = slice::from_raw_parts_mut(pNum_codes, (1 + TDEFL_MAX_SUPPORTED_HUFF_CODESIZE) as usize);
+    tdefl_huffman_enforce_max_code_size_oxide(num_codes, code_list_len, max_code_size as usize)
 }
 
 #[no_mangle]

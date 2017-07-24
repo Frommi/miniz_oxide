@@ -38,6 +38,7 @@ pub fn tdefl_radix_sort_syms_oxide<'a>(symbols0: &'a mut [tdefl_sym_freq],
     current_symbols
 }
 
+// TODO change to iterators
 pub fn tdefl_calculate_minimum_redundancy_oxide(symbols: &mut [tdefl_sym_freq]) {
     match symbols.len() {
         0 => (),
@@ -89,6 +90,29 @@ pub fn tdefl_calculate_minimum_redundancy_oxide(symbols: &mut [tdefl_sym_freq]) 
                 avbl = 2 * used;
                 dpth += 1;
                 used = 0;
+            }
+        }
+    }
+}
+
+pub fn tdefl_huffman_enforce_max_code_size_oxide(num_codes: &mut [c_int],
+                                                 code_list_len: c_int,
+                                                 max_code_size: usize)
+{
+    if code_list_len <= 1 { return; }
+
+    num_codes[max_code_size] += num_codes[max_code_size + 1..].iter().sum();
+    let total = num_codes[1..max_code_size + 1].iter().rev().enumerate().fold(0u32, |total, (i, &x)| {
+        total + ((x as u32) << i)
+    });
+
+    for _ in (1 << max_code_size)..total {
+        num_codes[max_code_size] -= 1;
+        for i in (1..max_code_size).rev() {
+            if num_codes[i] != 0 {
+                num_codes[i] -= 1;
+                num_codes[i + 1] += 2;
+                break;
             }
         }
     }
