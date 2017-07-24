@@ -21,9 +21,10 @@ git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
 members = ["."]
 
 [[bin]]
-name = "fuzz_compress"
-path = "fuzz_targets/fuzz_compress.rs"
+name = "fuzz_high"
+path = "fuzz_targets/fuzz_high.rs"
 
 [features]
 default = ["fuzzing"]
 fuzzing = ["miniz_oxide/fuzzing"]
+
