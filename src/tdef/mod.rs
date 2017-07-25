@@ -13,6 +13,8 @@ use std::cmp;
 #[allow(bad_style)]
 pub type tdefl_put_buf_func_ptr = unsafe extern "C" fn(*const c_void, c_int, *mut c_void);
 
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TDEFLStatus {
     BadParam = -2,
     PutBufFailed = -1,
@@ -20,22 +22,31 @@ pub enum TDEFLStatus {
     Done = 1
 }
 
-pub const TDEFL_LZ_CODE_BUF_SIZE: c_int = 64 * 1024;
-pub const TDEFL_OUT_BUF_SIZE: c_int = (TDEFL_LZ_CODE_BUF_SIZE * 13) / 10;
-pub const TDEFL_MAX_HUFF_SYMBOLS: c_int = 288;
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum TDEFLFlush {
+    None = 0,
+    Sync = 2,
+    Full = 3,
+    Finish = 4
+}
+
+pub const TDEFL_LZ_CODE_BUF_SIZE: usize = 64 * 1024;
+pub const TDEFL_OUT_BUF_SIZE: usize = (TDEFL_LZ_CODE_BUF_SIZE * 13) / 10;
+pub const TDEFL_MAX_HUFF_SYMBOLS: usize = 288;
 pub const TDEFL_LZ_HASH_BITS: c_int = 15;
 pub const TDEFL_LEVEL1_HASH_SIZE_MASK: c_int = 4095;
 pub const TDEFL_LZ_HASH_SHIFT: c_int = (TDEFL_LZ_HASH_BITS + 2) / 3;
-pub const TDEFL_LZ_HASH_SIZE: c_int = 1 << TDEFL_LZ_HASH_BITS;
+pub const TDEFL_LZ_HASH_SIZE: usize = 1 << TDEFL_LZ_HASH_BITS;
 
-pub const TDEFL_MAX_HUFF_TABLES: c_int = 3;
-pub const TDEFL_MAX_HUFF_SYMBOLS_0: c_int = 288;
-pub const TDEFL_MAX_HUFF_SYMBOLS_1: c_int = 32;
-pub const TDEFL_MAX_HUFF_SYMBOLS_2: c_int = 19;
-pub const TDEFL_LZ_DICT_SIZE: c_int = 32768;
-pub const TDEFL_LZ_DICT_SIZE_MASK: c_int = TDEFL_LZ_DICT_SIZE - 1;
-pub const TDEFL_MIN_MATCH_LEN: c_int = 3;
-pub const TDEFL_MAX_MATCH_LEN: c_int = 258;
+pub const TDEFL_MAX_HUFF_TABLES: usize = 3;
+pub const TDEFL_MAX_HUFF_SYMBOLS_0: usize = 288;
+pub const TDEFL_MAX_HUFF_SYMBOLS_1: usize = 32;
+pub const TDEFL_MAX_HUFF_SYMBOLS_2: usize = 19;
+pub const TDEFL_LZ_DICT_SIZE: usize = 32768;
+pub const TDEFL_LZ_DICT_SIZE_MASK: usize = TDEFL_LZ_DICT_SIZE - 1;
+pub const TDEFL_MIN_MATCH_LEN: usize = 3;
+pub const TDEFL_MAX_MATCH_LEN: usize = 258;
 
 pub const TDEFL_WRITE_ZLIB_HEADER: c_int = 0x01000;
 pub const TDEFL_COMPUTE_ADLER32: c_int = 0x02000;
@@ -50,7 +61,7 @@ pub const TDEFL_HUFFMAN_ONLY: c_int = 0;
 pub const TDEFL_DEFAULT_MAX_PROBES: c_int = 128;
 pub const TDEFL_MAX_PROBES_MASK: c_int = 0xFFF;
 
-const TDEFL_MAX_SUPPORTED_HUFF_CODESIZE: c_int = 32;
+const TDEFL_MAX_SUPPORTED_HUFF_CODESIZE: usize = 32;
 
 #[repr(C)]
 #[allow(bad_style)]
@@ -88,28 +99,27 @@ pub struct tdefl_compressor {
     pub m_block_index: c_uint,
     pub m_wants_to_finish: c_uint,
 
-    pub m_prev_return_status: c_int,
+    pub m_prev_return_status: TDEFLStatus,
 
     pub m_pIn_buf: *const c_void,
     pub m_pOut_buf: *mut c_void,
-    pub m_pIn_buf_size: *mut size_t,
-    pub m_pOut_buf_size: *mut size_t,
+    pub m_pIn_buf_size: *mut usize,
+    pub m_pOut_buf_size: *mut usize,
 
-    pub m_flush: c_int,
+    pub m_flush: TDEFLFlush,
 
     pub m_pSrc: *const u8,
+    pub m_src_buf_left: usize,
+    pub m_out_buf_ofs: usize,
 
-    pub m_src_buf_left: size_t,
-    pub m_out_buf_ofs: size_t,
-
-    pub m_dict: [u8; (TDEFL_LZ_DICT_SIZE + TDEFL_MAX_MATCH_LEN - 1) as usize],
-    pub m_huff_count: [[u16; TDEFL_MAX_HUFF_SYMBOLS as usize]; TDEFL_MAX_HUFF_TABLES as usize],
-    pub m_huff_codes: [[u16; TDEFL_MAX_HUFF_SYMBOLS as usize]; TDEFL_MAX_HUFF_TABLES as usize],
-    pub m_huff_code_sizes: [[u8; TDEFL_MAX_HUFF_SYMBOLS as usize]; TDEFL_MAX_HUFF_TABLES as usize],
-    pub m_lz_code_buf: [u8; TDEFL_LZ_CODE_BUF_SIZE as usize],
-    pub m_next: [u16; TDEFL_LZ_DICT_SIZE as usize],
-    pub m_hash: [u16; TDEFL_LZ_HASH_SIZE as usize],
-    pub m_output_buf: [u8; TDEFL_OUT_BUF_SIZE as usize],
+    pub m_dict: [u8; TDEFL_LZ_DICT_SIZE + TDEFL_MAX_MATCH_LEN - 1],
+    pub m_huff_count: [[u16; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
+    pub m_huff_codes: [[u16; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
+    pub m_huff_code_sizes: [[u8; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
+    pub m_lz_code_buf: [u8; TDEFL_LZ_CODE_BUF_SIZE],
+    pub m_next: [u16; TDEFL_LZ_DICT_SIZE],
+    pub m_hash: [u16; TDEFL_LZ_HASH_SIZE],
+    pub m_output_buf: [u8; TDEFL_OUT_BUF_SIZE],
 }
 
 #[allow(bad_style)]
@@ -159,8 +169,22 @@ pub unsafe extern "C" fn tdefl_huffman_enforce_max_code_size(pNum_codes: *mut c_
                                                              code_list_len: c_int,
                                                              max_code_size: c_int)
 {
-    let num_codes = slice::from_raw_parts_mut(pNum_codes, (1 + TDEFL_MAX_SUPPORTED_HUFF_CODESIZE) as usize);
-    tdefl_huffman_enforce_max_code_size_oxide(num_codes, code_list_len, max_code_size as usize)
+    let num_codes = slice::from_raw_parts_mut(pNum_codes, TDEFL_MAX_SUPPORTED_HUFF_CODESIZE + 1);
+    tdefl_huffman_enforce_max_code_size_oxide(num_codes, code_list_len as usize, max_code_size as usize)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn tdefl_optimize_huffman_table(d: *mut tdefl_compressor,
+                                                      table_num: c_int,
+                                                      table_len: c_int,
+                                                      code_size_limit: c_int,
+                                                      static_table: c_int)
+{
+    tdefl_optimize_huffman_table_oxide(d.as_mut().expect("Bad tdefl_compressor pointer"),
+                                       table_num as usize,
+                                       table_len as usize,
+                                       code_size_limit as usize,
+                                       static_table != 0)
 }
 
 #[no_mangle]

@@ -12,8 +12,9 @@ pub use lib_oxide::*;
 mod tdef;
 pub use tdef::tdefl_radix_sort_syms;
 pub use tdef::tdefl_calculate_minimum_redundancy;
-pub use tdef::tdefl_create_comp_flags_from_zip_params;
 pub use tdef::tdefl_huffman_enforce_max_code_size;
+pub use tdef::tdefl_optimize_huffman_table;
+pub use tdef::tdefl_create_comp_flags_from_zip_params;
 pub use tdef::tdefl_compressor;
 pub use tdef::tdefl_put_buf_func_ptr;
 

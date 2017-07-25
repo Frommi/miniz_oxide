@@ -151,8 +151,9 @@ pub fn mz_deflate_init2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>,
     let comp_flags = TDEFL_COMPUTE_ADLER32 as c_uint |
             tdef::tdefl_create_comp_flags_from_zip_params_oxide(level, window_bits, strategy);
 
-    if (method != MZ_DEFLATED) || ((mem_level < 1) || (mem_level > 9)) ||
-        ((window_bits != MZ_DEFAULT_WINDOW_BITS) && (-window_bits != MZ_DEFAULT_WINDOW_BITS)) {
+    let invalid_level = (mem_level < 1) || (mem_level > 9);
+    let invalid_bits = (window_bits != MZ_DEFAULT_WINDOW_BITS) && (-window_bits != MZ_DEFAULT_WINDOW_BITS);
+    if (method != MZ_DEFLATED) || invalid_level || invalid_bits {
         return Err(MZError::Param);
     }
 
@@ -183,7 +184,7 @@ pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, flush:
         return Err(MZError::Buf);
     }
 
-    if state.m_prev_return_status == TDEFLStatus::Done as c_int {
+    if state.m_prev_return_status == TDEFLStatus::Done {
         return if flush == MZFlush::Finish {
             Ok(MZStatus::StreamEnd)
         } else {
