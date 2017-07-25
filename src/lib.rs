@@ -1,22 +1,25 @@
 extern crate libc;
 
 use std::slice;
-use self::libc::*;
 use std::ptr;
 use std::mem;
 use std::cmp;
+
+use libc::*;
 
 mod lib_oxide;
 pub use lib_oxide::*;
 
 mod tdef;
-pub use tdef::tdefl_radix_sort_syms;
-pub use tdef::tdefl_calculate_minimum_redundancy;
-pub use tdef::tdefl_huffman_enforce_max_code_size;
-pub use tdef::tdefl_optimize_huffman_table;
-pub use tdef::tdefl_create_comp_flags_from_zip_params;
-pub use tdef::tdefl_compressor;
-pub use tdef::tdefl_put_buf_func_ptr;
+pub use tdef::{
+    tdefl_radix_sort_syms,
+    tdefl_calculate_minimum_redundancy,
+    tdefl_huffman_enforce_max_code_size,
+    tdefl_optimize_huffman_table,
+    tdefl_create_comp_flags_from_zip_params,
+    tdefl_compressor,
+    tdefl_put_buf_func_ptr
+};
 
 mod tinfl;
 pub use tinfl::tinfl_decompressor;
@@ -27,7 +30,8 @@ pub const MZ_DEFAULT_WINDOW_BITS: c_int = 15;
 pub const MZ_ADLER32_INIT: c_ulong = 1;
 pub const MZ_CRC32_INIT: c_ulong = 0;
 
-#[derive(Clone, Copy, PartialEq)]
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 enum MZFlush {
     None = 0,
     Partial = 1,
@@ -37,12 +41,16 @@ enum MZFlush {
     Block = 5
 }
 
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum MZStatus {
     Ok = 0,
     StreamEnd = 1,
     NeedDict = 2
 }
 
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum MZError {
     ErrNo = -1,
     Stream = -2,
@@ -53,6 +61,17 @@ pub enum MZError {
     Param = -10000
 }
 
+type MZResult = Result<MZStatus, MZError>;
+
+fn as_c_return_code(r: MZResult) -> c_int {
+    match r {
+        Err(status) => status as c_int,
+        Ok(status) => status as c_int
+    }
+}
+
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum CompressionLevel {
     NoCompression = 0,
     BestSpeed = 1,
@@ -62,6 +81,8 @@ pub enum CompressionLevel {
     DefaultCompression = -1
 }
 
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum CompressionStrategy {
     Default = 0,
     Filtered = 1,
@@ -189,10 +210,7 @@ macro_rules! oxidize {
                     let mut stream_oxide = StreamOxide::new(&mut *stream);
                     let status = lib_oxide::$mz_func_oxide(&mut stream_oxide, $($arg_name),*);
                     *stream = stream_oxide.as_mz_stream();
-                    match status {
-                        Ok(status) => status as c_int,
-                        Err(error) => error as c_int
-                    }
+                    as_c_return_code(status)
                 }
             }
         }
@@ -250,16 +268,13 @@ pub unsafe extern "C" fn mz_compress2(dest: *mut u8,
         };
 
         let mut stream_oxide = StreamOxide::new(&mut stream);
-        match mz_compress2_oxide(&mut stream_oxide, level, dest_len) {
-            Ok(status) => status as c_int,
-            Err(error) => error as c_int
-        }
+        as_c_return_code(mz_compress2_oxide(&mut stream_oxide, level, dest_len))
     })
 }
 
 #[no_mangle]
-#[allow(bad_style, unused_variables)]
-pub extern "C" fn mz_deflateBound(stream: *mut mz_stream, source_len: c_ulong) -> c_ulong {
+#[allow(bad_style)]
+pub extern "C" fn mz_deflateBound(_stream: *mut mz_stream, source_len: c_ulong) -> c_ulong {
     cmp::max(128 + (source_len * 110) / 100, 128 + source_len + ((source_len / (31 * 1024)) + 1) * 5)
 }
 
@@ -290,10 +305,7 @@ pub unsafe extern "C" fn mz_uncompress(dest: *mut u8,
         };
 
         let mut stream_oxide = StreamOxide::new(&mut stream);
-        match mz_uncompress2_oxide(&mut stream_oxide, dest_len) {
-            Ok(status) => status as c_int,
-            Err(error) => error as c_int
-        }
+        as_c_return_code(mz_uncompress2_oxide(&mut stream_oxide, dest_len))
     })
 }
 
