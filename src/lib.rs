@@ -1,7 +1,7 @@
 extern crate libc;
 
 use std::slice;
-use self::libc::*;
+use self::libc::*; // лучше use libc::*, и после блока с std
 use std::ptr;
 use std::mem;
 use std::cmp;
@@ -9,7 +9,7 @@ use std::cmp;
 mod lib_oxide;
 pub use lib_oxide::*;
 
-mod tdef;
+mod tdef; // можно `use tdef::{tdefl_radix_sort_syms, tdefl_calculate_minimum_redundancy, ... }`
 pub use tdef::tdefl_radix_sort_syms;
 pub use tdef::tdefl_calculate_minimum_redundancy;
 pub use tdef::tdefl_create_comp_flags_from_zip_params;
@@ -35,7 +35,7 @@ enum MZFlush {
     Finish = 4,
     Block = 5
 }
-
+// я блы Clone, Copy, PartialEq, Eq для всех этих штук задерайвил.
 pub enum MZStatus {
     Ok = 0,
     StreamEnd = 1,
@@ -51,6 +51,8 @@ pub enum MZError {
     Version = -6,
     Param = -10000
 }
+
+// Мб тут нужно ещё type MZResult = Result<MZStatus, MZError>?
 
 pub enum CompressionLevel {
     NoCompression = 0,
@@ -249,6 +251,8 @@ pub unsafe extern "C" fn mz_compress2(dest: *mut u8,
         };
 
         let mut stream_oxide = StreamOxide::new(&mut stream);
+        // этот матч с двумя кейсами и кастом к c_int повторяется несколько раз.
+        // Мб сделать функцию?
         match mz_compress2_oxide(&mut stream_oxide, level, dest_len) {
             Ok(status) => status as c_int,
             Err(error) => error as c_int
@@ -257,7 +261,7 @@ pub unsafe extern "C" fn mz_compress2(dest: *mut u8,
 }
 
 #[no_mangle]
-#[allow(bad_style, unused_variables)]
+#[allow(bad_style, unused_variables)]// лучше вместо `allow(unused)` назвать параметр `_stream`.
 pub extern "C" fn mz_deflateBound(stream: *mut mz_stream, source_len: c_ulong) -> c_ulong {
     cmp::max(128 + (source_len * 110) / 100, 128 + source_len + ((source_len / (31 * 1024)) + 1) * 5)
 }

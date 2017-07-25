@@ -1,9 +1,13 @@
 use super::*;
 
+// Эх, если это был greenfield код, было бы хорошо прямо тут
+// юнит-тестов на такие self-contained функции написать,
+// через `#[test] fn`. В принципе, этим можно будет заняться,
+// если время останиться.
 pub fn mz_adler32_oxide(adler: c_uint, data: &[u8]) -> c_uint {
     let mut s1 = adler & 0xffff;
     let mut s2 = adler >> 16;
-    for x in data {
+    for x in data { // я бы написал `for &x in data`
         s1 = (s1 + *x as c_uint) % 65521;
         s2 = (s1 + s2) % 65521;
     }
@@ -14,6 +18,11 @@ static S_CRC32: [c_uint; 16] = [0, 0x1db71064, 0x3b6e20c8, 0x26d930ac, 0x76dc419
     0x6b6b51f4, 0x4db26158, 0x5005713c, 0xedb88320, 0xf00f9344, 0xd6d6a3e8,
     0xcb61b38c, 0x9b64c2b0, 0x86d3d2d4, 0xa00ae278, 0xbdbdf21c];
 
+// Мда, про такую штуку без юнит-тестов ничего не сказать =)
+// Ты же её как-то существенно переписывал? В таких случаях,
+// наверное хорошо сначла написать юнит-тестов, которые просто
+// текущее поведение проверяют. Тогда рефакторить будет быстрее,
+// потому что юниты быстрее фаззинга должны работать.
 pub fn mz_crc32_oxide(crc32: c_uint, data: &[u8]) -> c_uint {
     !data.iter().fold(!crc32, |mut crcu32, &b| {
         crcu32 = (crcu32 >> 4) ^ S_CRC32[(((crcu32 & 0xF) as u8) ^ (b & 0xF)) as usize];
@@ -55,6 +64,14 @@ impl Allocator {
     }
 
     fn alloc_one<'a, T>(&mut self) -> Option<&'a mut T> {
+        // Хм, а корректно ли тут &mut возвращать, это же семантически owned type.
+        // Можно было бы `Box::from_raw` вернуть, но это тоже не правильно видимо,
+        // потому что это же не растовским аллокатором сделано, и может UB вызвать в drop.
+        // Давай ZBox сделаем, который как Box, но про minizшный аллокатор?
+        // Можно будет ещё в Drop вставить проверку, что не утекло.
+        // ещё, тут же не инициализированная память возвращаеться?
+        // Значит, надо либо делать функцию unsafe, либо делать `T: Default`,
+        // либо принимать значение типа `T` для инициализации.
         unsafe { ((self.alloc)(self.opaque, 1, mem::size_of::<T>()) as *mut T).as_mut() }
     }
 
@@ -65,6 +82,7 @@ impl Allocator {
 
 impl<'io, 'state, ST: StateType> StreamOxide<'io, 'state, ST> {
     pub unsafe fn new(stream: &mut mz_stream) -> Self {
+        // тут видимо удобно заюзать Option::map
         let in_slice = match stream.next_in.as_ref() {
             None => None,
             Some(ptr) => Some(slice::from_raw_parts(ptr, stream.avail_in as usize))
@@ -133,7 +151,7 @@ pub fn mz_compress2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>,
 }
 
 
-use tdef::TDEFL_COMPUTE_ADLER32;
+use tdef::TDEFL_COMPUTE_ADLER32; // давай все `use` наверх закинем?
 use tdef::tdefl_get_adler32_oxide;
 use tdef::TDEFLStatus;
 
@@ -160,8 +178,10 @@ pub fn mz_deflate_init2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>,
     stream_oxide.total_in = 0;
     stream_oxide.total_out = 0;
 
+    // а мб пусть alloc_one сразу result возвращает?
     let mut compressor_state = stream_oxide.allocator.alloc_one().ok_or(MZError::Mem)?;
     if unsafe {
+        // я бы это в переменную вынес (ctrl+alt+v), лучше не засовывать много в condition
         tdef::tdefl_init(compressor_state, None, ptr::null_mut(), comp_flags as c_int)
     } != TDEFLStatus::Okay as c_int {
         mz_deflate_end_oxide(stream_oxide)?;
@@ -179,6 +199,7 @@ pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, flush:
 
     let flush = MZFlush::new(flush)?;
 
+    // next_out.is_empty()
     if next_out.len() == 0 {
         return Err(MZError::Buf);
     }
@@ -214,14 +235,21 @@ pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, flush:
         stream_oxide.adler = tdefl_get_adler32_oxide(*state) as c_ulong;
 
         if defl_status < 0 {
+            // я бы тут вместо всех breakов сразу retrun бы написал, а `let mut status` убрал бы вообще
+            // Rust умеет делать control flow analysis и справиться с этим.
             status = Err(MZError::Stream);
             break;
+        // так как это ветка diverging, то else можно и имо лучше убрать
         } else if defl_status == TDEFLStatus::Done as c_int {
             status = Ok(MZStatus::StreamEnd);
             break;
         } else if next_out.len() == 0 {
             break;
         } else if (next_in.len() == 0) && (flush != MZFlush::Finish) {
+
+            // аналогично тут, `return if (..) { Ok } else { Err }`
+            // ещё, сложный condition можно в переменную запомнить, если можно придумать нормальное
+            // имя.
             if (flush != MZFlush::None) ||
                (stream_oxide.total_in != original_total_in) ||
                (stream_oxide.total_out != original_total_out)
@@ -267,6 +295,7 @@ pub fn mz_inflate_init_oxide(stream_oxide: &mut StreamOxide<inflate_state>) -> R
 pub fn mz_inflate_init2_oxide(stream_oxide: &mut StreamOxide<inflate_state>,
                               window_bits: c_int) -> Result<MZStatus, MZError>
 {
+    // там выше был такое же условие, только - стоял в другом месте. Сделаем функцию?
     if (window_bits != MZ_DEFAULT_WINDOW_BITS) && (window_bits != -MZ_DEFAULT_WINDOW_BITS) {
         return Err(MZError::Param);
     }
@@ -275,6 +304,7 @@ pub fn mz_inflate_init2_oxide(stream_oxide: &mut StreamOxide<inflate_state>,
     stream_oxide.total_in = 0;
     stream_oxide.total_out = 0;
 
+    // длинноватое название для локальной переменной
     let mut decompressor_state = stream_oxide.allocator.alloc_one::<inflate_state>().ok_or(MZError::Mem)?;
     decompressor_state.m_decomp.m_state = 0;
     decompressor_state.m_dict_ofs = 0;
@@ -345,6 +375,7 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, flush: c_
 
         state.m_last_status = status;
 
+        // тут напрашиваются хелперы advance_in, advance_out
         *next_in = &next_in[in_bytes..];
         *next_out = &mut mem::replace(next_out, &mut [])[out_bytes..];
         stream_oxide.total_in += in_bytes as c_ulong;
@@ -399,6 +430,7 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, flush: c_
 
         if status < 0 {
             return Err(MZError::Data);
+            // аналогично, `else`ы не нужны, ну или можно сделать return if (...) {...}
         } else if (status == tinfl::TINFL_STATUS_NEEDS_MORE_INPUT) && (orig_avail_in == 0) {
             return Err(MZError::Buf);
         } else if flush == MZFlush::Finish {
