@@ -81,7 +81,7 @@ pub struct tdefl_compressor {
 
     pub m_pLZ_code_buf: *mut u8,
     pub m_pLZ_flags: *mut u8,
-    pub m_pOutput_buf: *mut u8,
+    pub m_pOutput_buf: *mut u8,                  // current output buffer
     pub m_pOutput_buf_end: *mut u8,
 
     pub m_num_flags_left: c_uint,
@@ -102,7 +102,7 @@ pub struct tdefl_compressor {
     pub m_prev_return_status: TDEFLStatus,
 
     pub m_pIn_buf: *const c_void,
-    pub m_pOut_buf: *mut c_void,
+    pub m_pOut_buf: *mut c_void,                 // original out_buf from tdefl_compress
     pub m_pIn_buf_size: *mut usize,
     pub m_pOut_buf_size: *mut usize,
 
@@ -119,7 +119,7 @@ pub struct tdefl_compressor {
     pub m_lz_code_buf: [u8; TDEFL_LZ_CODE_BUF_SIZE],
     pub m_next: [u16; TDEFL_LZ_DICT_SIZE],
     pub m_hash: [u16; TDEFL_LZ_HASH_SIZE],
-    pub m_output_buf: [u8; TDEFL_OUT_BUF_SIZE],
+    pub m_output_buf: [u8; TDEFL_OUT_BUF_SIZE],  // local output buffer
 }
 
 #[allow(bad_style)]

@@ -209,7 +209,7 @@ macro_rules! oxidize {
                 Some(stream) => {
                     let mut stream_oxide = StreamOxide::new(&mut *stream);
                     let status = lib_oxide::$mz_func_oxide(&mut stream_oxide, $($arg_name),*);
-                    *stream = stream_oxide.as_mz_stream();
+                    *stream = stream_oxide.into_mz_stream();
                     as_c_return_code(status)
                 }
             }

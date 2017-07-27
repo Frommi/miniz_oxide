@@ -33,45 +33,78 @@ pub trait StateType {}
 impl StateType for tdefl_compressor {}
 impl StateType for inflate_state {}
 
-pub struct Allocator {
+pub struct BoxedState<ST: StateType> {
+    pub inner: *mut ST,
     pub alloc: mz_alloc_func,
     pub free: mz_free_func,
     pub opaque: *mut c_void,
 }
 
-pub struct StreamOxide<'io, 'state, ST: 'state> {
-    pub next_in: Option<&'io [u8]>,
-    pub total_in: c_ulong,
-
-    pub next_out: Option<&'io mut [u8]>,
-    pub total_out: c_ulong,
-
-    pub state: Option<&'state mut ST>,
-
-    pub allocator: Allocator,
-
-    pub adler: c_ulong
+impl<ST: StateType> Drop for BoxedState<ST> {
+    fn drop(&mut self) {
+        self.free_state();
+    }
 }
 
-impl Allocator {
+impl<ST: StateType> BoxedState<ST> {
+    pub fn as_ref(&self) -> Option<&ST> {
+        unsafe {
+            self.inner.as_ref()
+        }
+    }
+
+    pub fn as_mut(&mut self) -> Option<&mut ST> {
+        unsafe {
+            self.inner.as_mut()
+        }
+    }
+
     pub fn new(stream: &mut mz_stream) -> Self {
-        Allocator {
+        BoxedState {
+            inner: stream.state as *mut ST,
             alloc: stream.zalloc.unwrap_or(miniz_def_alloc_func),
             free: stream.zfree.unwrap_or(miniz_def_free_func),
             opaque: stream.opaque
         }
     }
 
-    fn alloc_one<'a, T>(&mut self) -> Option<&'a mut T> {
-        unsafe { ((self.alloc)(self.opaque, 1, mem::size_of::<T>()) as *mut T).as_mut() }
+    pub fn forget(mut self) -> *mut ST {
+        let state = self.inner;
+        self.inner = ptr::null_mut();
+        state
     }
 
-    fn free<T>(&mut self, ptr: *mut T) {
-        unsafe { (self.free)(self.opaque, ptr as *mut c_void) }
+    fn alloc_state<'a, T>(&mut self) -> MZResult {
+        self.inner = unsafe { (self.alloc)(self.opaque, 1, mem::size_of::<ST>()) as *mut ST };
+        if self.inner.is_null() {
+            Err(MZError::Mem)
+        } else {
+            Ok(MZStatus::Ok)
+        }
+    }
+
+    pub fn free_state(&mut self) {
+        if !self.inner.is_null() {
+            unsafe { (self.free)(self.opaque, self.inner as *mut c_void) }
+            self.inner = ptr::null_mut();
+        }
     }
 }
 
-impl<'io, 'state, ST: StateType> StreamOxide<'io, 'state, ST> {
+pub struct StreamOxide<'io, ST: StateType> {
+    pub next_in: Option<&'io [u8]>,
+    pub total_in: c_ulong,
+
+    pub next_out: Option<&'io mut [u8]>,
+    pub total_out: c_ulong,
+
+    pub state: BoxedState<ST>,
+
+    pub adler: c_ulong
+}
+
+
+impl<'io, ST: StateType> StreamOxide<'io, ST> {
     pub unsafe fn new(stream: &mut mz_stream) -> Self {
         let in_slice = stream.next_in.as_ref().map(|ptr| {
             slice::from_raw_parts(ptr, stream.avail_in as usize)
@@ -86,13 +119,12 @@ impl<'io, 'state, ST: StateType> StreamOxide<'io, 'state, ST> {
             total_in: stream.total_in,
             next_out: out_slice,
             total_out: stream.total_out,
-            state: (stream.state as *mut ST).as_mut(),
-            allocator: Allocator::new(stream),
+            state: BoxedState::new(stream),
             adler: stream.adler
         }
     }
 
-    pub fn as_mz_stream(&mut self) -> mz_stream {
+    pub fn into_mz_stream(mut self) -> mz_stream {
         mz_stream {
             next_in: self.next_in.map_or(ptr::null(), |in_slice| in_slice.as_ptr()),
             avail_in: self.next_in.map_or(0, |in_slice| in_slice.len() as c_uint),
@@ -104,13 +136,10 @@ impl<'io, 'state, ST: StateType> StreamOxide<'io, 'state, ST> {
 
             msg: ptr::null(),
 
-            state: self.state.as_mut().map_or(ptr::null_mut(), |state| {
-                (*state as *mut ST) as *mut mz_internal_state
-            }),
-
-            zalloc: Some(self.allocator.alloc),
-            zfree: Some(self.allocator.free),
-            opaque: self.allocator.opaque,
+            zalloc: Some(self.state.alloc),
+            zfree: Some(self.state.free),
+            opaque: self.state.opaque,
+            state: self.state.forget() as *mut mz_internal_state,
 
             data_type: 0,
             adler: self.adler,
@@ -165,13 +194,15 @@ pub fn mz_deflate_init2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>,
     stream_oxide.total_in = 0;
     stream_oxide.total_out = 0;
 
-    let mut state = stream_oxide.allocator.alloc_one().ok_or(MZError::Mem)?;
-    let status = unsafe { tdef::tdefl_init(state, None, ptr::null_mut(), comp_flags as c_int) };
+    stream_oxide.state.alloc_state::<tdefl_compressor>()?;
+    let status = unsafe {
+        tdef::tdefl_init(stream_oxide.state.inner, None, ptr::null_mut(), comp_flags as c_int)
+    };
+
     if status != TDEFLStatus::Okay as c_int {
         mz_deflate_end_oxide(stream_oxide)?;
         return Err(MZError::Param);
     }
-    stream_oxide.state = Some(state);
 
     Ok(MZStatus::Ok)
 }
@@ -202,7 +233,7 @@ pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, flush:
         let mut in_bytes = next_in.len();
         let mut out_bytes = next_out.len();
         let defl_status = unsafe { tdef::tdefl_compress(
-            *state,
+            state,
             next_in.as_ptr() as *const c_void,
             &mut in_bytes,
             next_out.as_mut_ptr() as *mut c_void,
@@ -214,7 +245,7 @@ pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, flush:
         *next_out = &mut mem::replace(next_out, &mut [])[out_bytes..];
         stream_oxide.total_in += in_bytes as c_ulong;
         stream_oxide.total_out += out_bytes as c_ulong;
-        stream_oxide.adler = tdefl_get_adler32_oxide(*state) as c_ulong;
+        stream_oxide.adler = tdefl_get_adler32_oxide(state) as c_ulong;
 
         if defl_status < 0 {
             return Err(MZError::Stream);
@@ -242,9 +273,7 @@ pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, flush:
 }
 
 pub fn mz_deflate_end_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) -> MZResult {
-    if let Some(state) = stream_oxide.state.as_mut() {
-        stream_oxide.allocator.free(*state);
-    }
+    stream_oxide.state.free_state();
     Ok(MZStatus::Ok)
 }
 
@@ -281,7 +310,8 @@ pub fn mz_inflate_init2_oxide(stream_oxide: &mut StreamOxide<inflate_state>,
     stream_oxide.total_in = 0;
     stream_oxide.total_out = 0;
 
-    let mut state = stream_oxide.allocator.alloc_one::<inflate_state>().ok_or(MZError::Mem)?;
+    stream_oxide.state.alloc_state::<inflate_state>()?;
+    let state = stream_oxide.state.as_mut().ok_or(MZError::Mem)?;
     state.m_decomp.m_state = 0;
     state.m_dict_ofs = 0;
     state.m_dict_avail = 0;
@@ -289,7 +319,6 @@ pub fn mz_inflate_init2_oxide(stream_oxide: &mut StreamOxide<inflate_state>,
     state.m_first_call = 1;
     state.m_has_flushed = 0;
     state.m_window_bits = window_bits;
-    stream_oxide.state = Some(state);
 
     Ok(MZStatus::Ok)
 }
@@ -427,9 +456,7 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, flush: c_
 }
 
 pub fn mz_inflate_end_oxide(stream_oxide: &mut StreamOxide<inflate_state>) -> MZResult {
-    if let Some(state) = stream_oxide.state.as_mut() {
-        stream_oxide.allocator.free(*state);
-    }
+    stream_oxide.state.free_state();
     Ok(MZStatus::Ok)
 }
 
@@ -440,7 +467,7 @@ pub fn mz_deflate_reset_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) 
     stream_oxide.total_in = 0;
     stream_oxide.total_out = 0;
     unsafe {
-        tdef::tdefl_init(*compressor_state, None, ptr::null_mut(), compressor_state.m_flags as c_int);
+        tdef::tdefl_init(compressor_state, None, ptr::null_mut(), compressor_state.m_flags as c_int);
     }
 
     Ok(MZStatus::Ok)

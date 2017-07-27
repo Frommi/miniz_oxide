@@ -185,7 +185,7 @@ pub fn tdefl_optimize_huffman_table_oxide(d: &mut tdefl_compressor,
         next_code[code_size as usize] += 1;
 
         let mut rev_code = 0;
-        for _ in 0..code_size {
+        for _ in 0..code_size { // TODO reverse u32 faster?
             rev_code = (rev_code << 1) | (code & 1);
             code >>= 1;
         }
@@ -197,8 +197,7 @@ pub fn tdefl_get_adler32_oxide(d: &tdefl_compressor) -> c_uint {
     d.m_adler32
 }
 
-#[allow(bad_style)]
-const s_tdefl_num_probes: [c_uint; 11] = [0, 1, 6, 32, 16, 32, 128, 256, 512, 768, 1500];
+const TDEFL_NUM_PROBES: [c_uint; 11] = [0, 1, 6, 32, 16, 32, 128, 256, 512, 768, 1500];
 
 pub fn tdefl_create_comp_flags_from_zip_params_oxide(level: c_int,
                                                      window_bits: c_int,
@@ -210,7 +209,7 @@ pub fn tdefl_create_comp_flags_from_zip_params_oxide(level: c_int,
         ::CompressionLevel::DefaultLevel as c_int
     }) as usize;
     let greedy = if level <= 3 { TDEFL_GREEDY_PARSING_FLAG } else { 0 } as c_uint;
-    let mut comp_flags = s_tdefl_num_probes[num_probes] | greedy;
+    let mut comp_flags = TDEFL_NUM_PROBES[num_probes] | greedy;
 
     if window_bits > 0 {
         comp_flags |= TDEFL_WRITE_ZLIB_HEADER as c_uint;

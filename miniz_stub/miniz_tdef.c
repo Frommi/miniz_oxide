@@ -341,7 +341,8 @@ void tdefl_optimize_huffman_table(tdefl_compressor *d, int table_num, int table_
 
 static mz_uint8 s_tdefl_packed_code_size_syms_swizzle[] = { 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15 };
 
-static void tdefl_start_dynamic_block(tdefl_compressor *d)
+void tdefl_start_dynamic_block(tdefl_compressor *d);
+void tdefl_start_dynamic_block(tdefl_compressor *d)
 {
     int num_lit_codes, num_dist_codes, num_bit_lengths;
     mz_uint i, total_code_sizes_to_pack, num_packed_code_sizes, rle_z_count, rle_repeat_count, packed_code_sizes_index;
