@@ -1,5 +1,9 @@
 use super::*;
 
+use std::io;
+use std::io::Write;
+use std::io::Cursor;
+
 pub fn tdefl_radix_sort_syms_oxide<'a>(symbols0: &'a mut [tdefl_sym_freq],
                                        symbols1: &'a mut [tdefl_sym_freq]) -> &'a mut [tdefl_sym_freq]
 {
@@ -118,7 +122,7 @@ pub fn tdefl_huffman_enforce_max_code_size_oxide(num_codes: &mut [c_int],
     }
 }
 
-pub fn tdefl_optimize_huffman_table_oxide(d: &mut tdefl_compressor,
+pub fn tdefl_optimize_huffman_table_oxide(h: &mut HuffmanOxide,
                                           table_num: usize,
                                           table_len: usize,
                                           code_size_limit: usize,
@@ -128,7 +132,7 @@ pub fn tdefl_optimize_huffman_table_oxide(d: &mut tdefl_compressor,
     let mut next_code = [0 as c_uint; TDEFL_MAX_SUPPORTED_HUFF_CODESIZE + 1];
 
     if static_table {
-        for &code_size in &d.m_huff_code_sizes[table_num][..table_len] {
+        for &code_size in &h.code_sizes[table_num][..table_len] {
             num_codes[code_size as usize] += 1;
         }
     } else {
@@ -137,9 +141,9 @@ pub fn tdefl_optimize_huffman_table_oxide(d: &mut tdefl_compressor,
 
         let mut num_used_symbols = 0;
         for i in 0..table_len {
-            if d.m_huff_count[table_num][i] != 0 {
+            if h.count[table_num][i] != 0 {
                 symbols0[num_used_symbols] = tdefl_sym_freq {
-                    m_key: d.m_huff_count[table_num][i],
+                    m_key: h.count[table_num][i],
                     m_sym_index: i as u16
                 };
                 num_used_symbols += 1;
@@ -156,14 +160,14 @@ pub fn tdefl_optimize_huffman_table_oxide(d: &mut tdefl_compressor,
 
         tdefl_huffman_enforce_max_code_size_oxide(&mut num_codes, num_used_symbols, code_size_limit);
 
-        d.m_huff_code_sizes[table_num] = [0u8; TDEFL_MAX_HUFF_SYMBOLS];
-        d.m_huff_codes[table_num] = [0u16; TDEFL_MAX_HUFF_SYMBOLS];
+        for x in &mut h.code_sizes[table_num][..] { *x = 0 }
+        for x in &mut h.codes[table_num][..] { *x = 0 }
 
         let mut last = num_used_symbols;
         for i in 1..code_size_limit + 1 {
             let first = last - num_codes[i] as usize;
             for symbol in &symbols[first..last] {
-                d.m_huff_code_sizes[table_num][symbol.m_sym_index as usize] = i as u8;
+                h.code_sizes[table_num][symbol.m_sym_index as usize] = i as u8;
             }
             last = first;
         }
@@ -176,8 +180,8 @@ pub fn tdefl_optimize_huffman_table_oxide(d: &mut tdefl_compressor,
         next_code[i] = j as c_uint;
     }
 
-    for (&code_size, huff_code) in d.m_huff_code_sizes[table_num].iter().take(table_len)
-                                    .zip(d.m_huff_codes[table_num].iter_mut().take(table_len))
+    for (&code_size, huff_code) in h.code_sizes[table_num].iter().take(table_len)
+                                    .zip(h.codes[table_num].iter_mut().take(table_len))
     {
         if code_size == 0 { continue }
 
@@ -191,6 +195,177 @@ pub fn tdefl_optimize_huffman_table_oxide(d: &mut tdefl_compressor,
         }
         *huff_code = rev_code as u16;
     }
+}
+
+pub struct HuffmanOxide<'a> {
+    pub count: &'a mut [[u16; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
+    pub codes: &'a mut [[u16; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
+    pub code_sizes: &'a mut [[u8; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES]
+}
+
+pub struct OutputBufferOxide<'a> {
+    pub inner: Cursor<&'a mut [u8]>,
+
+    pub bit_buffer: &'a mut u32,
+    pub bits_in: &'a mut u32
+}
+
+impl<'a> OutputBufferOxide<'a> {
+    fn tdefl_put_bits(&mut self, bits: u32, len: u32) -> io::Result<()> {
+        assert!(bits <= ((1u32 << len) - 1u32));
+        *self.bit_buffer |= bits << *self.bits_in;
+        *self.bits_in += len;
+        while *self.bits_in >= 8 {
+            self.inner.write(&[*self.bit_buffer as u8][..])?;
+            *self.bit_buffer >>= 8;
+            *self.bits_in -= 8;
+        }
+        Ok(())
+    }
+}
+
+const TDEFL_PACKED_CODE_SIZE_SYMS_SWIZZLE: [u8; 19] =
+    [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+
+pub fn tdefl_start_dynamic_block_oxide(h: &mut HuffmanOxide, output: &mut OutputBufferOxide) -> io::Result<()> {
+    h.count[0][256] = 1;
+
+    tdefl_optimize_huffman_table_oxide(h, 0, TDEFL_MAX_HUFF_SYMBOLS_0, 15, false);
+    tdefl_optimize_huffman_table_oxide(h, 1, TDEFL_MAX_HUFF_SYMBOLS_1, 15, false);
+
+    let num_lit_codes = 286 - &h.code_sizes[0][257..286]
+        .iter().rev().take_while(|&x| *x == 0).count();
+
+    let num_dist_codes = 30 - &h.code_sizes[1][1..30]
+        .iter().rev().take_while(|&x| *x == 0).count();
+
+    let mut code_sizes_to_pack = [0u8; TDEFL_MAX_HUFF_SYMBOLS_0 + TDEFL_MAX_HUFF_SYMBOLS_1];
+    let mut packed_code_sizes = [0u8; TDEFL_MAX_HUFF_SYMBOLS_0 + TDEFL_MAX_HUFF_SYMBOLS_1];
+
+    let total_code_sizes_to_pack = num_lit_codes + num_dist_codes;
+
+    &code_sizes_to_pack[..num_lit_codes]
+        .copy_from_slice(&h.code_sizes[0][..num_lit_codes]);
+
+    &code_sizes_to_pack[num_lit_codes..total_code_sizes_to_pack]
+        .copy_from_slice(&h.code_sizes[1][..num_dist_codes]);
+
+    struct RLE {
+        pub rle_z_count: u32,
+        pub rle_repeat_count: u32,
+        pub prev_code_size: u8
+    }
+
+    let mut rle = RLE {
+        rle_z_count: 0,
+        rle_repeat_count: 0,
+        prev_code_size: 0xFF
+    };
+
+    let tdefl_rle_prev_code_size = |rle: &mut RLE,
+                                    packed_code_sizes: &mut Cursor<&mut [u8]>,
+                                    h: &mut HuffmanOxide|
+        {
+            if rle.rle_repeat_count != 0 {
+                if rle.rle_repeat_count < 3 {
+                    h.count[2][rle.prev_code_size as usize] = (h.count[2][rle.prev_code_size as usize] as i32 + rle.rle_repeat_count as i32) as u16; // TODO
+                    while rle.rle_repeat_count != 0 {
+                        rle.rle_repeat_count -= 1;
+                        packed_code_sizes.write(&[rle.prev_code_size][..]);
+                    }
+                } else {
+                    h.count[2][16] = (h.count[2][16] as i32 + 1) as u16;
+                    packed_code_sizes.write(&[16, (rle.rle_repeat_count as i32 - 3) as u8][..]);
+                }
+                rle.rle_repeat_count = 0;
+            }
+        };
+
+    let tdefl_rle_zero_code_size = |rle: &mut RLE,
+                                    packed_code_sizes: &mut Cursor<&mut [u8]>,
+                                    h: &mut HuffmanOxide|
+        {
+            if rle.rle_z_count != 0 {
+                if rle.rle_z_count < 3 {
+                    h.count[2][0] = (h.count[2][0] as i32 + rle.rle_z_count as i32) as u16;
+                    while rle.rle_z_count != 0 {
+                        rle.rle_z_count -= 1;
+                        packed_code_sizes.write(&[0][..]);
+                    }
+                } else if rle.rle_z_count <= 10 {
+                    h.count[2][17] = (h.count[2][17] as i32 + 1) as u16;
+                    packed_code_sizes.write(&[17, (rle.rle_z_count as i32 - 3) as u8][..]);
+                } else {
+                    h.count[2][18] = (h.count[2][18] as i32 + 1) as u16;
+                    packed_code_sizes.write(&[18, (rle.rle_z_count as i32 - 11) as u8][..]);
+                }
+                rle.rle_z_count = 0;
+            }
+        };
+
+    for x in &mut h.count[2][..TDEFL_MAX_HUFF_SYMBOLS_2] { *x = 0 }
+
+    let mut packed_code_sizes_cursor = Cursor::new(&mut packed_code_sizes[..]);
+    for &code_size in &code_sizes_to_pack[..total_code_sizes_to_pack] {
+        if code_size == 0 {
+            tdefl_rle_prev_code_size(&mut rle, &mut packed_code_sizes_cursor, h);
+            rle.rle_z_count += 1;
+            if rle.rle_z_count == 138 {
+                tdefl_rle_zero_code_size(&mut rle, &mut packed_code_sizes_cursor, h);
+            }
+        } else {
+            tdefl_rle_zero_code_size(&mut rle, &mut packed_code_sizes_cursor, h);
+            if code_size != rle.prev_code_size {
+                tdefl_rle_prev_code_size(&mut rle, &mut packed_code_sizes_cursor, h);
+                h.count[2][code_size as usize] = (h.count[2][code_size as usize] as i32 + 1) as u16; // TODO why as u16?
+                packed_code_sizes_cursor.write(&[code_size][..]);
+            } else {
+                rle.rle_repeat_count += 1;
+                if rle.rle_repeat_count == 6 {
+                    tdefl_rle_prev_code_size(&mut rle, &mut packed_code_sizes_cursor, h);
+                }
+            }
+        }
+        rle.prev_code_size = code_size;
+    }
+
+    if rle.rle_repeat_count != 0 {
+        tdefl_rle_prev_code_size(&mut rle, &mut packed_code_sizes_cursor, h);
+    } else {
+        tdefl_rle_zero_code_size(&mut rle, &mut packed_code_sizes_cursor, h);
+    }
+
+    tdefl_optimize_huffman_table_oxide(h, 2, TDEFL_MAX_HUFF_SYMBOLS_2, 7, false);
+
+    output.tdefl_put_bits(2, 2)?;
+
+    output.tdefl_put_bits((num_lit_codes - 257) as u32, 5)?;
+    output.tdefl_put_bits((num_dist_codes - 1) as u32, 5)?;
+
+    let mut num_bit_lengths = 18 - TDEFL_PACKED_CODE_SIZE_SYMS_SWIZZLE
+        .iter().rev().take_while(|&swizzle| h.code_sizes[2][*swizzle as usize] == 0).count();
+
+    num_bit_lengths = cmp::max(4, num_bit_lengths + 1);
+    output.tdefl_put_bits(num_bit_lengths as u32 - 4, 4)?;
+    for &swizzle in &TDEFL_PACKED_CODE_SIZE_SYMS_SWIZZLE[..num_bit_lengths] {
+        output.tdefl_put_bits(h.code_sizes[2][swizzle as usize] as u32, 3)?;
+    }
+
+    let mut packed_code_size_index = 0 as usize;
+    let packed_code_sizes = packed_code_sizes_cursor.get_ref();
+    while packed_code_size_index < packed_code_sizes_cursor.position() as usize {
+        let code = packed_code_sizes[packed_code_size_index] as usize;
+        packed_code_size_index += 1;
+        assert!(code < TDEFL_MAX_HUFF_SYMBOLS_2);
+        output.tdefl_put_bits(h.codes[2][code] as u32, h.code_sizes[2][code] as u32)?;
+        if code >= 16 {
+            output.tdefl_put_bits(packed_code_sizes[packed_code_size_index] as u32,
+                                  (vec![2, 3, 7])[code - 16])?;
+            packed_code_size_index += 1;
+        }
+    }
+
+    Ok(())
 }
 
 pub fn tdefl_get_adler32_oxide(d: &tdefl_compressor) -> c_uint {

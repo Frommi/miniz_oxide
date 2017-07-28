@@ -180,11 +180,50 @@ pub unsafe extern "C" fn tdefl_optimize_huffman_table(d: *mut tdefl_compressor,
                                                       code_size_limit: c_int,
                                                       static_table: c_int)
 {
-    tdefl_optimize_huffman_table_oxide(d.as_mut().expect("Bad tdefl_compressor pointer"),
+    let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
+    let mut h = HuffmanOxide {
+        count: &mut d.m_huff_count,
+        code_sizes: &mut d.m_huff_code_sizes,
+        codes: &mut d.m_huff_codes
+    };
+
+    tdefl_optimize_huffman_table_oxide(&mut h,
                                        table_num as usize,
                                        table_len as usize,
                                        code_size_limit as usize,
                                        static_table != 0)
+}
+
+use std::io::Cursor;
+
+#[no_mangle]
+pub unsafe extern "C" fn tdefl_start_dynamic_block(d: *mut tdefl_compressor) {
+    let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
+
+    let mut len = 0;
+    let tmp = d.m_pOutput_buf as usize;
+    while d.m_pOutput_buf.offset(len) != d.m_pOutput_buf_end { len += 1; }
+
+    let mut cursor = Cursor::new(
+        slice::from_raw_parts_mut(d.m_pOutput_buf, len as usize)
+    );
+
+    let mut h = HuffmanOxide {
+        count: &mut d.m_huff_count,
+        code_sizes: &mut d.m_huff_code_sizes,
+        codes: &mut d.m_huff_codes
+    };
+
+    let mut ob = OutputBufferOxide {
+        inner: cursor,
+        bit_buffer: &mut d.m_bit_buffer,
+        bits_in: &mut d.m_bits_in
+    };
+
+    tdefl_start_dynamic_block_oxide(&mut h, &mut ob)
+        .expect("io error in tdefl_start_dynamic_block_oxide");
+
+    d.m_pOutput_buf = d.m_pOutput_buf.offset(ob.inner.position() as isize);
 }
 
 #[no_mangle]

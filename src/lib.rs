@@ -16,6 +16,7 @@ pub use tdef::{
     tdefl_calculate_minimum_redundancy,
     tdefl_huffman_enforce_max_code_size,
     tdefl_optimize_huffman_table,
+    tdefl_start_dynamic_block,
     tdefl_create_comp_flags_from_zip_params,
     tdefl_compressor,
     tdefl_put_buf_func_ptr
