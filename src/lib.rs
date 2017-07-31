@@ -19,6 +19,7 @@ pub use tdef::{
     tdefl_start_dynamic_block,
     tdefl_create_comp_flags_from_zip_params,
     tdefl_start_static_block,
+    tdefl_compress_lz_codes,
     tdefl_compressor,
     tdefl_put_buf_func_ptr
 };

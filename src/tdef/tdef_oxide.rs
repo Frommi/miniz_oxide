@@ -386,6 +386,62 @@ pub fn tdefl_start_static_block_oxide(h: &mut HuffmanOxide, output: &mut OutputB
     output.tdefl_put_bits(1, 2)
 }
 
+// TODO: only slow version
+pub fn tdefl_compress_lz_codes_oxide(h: &mut HuffmanOxide,
+                                     output: &mut OutputBufferOxide,
+                                     lz_code_buf: &[u8]) -> io::Result<bool>
+{
+    let mut flags = 1;
+
+    let mut i = 0;
+    while i < lz_code_buf.len() {
+        if flags == 1 {
+            flags = lz_code_buf[i] as u32 | 0x100;
+            i += 1;
+        }
+
+        if flags & 1 == 1 {
+            let sym;
+            let num_extra_bits;
+
+            let match_len = lz_code_buf[i] as usize;
+            let match_dist = lz_code_buf[i + 1] as usize | ((lz_code_buf[i + 2] as usize) << 8);
+            i += 3;
+
+            assert!(h.code_sizes[0][TDEFL_LEN_SYM[match_len] as usize] != 0);
+            output.tdefl_put_bits(h.codes[0][TDEFL_LEN_SYM[match_len] as usize] as u32,
+                h.code_sizes[0][TDEFL_LEN_SYM[match_len] as usize] as u32)?;
+
+            output.tdefl_put_bits(match_len as u32 & MZ_BITMASKS[TDEFL_LEN_EXTRA[match_len] as usize] as u32,
+                TDEFL_LEN_EXTRA[match_len] as u32)?;
+
+            if match_dist < 512 {
+                sym = TDEFL_SMALL_DIST_SYM[match_dist] as usize;
+                num_extra_bits = TDEFL_SMALL_DIST_EXTRA[match_dist] as usize;
+            } else {
+                sym = TDEFL_LARGE_DIST_SYM[match_dist >> 8] as usize;
+                num_extra_bits = TDEFL_LARGE_DIST_EXTRA[match_dist >> 8] as usize;
+            }
+
+            assert!(h.code_sizes[1][sym] != 0);
+            output.tdefl_put_bits(h.codes[1][sym] as u32, h.code_sizes[1][sym] as u32)?;
+            output.tdefl_put_bits(match_dist as u32 & MZ_BITMASKS[num_extra_bits as usize] as u32, num_extra_bits as u32)?;
+        } else {
+            let lit = lz_code_buf[i];
+            i += 1;
+
+            assert!(h.code_sizes[0][lit as usize] != 0);
+            output.tdefl_put_bits(h.codes[0][lit as usize] as u32, h.code_sizes[0][lit as usize] as u32)?;
+        }
+
+        flags >>= 1;
+    }
+
+    output.tdefl_put_bits(h.codes[0][256] as u32, h.code_sizes[0][256] as u32)?;
+
+    Ok(true)
+}
+
 pub fn tdefl_get_adler32_oxide(d: &tdefl_compressor) -> c_uint {
     d.m_adler32
 }
