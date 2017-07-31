@@ -446,7 +446,19 @@ pub fn tdefl_compress_lz_codes_oxide(h: &mut HuffmanOxide,
     Ok(true)
 }
 
+pub fn tdefl_compress_block_oxide(h: &mut HuffmanOxide,
+                                  output: &mut OutputBufferOxide,
+                                  lz_code_buf: &[u8],
+                                  static_block: bool) -> io::Result<bool>
+{
+    if static_block {
+        tdefl_start_static_block_oxide(h, output)?;
+    } else {
+        tdefl_start_dynamic_block_oxide(h, output)?;
+    }
 
+    tdefl_compress_lz_codes_oxide(h, output, lz_code_buf)
+}
 
 pub fn tdefl_get_adler32_oxide(d: &tdefl_compressor) -> c_uint {
     d.m_adler32

@@ -292,7 +292,7 @@ pub unsafe extern "C" fn tdefl_start_static_block(d: *mut tdefl_compressor) {
 
     let mut len = d.m_pOutput_buf_end as usize - d.m_pOutput_buf as usize;
     let mut cursor = Cursor::new(
-        slice::from_raw_parts_mut(d.m_pOutput_buf, len as usize)
+        slice::from_raw_parts_mut(d.m_pOutput_buf, len)
     );
 
     let mut h = HuffmanOxide {
@@ -319,7 +319,7 @@ pub unsafe extern "C" fn tdefl_compress_lz_codes(d: *mut tdefl_compressor) -> bo
 
     let mut len = d.m_pOutput_buf_end as usize - d.m_pOutput_buf as usize;
     let output_cursor = Cursor::new(
-        slice::from_raw_parts_mut(d.m_pOutput_buf, len as usize)
+        slice::from_raw_parts_mut(d.m_pOutput_buf, len)
     );
 
     let mut h = HuffmanOxide {
@@ -343,22 +343,42 @@ pub unsafe extern "C" fn tdefl_compress_lz_codes(d: *mut tdefl_compressor) -> bo
     };
 
     d.m_pOutput_buf = d.m_pOutput_buf.offset(ob.inner.position() as isize);
-    if d.m_pOutput_buf >= d.m_pOutput_buf_end {
-        return false;
-    }
 
-    res
+    res && (d.m_pOutput_buf < d.m_pOutput_buf_end)
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn tdefl_compress_block(d: *mut tdefl_compressor, static_block: bool) -> bool {
-    if static_block {
-        tdefl_start_static_block(d);
-    } else {
-        tdefl_start_dynamic_block(d);
-    }
+    let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
 
-    tdefl_compress_lz_codes(d)
+    let mut len = d.m_pOutput_buf_end as usize - d.m_pOutput_buf as usize;
+    let output_cursor = Cursor::new(
+        slice::from_raw_parts_mut(d.m_pOutput_buf, len)
+    );
+
+    let mut h = HuffmanOxide {
+        count: &mut d.m_huff_count,
+        code_sizes: &mut d.m_huff_code_sizes,
+        codes: &mut d.m_huff_codes
+    };
+
+    let mut ob = OutputBufferOxide {
+        inner: output_cursor,
+        bit_buffer: &mut d.m_bit_buffer,
+        bits_in: &mut d.m_bits_in
+    };
+
+    len = d.m_pLZ_code_buf as usize - (&d.m_lz_code_buf as *const [u8; TDEFL_LZ_CODE_BUF_SIZE]) as usize;
+    let lz_code_buf = slice::from_raw_parts(&d.m_lz_code_buf[0] as *const u8, len);
+
+    let res = match tdefl_compress_block_oxide(&mut h, &mut ob, lz_code_buf, static_block) {
+        Err(_) => false,
+        Ok(b) => b
+    };
+
+    d.m_pOutput_buf = d.m_pOutput_buf.offset(ob.inner.position() as isize);
+
+    res
 }
 
 #[no_mangle]
