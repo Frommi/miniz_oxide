@@ -4,6 +4,10 @@ use std::io;
 use std::io::Write;
 use std::io::Cursor;
 
+fn memset<T : Clone>(slice: &mut [T], val: T) {
+    for x in slice { *x = val.clone() }
+}
+
 pub fn tdefl_radix_sort_syms_oxide<'a>(symbols0: &'a mut [tdefl_sym_freq],
                                        symbols1: &'a mut [tdefl_sym_freq]) -> &'a mut [tdefl_sym_freq]
 {
@@ -160,8 +164,8 @@ pub fn tdefl_optimize_huffman_table_oxide(h: &mut HuffmanOxide,
 
         tdefl_huffman_enforce_max_code_size_oxide(&mut num_codes, num_used_symbols, code_size_limit);
 
-        for x in &mut h.code_sizes[table_num][..] { *x = 0 }
-        for x in &mut h.codes[table_num][..] { *x = 0 }
+        memset(&mut h.code_sizes[table_num][..], 0);
+        memset(&mut h.codes[table_num][..], 0);
 
         let mut last = num_used_symbols;
         for i in 1..code_size_limit + 1 {
@@ -303,7 +307,7 @@ pub fn tdefl_start_dynamic_block_oxide(h: &mut HuffmanOxide, output: &mut Output
             }
         };
 
-    for x in &mut h.count[2][..TDEFL_MAX_HUFF_SYMBOLS_2] { *x = 0 }
+    memset(&mut h.count[2][..TDEFL_MAX_HUFF_SYMBOLS_2], 0);
 
     let mut packed_code_sizes_cursor = Cursor::new(&mut packed_code_sizes[..]);
     for &code_size in &code_sizes_to_pack[..total_code_sizes_to_pack] {
@@ -360,12 +364,26 @@ pub fn tdefl_start_dynamic_block_oxide(h: &mut HuffmanOxide, output: &mut Output
         output.tdefl_put_bits(h.codes[2][code] as u32, h.code_sizes[2][code] as u32)?;
         if code >= 16 {
             output.tdefl_put_bits(packed_code_sizes[packed_code_size_index] as u32,
-                                  (vec![2, 3, 7])[code - 16])?;
+                                  [2, 3, 7][code - 16])?;
             packed_code_size_index += 1;
         }
     }
 
     Ok(())
+}
+
+pub fn tdefl_start_static_block_oxide(h: &mut HuffmanOxide, output: &mut OutputBufferOxide) -> io::Result<()> {
+    memset(&mut h.code_sizes[0][0..144], 8);
+    memset(&mut h.code_sizes[0][144..256], 9);
+    memset(&mut h.code_sizes[0][256..280], 7);
+    memset(&mut h.code_sizes[0][280..288], 8);
+
+    memset(&mut h.code_sizes[1][..32], 5);
+
+    tdefl_optimize_huffman_table_oxide(h, 0, 288, 15, true);
+    tdefl_optimize_huffman_table_oxide(h, 1, 32, 15, true);
+
+    output.tdefl_put_bits(1, 2)
 }
 
 pub fn tdefl_get_adler32_oxide(d: &tdefl_compressor) -> c_uint {
