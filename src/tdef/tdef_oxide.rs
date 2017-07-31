@@ -268,43 +268,47 @@ pub fn tdefl_start_dynamic_block_oxide(h: &mut HuffmanOxide, output: &mut Output
 
     let tdefl_rle_prev_code_size = |rle: &mut RLE,
                                     packed_code_sizes: &mut Cursor<&mut [u8]>,
-                                    h: &mut HuffmanOxide|
+                                    h: &mut HuffmanOxide| -> io::Result<()>
         {
             if rle.rle_repeat_count != 0 {
                 if rle.rle_repeat_count < 3 {
                     h.count[2][rle.prev_code_size as usize] = (h.count[2][rle.prev_code_size as usize] as i32 + rle.rle_repeat_count as i32) as u16; // TODO
                     while rle.rle_repeat_count != 0 {
                         rle.rle_repeat_count -= 1;
-                        packed_code_sizes.write(&[rle.prev_code_size][..]);
+                        packed_code_sizes.write(&[rle.prev_code_size][..])?;
                     }
                 } else {
                     h.count[2][16] = (h.count[2][16] as i32 + 1) as u16;
-                    packed_code_sizes.write(&[16, (rle.rle_repeat_count as i32 - 3) as u8][..]);
+                    packed_code_sizes.write(&[16, (rle.rle_repeat_count as i32 - 3) as u8][..])?;
                 }
                 rle.rle_repeat_count = 0;
             }
+
+            Ok(())
         };
 
     let tdefl_rle_zero_code_size = |rle: &mut RLE,
                                     packed_code_sizes: &mut Cursor<&mut [u8]>,
-                                    h: &mut HuffmanOxide|
+                                    h: &mut HuffmanOxide| -> io::Result<()>
         {
             if rle.rle_z_count != 0 {
                 if rle.rle_z_count < 3 {
                     h.count[2][0] = (h.count[2][0] as i32 + rle.rle_z_count as i32) as u16;
                     while rle.rle_z_count != 0 {
                         rle.rle_z_count -= 1;
-                        packed_code_sizes.write(&[0][..]);
+                        packed_code_sizes.write(&[0][..])?;
                     }
                 } else if rle.rle_z_count <= 10 {
                     h.count[2][17] = (h.count[2][17] as i32 + 1) as u16;
-                    packed_code_sizes.write(&[17, (rle.rle_z_count as i32 - 3) as u8][..]);
+                    packed_code_sizes.write(&[17, (rle.rle_z_count as i32 - 3) as u8][..])?;
                 } else {
                     h.count[2][18] = (h.count[2][18] as i32 + 1) as u16;
-                    packed_code_sizes.write(&[18, (rle.rle_z_count as i32 - 11) as u8][..]);
+                    packed_code_sizes.write(&[18, (rle.rle_z_count as i32 - 11) as u8][..])?;
                 }
                 rle.rle_z_count = 0;
             }
+
+            Ok(())
         };
 
     memset(&mut h.count[2][..TDEFL_MAX_HUFF_SYMBOLS_2], 0);
@@ -312,21 +316,21 @@ pub fn tdefl_start_dynamic_block_oxide(h: &mut HuffmanOxide, output: &mut Output
     let mut packed_code_sizes_cursor = Cursor::new(&mut packed_code_sizes[..]);
     for &code_size in &code_sizes_to_pack[..total_code_sizes_to_pack] {
         if code_size == 0 {
-            tdefl_rle_prev_code_size(&mut rle, &mut packed_code_sizes_cursor, h);
+            tdefl_rle_prev_code_size(&mut rle, &mut packed_code_sizes_cursor, h)?;
             rle.rle_z_count += 1;
             if rle.rle_z_count == 138 {
-                tdefl_rle_zero_code_size(&mut rle, &mut packed_code_sizes_cursor, h);
+                tdefl_rle_zero_code_size(&mut rle, &mut packed_code_sizes_cursor, h)?;
             }
         } else {
-            tdefl_rle_zero_code_size(&mut rle, &mut packed_code_sizes_cursor, h);
+            tdefl_rle_zero_code_size(&mut rle, &mut packed_code_sizes_cursor, h)?;
             if code_size != rle.prev_code_size {
-                tdefl_rle_prev_code_size(&mut rle, &mut packed_code_sizes_cursor, h);
+                tdefl_rle_prev_code_size(&mut rle, &mut packed_code_sizes_cursor, h)?;
                 h.count[2][code_size as usize] = (h.count[2][code_size as usize] as i32 + 1) as u16; // TODO why as u16?
-                packed_code_sizes_cursor.write(&[code_size][..]);
+                packed_code_sizes_cursor.write(&[code_size][..])?;
             } else {
                 rle.rle_repeat_count += 1;
                 if rle.rle_repeat_count == 6 {
-                    tdefl_rle_prev_code_size(&mut rle, &mut packed_code_sizes_cursor, h);
+                    tdefl_rle_prev_code_size(&mut rle, &mut packed_code_sizes_cursor, h)?;
                 }
             }
         }
@@ -334,9 +338,9 @@ pub fn tdefl_start_dynamic_block_oxide(h: &mut HuffmanOxide, output: &mut Output
     }
 
     if rle.rle_repeat_count != 0 {
-        tdefl_rle_prev_code_size(&mut rle, &mut packed_code_sizes_cursor, h);
+        tdefl_rle_prev_code_size(&mut rle, &mut packed_code_sizes_cursor, h)?;
     } else {
-        tdefl_rle_zero_code_size(&mut rle, &mut packed_code_sizes_cursor, h);
+        tdefl_rle_zero_code_size(&mut rle, &mut packed_code_sizes_cursor, h)?;
     }
 
     tdefl_optimize_huffman_table_oxide(h, 2, TDEFL_MAX_HUFF_SYMBOLS_2, 7, false);
@@ -442,11 +446,11 @@ pub fn tdefl_compress_lz_codes_oxide(h: &mut HuffmanOxide,
     Ok(true)
 }
 
+
+
 pub fn tdefl_get_adler32_oxide(d: &tdefl_compressor) -> c_uint {
     d.m_adler32
 }
-
-const TDEFL_NUM_PROBES: [c_uint; 11] = [0, 1, 6, 32, 16, 32, 128, 256, 512, 768, 1500];
 
 pub fn tdefl_create_comp_flags_from_zip_params_oxide(level: c_int,
                                                      window_bits: c_int,

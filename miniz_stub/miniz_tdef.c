@@ -598,14 +598,15 @@ mz_bool tdefl_compress_lz_codes(tdefl_compressor *d);
 //}
 //#endif /* MINIZ_USE_UNALIGNED_LOADS_AND_STORES && MINIZ_LITTLE_ENDIAN && MINIZ_HAS_64BIT_REGISTERS */
 
-static mz_bool tdefl_compress_block(tdefl_compressor *d, mz_bool static_block)
-{
-    if (static_block)
-        tdefl_start_static_block(d);
-    else
-        tdefl_start_dynamic_block(d);
-    return tdefl_compress_lz_codes(d);
-}
+mz_bool tdefl_compress_block(tdefl_compressor *d, mz_bool static_block);
+//static mz_bool tdefl_compress_block(tdefl_compressor *d, mz_bool static_block)
+//{
+//    if (static_block)
+//        tdefl_start_static_block(d);
+//    else
+//        tdefl_start_dynamic_block(d);
+//    return tdefl_compress_lz_codes(d);
+//}
 
 static int tdefl_flush_block(tdefl_compressor *d, int flush)
 {

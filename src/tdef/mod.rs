@@ -183,6 +183,8 @@ const MZ_BITMASKS: [u32; 17] = [
     0x01FF, 0x03FF, 0x07FF, 0x0FFF, 0x1FFF, 0x3FFF, 0x7FFF, 0xFFFF
 ];
 
+const TDEFL_NUM_PROBES: [c_uint; 11] = [0, 1, 6, 32, 16, 32, 128, 256, 512, 768, 1500];
+
 #[allow(bad_style)]
 extern {
     pub fn tdefl_init(d: *mut tdefl_compressor,
@@ -346,6 +348,17 @@ pub unsafe extern "C" fn tdefl_compress_lz_codes(d: *mut tdefl_compressor) -> bo
     }
 
     res
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn tdefl_compress_block(d: *mut tdefl_compressor, static_block: bool) -> bool {
+    if static_block {
+        tdefl_start_static_block(d);
+    } else {
+        tdefl_start_dynamic_block(d);
+    }
+
+    tdefl_compress_lz_codes(d)
 }
 
 #[no_mangle]
