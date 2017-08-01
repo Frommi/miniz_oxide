@@ -33,7 +33,44 @@ pub struct LZOxide<'a> {
     pub num_flags_left: c_uint
 }
 
+impl<'a> DictOxide<'a> {
+    pub unsafe fn new(d: *mut tdefl_compressor) -> Self {
+        let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
+        DictOxide {
+            max_probes: &mut d.m_max_probes,
+            dict: &mut d.m_dict,
+            hash: &mut d.m_hash,
+            next: &mut d.m_next,
+        }
+    }
+}
+
+impl<'a> HuffmanOxide<'a> {
+    pub unsafe fn new(d: *mut tdefl_compressor) -> Self {
+        let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
+        HuffmanOxide {
+            count: &mut d.m_huff_count,
+            code_sizes: &mut d.m_huff_code_sizes,
+            codes: &mut d.m_huff_codes
+        }
+    }
+}
+
 impl<'a> LZOxide<'a> {
+    pub unsafe fn new(d: *mut tdefl_compressor) -> Self {
+        let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
+        let code_index = d.m_pLZ_code_buf as usize - &d.m_lz_code_buf[0] as *const u8 as usize;
+        let flag_index = d.m_pLZ_flags as usize - &d.m_lz_code_buf[0] as *const u8 as usize;
+        LZOxide {
+            codes: &mut d.m_lz_code_buf,
+            code_position: code_index,
+            flag_position: flag_index,
+
+            total_bytes: d.m_total_lz_bytes,
+            num_flags_left: d.m_num_flags_left,
+        }
+    }
+
     pub fn write_code(&mut self, val: u8) {
         self.codes[self.code_position] = val;
         self.code_position += 1;
@@ -58,7 +95,7 @@ impl<'a> LZOxide<'a> {
 }
 
 impl<'a> OutputBufferOxide<'a> {
-    unsafe fn new(d: *mut tdefl_compressor) -> Self {
+    pub unsafe fn new(d: *mut tdefl_compressor) -> Self {
         let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
 
         let len = d.m_pOutput_buf_end as usize - d.m_pOutput_buf as usize;
@@ -73,7 +110,7 @@ impl<'a> OutputBufferOxide<'a> {
         }
     }
 
-    unsafe fn choose_buffer_new(d: *mut tdefl_compressor) -> Self {
+    pub unsafe fn choose_buffer_new(d: *mut tdefl_compressor) -> Self {
         let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
 
         let enough_space = *d.m_pOut_buf_size - d.m_out_buf_ofs >= TDEFL_OUT_BUF_SIZE;
