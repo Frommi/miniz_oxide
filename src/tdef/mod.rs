@@ -411,6 +411,67 @@ pub unsafe extern "C" fn tdefl_find_match(d: *mut tdefl_compressor,
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn tdefl_record_literal(d: *mut tdefl_compressor, lit: u8) {
+    let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
+
+    let mut h = HuffmanOxide {
+        count: &mut d.m_huff_count,
+        code_sizes: &mut d.m_huff_code_sizes,
+        codes: &mut d.m_huff_codes
+    };
+
+    let code_index = d.m_pLZ_code_buf as usize - &d.m_lz_code_buf[0] as *const u8 as usize;
+    let flag_index = d.m_pLZ_flags as usize - &d.m_lz_code_buf[0] as *const u8 as usize;
+
+    let mut lz = LZOxide {
+        codes: &mut d.m_lz_code_buf,
+        code_position: code_index,
+        flag_position: flag_index,
+
+        total_bytes: d.m_total_lz_bytes,
+        num_flags_left: d.m_num_flags_left,
+    };
+
+    tdefl_record_literal_oxide(&mut h, &mut lz, lit);
+    d.m_pLZ_code_buf = (&mut lz.codes[0] as *mut u8).offset(lz.code_position as isize);
+    d.m_pLZ_flags = (&mut lz.codes[0] as *mut u8).offset(lz.flag_position as isize);
+    d.m_total_lz_bytes = lz.total_bytes;
+    d.m_num_flags_left = lz.num_flags_left;
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn tdefl_record_match(d: *mut tdefl_compressor,
+                                            match_len: c_uint,
+                                            match_dist: c_uint)
+{
+    let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
+
+    let mut h = HuffmanOxide {
+        count: &mut d.m_huff_count,
+        code_sizes: &mut d.m_huff_code_sizes,
+        codes: &mut d.m_huff_codes
+    };
+
+    let code_index = d.m_pLZ_code_buf as usize - &d.m_lz_code_buf[0] as *const u8 as usize;
+    let flag_index = d.m_pLZ_flags as usize - &d.m_lz_code_buf[0] as *const u8 as usize;
+
+    let mut lz = LZOxide {
+        codes: &mut d.m_lz_code_buf,
+        code_position: code_index,
+        flag_position: flag_index,
+
+        total_bytes: d.m_total_lz_bytes,
+        num_flags_left: d.m_num_flags_left,
+    };
+
+    tdefl_record_match_oxide(&mut h, &mut lz, match_len, match_dist);
+    d.m_pLZ_code_buf = (&mut lz.codes[0] as *mut u8).offset(lz.code_position as isize);
+    d.m_pLZ_flags = (&mut lz.codes[0] as *mut u8).offset(lz.flag_position as isize);
+    d.m_total_lz_bytes = lz.total_bytes;
+    d.m_num_flags_left = lz.num_flags_left;
+}
+
+#[no_mangle]
 pub extern "C" fn tdefl_create_comp_flags_from_zip_params(level: c_int,
                                                           window_bits: c_int,
                                                           strategy: c_int) -> c_uint

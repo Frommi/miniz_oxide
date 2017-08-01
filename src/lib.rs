@@ -22,6 +22,8 @@ pub use tdef::{
     tdefl_compress_lz_codes,
     tdefl_compress_block,
     tdefl_find_match,
+    tdefl_record_literal,
+    tdefl_record_match,
     tdefl_compressor,
     tdefl_put_buf_func_ptr
 };

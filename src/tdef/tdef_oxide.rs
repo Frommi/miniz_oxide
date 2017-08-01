@@ -8,6 +8,73 @@ fn memset<T : Clone>(slice: &mut [T], val: T) {
     for x in slice { *x = val.clone() }
 }
 
+pub struct HuffmanOxide<'a> {
+    pub count: &'a mut [[u16; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
+    pub codes: &'a mut [[u16; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
+    pub code_sizes: &'a mut [[u8; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES]
+}
+
+pub struct OutputBufferOxide<'a> {
+    pub inner: Cursor<&'a mut [u8]>,
+
+    pub bit_buffer: &'a mut u32,
+    pub bits_in: &'a mut u32
+}
+
+pub struct DictOxide<'a> {
+    pub max_probes: &'a mut [c_uint; 2],
+    pub dict: &'a mut [u8; TDEFL_LZ_DICT_SIZE + TDEFL_MAX_MATCH_LEN - 1],
+    pub next: &'a mut [u16; TDEFL_LZ_DICT_SIZE],
+    pub hash: &'a mut [u16; TDEFL_LZ_DICT_SIZE]
+}
+
+pub struct LZOxide<'a> {
+    pub codes: &'a mut [u8; TDEFL_LZ_CODE_BUF_SIZE],
+    pub code_position: usize,
+    pub flag_position: usize,
+
+    pub total_bytes: c_uint,
+    pub num_flags_left: c_uint
+}
+
+impl<'a> LZOxide<'a> {
+    pub fn write_code(&mut self, val: u8) {
+        self.codes[self.code_position] = val;
+        self.code_position += 1;
+    }
+
+    pub fn get_flag(&mut self) -> &mut u8 {
+        &mut self.codes[self.flag_position]
+    }
+
+    pub fn plant_flag(&mut self) {
+        self.flag_position = self.code_position;
+        self.code_position += 1;
+    }
+
+    pub fn consume_flag(&mut self) {
+        self.num_flags_left -= 1;
+        if self.num_flags_left == 0 {
+            self.num_flags_left = 8;
+            self.plant_flag();
+        }
+    }
+}
+
+impl<'a> OutputBufferOxide<'a> {
+    fn tdefl_put_bits(&mut self, bits: u32, len: u32) -> io::Result<()> {
+        assert!(bits <= ((1u32 << len) - 1u32));
+        *self.bit_buffer |= bits << *self.bits_in;
+        *self.bits_in += len;
+        while *self.bits_in >= 8 {
+            self.inner.write(&[*self.bit_buffer as u8][..])?;
+            *self.bit_buffer >>= 8;
+            *self.bits_in -= 8;
+        }
+        Ok(())
+    }
+}
+
 pub fn tdefl_radix_sort_syms_oxide<'a>(symbols0: &'a mut [tdefl_sym_freq],
                                        symbols1: &'a mut [tdefl_sym_freq]) -> &'a mut [tdefl_sym_freq]
 {
@@ -198,40 +265,6 @@ pub fn tdefl_optimize_huffman_table_oxide(h: &mut HuffmanOxide,
             code >>= 1;
         }
         *huff_code = rev_code as u16;
-    }
-}
-
-pub struct HuffmanOxide<'a> {
-    pub count: &'a mut [[u16; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
-    pub codes: &'a mut [[u16; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
-    pub code_sizes: &'a mut [[u8; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES]
-}
-
-pub struct OutputBufferOxide<'a> {
-    pub inner: Cursor<&'a mut [u8]>,
-
-    pub bit_buffer: &'a mut u32,
-    pub bits_in: &'a mut u32
-}
-
-pub struct DictOxide<'a> {
-    pub max_probes: &'a mut [c_uint; 2],
-    pub dict: &'a mut [u8; TDEFL_LZ_DICT_SIZE + TDEFL_MAX_MATCH_LEN - 1],
-    pub next: &'a mut [u16; TDEFL_LZ_DICT_SIZE],
-    pub hash: &'a mut [u16; TDEFL_LZ_DICT_SIZE]
-}
-
-impl<'a> OutputBufferOxide<'a> {
-    fn tdefl_put_bits(&mut self, bits: u32, len: u32) -> io::Result<()> {
-        assert!(bits <= ((1u32 << len) - 1u32));
-        *self.bit_buffer |= bits << *self.bits_in;
-        *self.bits_in += len;
-        while *self.bits_in >= 8 {
-            self.inner.write(&[*self.bit_buffer as u8][..])?;
-            *self.bit_buffer >>= 8;
-            *self.bits_in -= 8;
-        }
-        Ok(())
     }
 }
 
@@ -536,6 +569,45 @@ pub fn tdefl_find_match_oxide(dict: &mut DictOxide,
             c1 = dict.dict[(pos + match_len - 1) as usize];
         }
     }
+}
+
+pub fn tdefl_record_literal_oxide(h: &mut HuffmanOxide, lz: &mut LZOxide, lit: u8) {
+    lz.total_bytes += 1;
+    lz.write_code(lit);
+
+    *lz.get_flag() >>= 1;
+    lz.consume_flag();
+
+    h.count[0][lit as usize] += 1;
+}
+
+pub fn tdefl_record_match_oxide(h: &mut HuffmanOxide,
+                                lz: &mut LZOxide,
+                                mut match_len: c_uint,
+                                mut match_dist: c_uint)
+{
+    assert!(match_len as usize >= TDEFL_MIN_MATCH_LEN);
+    assert!(match_dist >= 1);
+    assert!(match_dist as usize <= TDEFL_LZ_DICT_SIZE);
+
+    lz.total_bytes += match_len;
+    match_dist -= 1;
+    match_len -= TDEFL_MIN_MATCH_LEN as u32;
+    lz.write_code(match_len as u8);
+    lz.write_code(match_dist as u8);
+    lz.write_code((match_dist >> 8) as u8);
+
+    *lz.get_flag() >>= 1;
+    *lz.get_flag() |= 0x80;
+    lz.consume_flag();
+
+    let symbol = if match_dist < 512 {
+        TDEFL_SMALL_DIST_SYM[match_dist as usize]
+    } else {
+        TDEFL_LARGE_DIST_SYM[((match_dist >> 8) & 127) as usize]
+    } as usize;
+    h.count[1][symbol] += 1;
+    h.count[0][TDEFL_LEN_SYM[match_len as usize] as usize] += 1;
 }
 
 pub fn tdefl_get_adler32_oxide(d: &tdefl_compressor) -> c_uint {
