@@ -214,6 +214,13 @@ pub struct OutputBufferOxide<'a> {
     pub bits_in: &'a mut u32
 }
 
+pub struct DictOxide<'a> {
+    pub max_probes: &'a mut [c_uint; 2],
+    pub dict: &'a mut [u8; TDEFL_LZ_DICT_SIZE + TDEFL_MAX_MATCH_LEN - 1],
+    pub next: &'a mut [u16; TDEFL_LZ_DICT_SIZE],
+    pub hash: &'a mut [u16; TDEFL_LZ_DICT_SIZE]
+}
+
 impl<'a> OutputBufferOxide<'a> {
     fn tdefl_put_bits(&mut self, bits: u32, len: u32) -> io::Result<()> {
         assert!(bits <= ((1u32 << len) - 1u32));
@@ -458,6 +465,77 @@ pub fn tdefl_compress_block_oxide(h: &mut HuffmanOxide,
     }
 
     tdefl_compress_lz_codes_oxide(h, output, lz_code_buf)
+}
+
+// TODO: only slow version
+pub fn tdefl_find_match_oxide(dict: &mut DictOxide,
+                              lookahead_pos: c_uint,
+                              max_dist: c_uint,
+                              max_match_len: c_uint,
+                              match_dist: c_uint,
+                              match_len: c_uint) -> (c_uint, c_uint)
+{
+    assert!(max_match_len as usize <= TDEFL_MAX_MATCH_LEN);
+
+    let mut pos = lookahead_pos & TDEFL_LZ_DICT_SIZE_MASK;
+    let mut probe_pos = pos;
+    let mut num_probes_left = dict.max_probes[(match_len >= 32) as usize];
+
+    let mut c0 = dict.dict[(pos + match_len) as usize];
+    let mut c1 = dict.dict[(pos + match_len - 1) as usize];
+
+    if max_match_len <= match_len { return (match_dist, match_len) }
+
+    loop {
+        let mut dist = 0;
+        loop {
+            num_probes_left -= 1;
+            if num_probes_left == 0 { return (match_dist, match_len) }
+
+            pub enum ProbeResult {
+                OutOfBounds,
+                Found,
+                NotFound
+            }
+
+            let mut tdefl_probe = || -> ProbeResult {
+                let next_probe_pos = dict.next[probe_pos as usize];
+
+                dist = lookahead_pos - next_probe_pos as c_uint;
+                if next_probe_pos == 0 || dist > max_dist {
+                    return ProbeResult::OutOfBounds
+                }
+                let probe_pos = next_probe_pos as c_uint & TDEFL_LZ_DICT_SIZE_MASK;
+                if (dict.dict[(probe_pos + match_len) as usize] == c0) && (dict.dict[(probe_pos + match_len - 1) as usize] == c1) {
+                    ProbeResult::Found
+                } else {
+                    ProbeResult::NotFound
+                }
+            };
+
+            for _ in 0..3 {
+                match tdefl_probe() {
+                    ProbeResult::OutOfBounds => return (match_dist, match_len),
+                    ProbeResult::Found => break,
+                    ProbeResult::NotFound => ()
+                }
+            }
+        }
+
+        if dist == 0 { return (match_dist, match_len) }
+
+        let probe_len = dict.dict[pos as usize..].iter().zip(&dict.dict[probe_pos as usize..])
+            .take_while(|&(&p, &q)| { p == q }).count() as c_uint;
+
+        if probe_len > match_len {
+            match_dist = dist;
+            match_len = probe_len;
+            if probe_len == max_match_len { return (match_dist, match_len) }
+
+            c0 = dict.dict[(pos + match_len) as usize];
+            c1 = dict.dict[(pos + match_len - 1) as usize];
+        }
+    }
 }
 
 pub fn tdefl_get_adler32_oxide(d: &tdefl_compressor) -> c_uint {

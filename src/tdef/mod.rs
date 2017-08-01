@@ -44,7 +44,7 @@ pub const TDEFL_MAX_HUFF_SYMBOLS_0: usize = 288;
 pub const TDEFL_MAX_HUFF_SYMBOLS_1: usize = 32;
 pub const TDEFL_MAX_HUFF_SYMBOLS_2: usize = 19;
 pub const TDEFL_LZ_DICT_SIZE: usize = 32768;
-pub const TDEFL_LZ_DICT_SIZE_MASK: usize = TDEFL_LZ_DICT_SIZE - 1;
+pub const TDEFL_LZ_DICT_SIZE_MASK: c_uint = TDEFL_LZ_DICT_SIZE as c_uint - 1;
 pub const TDEFL_MIN_MATCH_LEN: usize = 3;
 pub const TDEFL_MAX_MATCH_LEN: usize = 258;
 
@@ -379,6 +379,35 @@ pub unsafe extern "C" fn tdefl_compress_block(d: *mut tdefl_compressor, static_b
     d.m_pOutput_buf = d.m_pOutput_buf.offset(ob.inner.position() as isize);
 
     res
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn tdefl_find_match(d: *mut tdefl_compressor,
+                                          lookahead_pos: c_uint,
+                                          max_dist: c_uint,
+                                          max_match_len: c_uint,
+                                          match_dist: &mut c_uint,
+                                          match_len: &mut c_uint)
+{
+    let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
+    let mut dict = DictOxide {
+        max_probes: &mut d.m_max_probes,
+        dict: &mut d.m_dict,
+        hash: &mut d.m_hash,
+        next: &mut d.m_next,
+    };
+
+    let dist_len = tdefl_find_match_oxide(
+        &mut dict,
+        lookahead_pos,
+        max_dist,
+        max_match_len,
+        *match_dist,
+        *match_len
+    );
+
+    *match_dist = dist_len.0;
+    *match_len = dist_len.1;
 }
 
 #[no_mangle]
