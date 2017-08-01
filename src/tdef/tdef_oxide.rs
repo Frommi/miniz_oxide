@@ -1,9 +1,5 @@
 use super::*;
 
-use std::io;
-use std::io::Write;
-use std::io::Cursor;
-
 fn memset<T : Clone>(slice: &mut [T], val: T) {
     for x in slice { *x = val.clone() }
 }
@@ -62,6 +58,40 @@ impl<'a> LZOxide<'a> {
 }
 
 impl<'a> OutputBufferOxide<'a> {
+    unsafe fn new(d: *mut tdefl_compressor) -> Self {
+        let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
+
+        let len = d.m_pOutput_buf_end as usize - d.m_pOutput_buf as usize;
+        let cursor = Cursor::new(
+            slice::from_raw_parts_mut(d.m_pOutput_buf, len as usize)
+        );
+
+        OutputBufferOxide {
+            inner: cursor,
+            bit_buffer: &mut d.m_bit_buffer,
+            bits_in: &mut d.m_bits_in
+        }
+    }
+
+    unsafe fn choose_buffer_new(d: *mut tdefl_compressor) -> Self {
+        let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
+
+        let enough_space = *d.m_pOut_buf_size - d.m_out_buf_ofs >= TDEFL_OUT_BUF_SIZE;
+        let chosen_buffer = if d.m_pPut_buf_func.is_none() && enough_space {
+            slice::from_raw_parts_mut(d.m_pOut_buf as *mut u8, TDEFL_OUT_BUF_SIZE - 16)
+        } else {
+            &mut d.m_output_buf[..TDEFL_OUT_BUF_SIZE - 16]
+        };
+
+        let cursor = Cursor::new(chosen_buffer);
+
+        OutputBufferOxide {
+            inner: cursor,
+            bit_buffer: &mut d.m_bit_buffer,
+            bits_in: &mut d.m_bits_in
+        }
+    }
+
     fn tdefl_put_bits(&mut self, bits: u32, len: u32) -> io::Result<()> {
         assert!(bits <= ((1u32 << len) - 1u32));
         *self.bit_buffer |= bits << *self.bits_in;
@@ -505,23 +535,24 @@ pub fn tdefl_find_match_oxide(dict: &mut DictOxide,
                               lookahead_pos: c_uint,
                               max_dist: c_uint,
                               max_match_len: c_uint,
-                              match_dist: c_uint,
-                              match_len: c_uint) -> (c_uint, c_uint)
+                              mut match_dist: c_uint,
+                              mut match_len: c_uint) -> (c_uint, c_uint)
 {
     assert!(max_match_len as usize <= TDEFL_MAX_MATCH_LEN);
 
-    let mut pos = lookahead_pos & TDEFL_LZ_DICT_SIZE_MASK;
+    let pos = lookahead_pos & TDEFL_LZ_DICT_SIZE_MASK;
     let mut probe_pos = pos;
     let mut num_probes_left = dict.max_probes[(match_len >= 32) as usize];
 
-    let mut c0 = dict.dict[(pos + match_len) as usize];
-    let mut c1 = dict.dict[(pos + match_len - 1) as usize];
+    let mut c0 = dict.dict[(probe_pos + match_len) as usize];
+    let mut c1 = dict.dict[(probe_pos + match_len - 1) as usize];
 
     if max_match_len <= match_len { return (match_dist, match_len) }
 
     loop {
         let mut dist = 0;
-        loop {
+        let mut found = false;
+        while !found {
             num_probes_left -= 1;
             if num_probes_left == 0 { return (match_dist, match_len) }
 
@@ -532,13 +563,14 @@ pub fn tdefl_find_match_oxide(dict: &mut DictOxide,
             }
 
             let mut tdefl_probe = || -> ProbeResult {
-                let next_probe_pos = dict.next[probe_pos as usize];
+                let next_probe_pos = dict.next[probe_pos as usize] as c_uint;
 
                 dist = lookahead_pos - next_probe_pos as c_uint;
                 if next_probe_pos == 0 || dist > max_dist {
                     return ProbeResult::OutOfBounds
                 }
-                let probe_pos = next_probe_pos as c_uint & TDEFL_LZ_DICT_SIZE_MASK;
+
+                probe_pos = next_probe_pos & TDEFL_LZ_DICT_SIZE_MASK;
                 if (dict.dict[(probe_pos + match_len) as usize] == c0) && (dict.dict[(probe_pos + match_len - 1) as usize] == c1) {
                     ProbeResult::Found
                 } else {
@@ -549,7 +581,7 @@ pub fn tdefl_find_match_oxide(dict: &mut DictOxide,
             for _ in 0..3 {
                 match tdefl_probe() {
                     ProbeResult::OutOfBounds => return (match_dist, match_len),
-                    ProbeResult::Found => break,
+                    ProbeResult::Found => { found = true; break },
                     ProbeResult::NotFound => ()
                 }
             }
@@ -558,7 +590,7 @@ pub fn tdefl_find_match_oxide(dict: &mut DictOxide,
         if dist == 0 { return (match_dist, match_len) }
 
         let probe_len = dict.dict[pos as usize..].iter().zip(&dict.dict[probe_pos as usize..])
-            .take_while(|&(&p, &q)| { p == q }).count() as c_uint;
+            .take(max_match_len as usize).take_while(|&(&p, &q)| p == q).count() as c_uint;
 
         if probe_len > match_len {
             match_dist = dist;

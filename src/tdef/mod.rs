@@ -9,9 +9,11 @@ use self::libc::*;
 use std::slice;
 use std::mem;
 use std::cmp;
+use std::io;
+use std::io::{Cursor, Write};
 
 #[allow(bad_style)]
-pub type tdefl_put_buf_func_ptr = unsafe extern "C" fn(*const c_void, c_int, *mut c_void);
+pub type tdefl_put_buf_func_ptr = Option<unsafe extern "C" fn(*const c_void, c_int, *mut c_void)>;
 
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -188,7 +190,7 @@ const TDEFL_NUM_PROBES: [c_uint; 11] = [0, 1, 6, 32, 16, 32, 128, 256, 512, 768,
 #[allow(bad_style)]
 extern {
     pub fn tdefl_init(d: *mut tdefl_compressor,
-                      pPut_buf_func: Option<tdefl_put_buf_func_ptr>,
+                      pPut_buf_func: tdefl_put_buf_func_ptr,
                       pPut_buf_user: *mut c_void,
                       flags: c_int) -> c_int;
 
@@ -257,14 +259,12 @@ pub unsafe extern "C" fn tdefl_optimize_huffman_table(d: *mut tdefl_compressor,
                                        static_table != 0)
 }
 
-use std::io::Cursor;
-
 #[no_mangle]
 pub unsafe extern "C" fn tdefl_start_dynamic_block(d: *mut tdefl_compressor) {
     let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
 
-    let mut len = d.m_pOutput_buf_end as usize - d.m_pOutput_buf as usize;
-    let mut cursor = Cursor::new(
+    let len = d.m_pOutput_buf_end as usize - d.m_pOutput_buf as usize;
+    let cursor = Cursor::new(
         slice::from_raw_parts_mut(d.m_pOutput_buf, len as usize)
     );
 
@@ -290,8 +290,8 @@ pub unsafe extern "C" fn tdefl_start_dynamic_block(d: *mut tdefl_compressor) {
 pub unsafe extern "C" fn tdefl_start_static_block(d: *mut tdefl_compressor) {
     let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
 
-    let mut len = d.m_pOutput_buf_end as usize - d.m_pOutput_buf as usize;
-    let mut cursor = Cursor::new(
+    let len = d.m_pOutput_buf_end as usize - d.m_pOutput_buf as usize;
+    let cursor = Cursor::new(
         slice::from_raw_parts_mut(d.m_pOutput_buf, len)
     );
 
