@@ -2,18 +2,20 @@
 
 extern crate libc;
 
-mod tdef_oxide;
-pub use self::tdef_oxide::*;
-
 use self::libc::*;
 use std::slice;
 use std::mem;
 use std::cmp;
 use std::io;
 use std::io::{Cursor, Write};
+use std::ptr;
+
+use MZError;
+mod tdef_oxide;
+pub use self::tdef_oxide::*;
 
 #[allow(bad_style)]
-pub type tdefl_put_buf_func_ptr = Option<unsafe extern "C" fn(*const c_void, c_int, *mut c_void)>;
+pub type tdefl_put_buf_func_ptr = Option<unsafe extern "C" fn(*const c_void, c_int, *mut c_void) -> bool>;
 
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -33,6 +35,18 @@ pub enum TDEFLFlush {
     Finish = 4
 }
 
+impl TDEFLFlush {
+    pub fn new(flush: c_int) -> Result<Self, MZError> {
+        match flush {
+            0 => Ok(TDEFLFlush::None),
+            2 => Ok(TDEFLFlush::Sync),
+            3 => Ok(TDEFLFlush::Full),
+            4 => Ok(TDEFLFlush::Finish),
+            _ => Err(MZError::Param)
+        }
+    }
+}
+
 pub const TDEFL_LZ_CODE_BUF_SIZE: usize = 64 * 1024;
 pub const TDEFL_OUT_BUF_SIZE: usize = (TDEFL_LZ_CODE_BUF_SIZE * 13) / 10;
 pub const TDEFL_MAX_HUFF_SYMBOLS: usize = 288;
@@ -50,14 +64,14 @@ pub const TDEFL_LZ_DICT_SIZE_MASK: c_uint = TDEFL_LZ_DICT_SIZE as c_uint - 1;
 pub const TDEFL_MIN_MATCH_LEN: usize = 3;
 pub const TDEFL_MAX_MATCH_LEN: usize = 258;
 
-pub const TDEFL_WRITE_ZLIB_HEADER: c_int = 0x01000;
-pub const TDEFL_COMPUTE_ADLER32: c_int = 0x02000;
-pub const TDEFL_GREEDY_PARSING_FLAG: c_int = 0x04000;
-pub const TDEFL_NONDETERMINISTIC_PARSING_FLAG: c_int = 0x08000;
-pub const TDEFL_RLE_MATCHES: c_int = 0x10000;
-pub const TDEFL_FILTER_MATCHES: c_int = 0x20000;
-pub const TDEFL_FORCE_ALL_STATIC_BLOCKS: c_int = 0x40000;
-pub const TDEFL_FORCE_ALL_RAW_BLOCKS: c_int = 0x80000;
+pub const TDEFL_WRITE_ZLIB_HEADER: c_uint = 0x01000;
+pub const TDEFL_COMPUTE_ADLER32: c_uint = 0x02000;
+pub const TDEFL_GREEDY_PARSING_FLAG: c_uint = 0x04000;
+pub const TDEFL_NONDETERMINISTIC_PARSING_FLAG: c_uint = 0x08000;
+pub const TDEFL_RLE_MATCHES: c_uint = 0x10000;
+pub const TDEFL_FILTER_MATCHES: c_uint = 0x20000;
+pub const TDEFL_FORCE_ALL_STATIC_BLOCKS: c_uint = 0x40000;
+pub const TDEFL_FORCE_ALL_RAW_BLOCKS: c_uint = 0x80000;
 
 pub const TDEFL_HUFFMAN_ONLY: c_int = 0;
 pub const TDEFL_DEFAULT_MAX_PROBES: c_int = 128;
@@ -258,8 +272,6 @@ pub unsafe extern "C" fn tdefl_start_dynamic_block(d: *mut tdefl_compressor) {
     let mut ob = OutputBufferOxide::new(d);
     tdefl_start_dynamic_block_oxide(&mut HuffmanOxide::new(d), &mut ob)
         .expect("io error in tdefl_start_dynamic_block_oxide");
-
-    (*d).m_pOutput_buf = (*d).m_pOutput_buf.offset(ob.inner.position() as isize);
 }
 
 #[no_mangle]
@@ -267,8 +279,6 @@ pub unsafe extern "C" fn tdefl_start_static_block(d: *mut tdefl_compressor) {
     let mut ob = OutputBufferOxide::new(d);
     tdefl_start_static_block_oxide(&mut HuffmanOxide::new(d), &mut ob)
         .expect("io error in tdefl_start_static_block_oxide");
-
-    (*d).m_pOutput_buf = (*d).m_pOutput_buf.offset(ob.inner.position() as isize);
 }
 
 #[no_mangle]
@@ -276,16 +286,14 @@ pub unsafe extern "C" fn tdefl_compress_lz_codes(d: *mut tdefl_compressor) -> bo
     let mut ob = OutputBufferOxide::new(d);
     let lz = LZOxide::new(d);
 
-    let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
-
-    let res = match tdefl_compress_lz_codes_oxide(&mut HuffmanOxide::new(d), &mut ob, &lz.codes[..lz.code_position]) {
+    (match tdefl_compress_lz_codes_oxide(
+        &mut HuffmanOxide::new(d),
+        &mut ob,
+        &lz.codes[..lz.code_position]
+    ) {
         Err(_) => false,
         Ok(b) => b
-    };
-
-    d.m_pOutput_buf = d.m_pOutput_buf.offset(ob.inner.position() as isize);
-
-    res && (d.m_pOutput_buf < d.m_pOutput_buf_end)
+    }) && ((*d).m_pOutput_buf < (*d).m_pOutput_buf_end)
 }
 
 #[no_mangle]
@@ -293,16 +301,31 @@ pub unsafe extern "C" fn tdefl_compress_block(d: *mut tdefl_compressor, static_b
     let mut ob = OutputBufferOxide::new(d);
     let lz = LZOxide::new(d);
 
-    let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
-
-    let res = match tdefl_compress_block_oxide(&mut HuffmanOxide::new(d), &mut ob, &lz, static_block) {
+    match tdefl_compress_block_oxide(&mut HuffmanOxide::new(d), &mut ob, &lz, static_block) {
         Err(_) => false,
         Ok(b) => b
-    };
+    }
+}
 
-    d.m_pOutput_buf = d.m_pOutput_buf.offset(ob.inner.position() as isize);
+#[no_mangle]
+pub unsafe extern "C" fn tdefl_flush_block(d: *mut tdefl_compressor, flush: c_int) -> c_int {
+    let mut h = HuffmanOxide::new(d);
+    let ob = OutputBufferOxide::choose_buffer_new(d);
+    let mut lz = LZOxide::new(d);
+    let mut dict = DictOxide::new(d);
+    let mut p = ParamsOxide::new(d);
+    let mut c = CallbackOxide::new(d);
 
-    res
+    tdefl_flush_block_oxide(
+        &mut h,
+        ob.0,
+        &mut lz,
+        &mut dict,
+        &mut p,
+        &mut c,
+        TDEFLFlush::new(flush).expect("bad flush param"),
+        ob.1
+    ).expect("io error in tdefl_flush_block_oxide")
 }
 
 #[no_mangle]
@@ -314,7 +337,7 @@ pub unsafe extern "C" fn tdefl_find_match(d: *mut tdefl_compressor,
                                           match_len: &mut c_uint)
 {
     let dist_len = tdefl_find_match_oxide(
-        &mut DictOxide::new(d),
+        &DictOxide::new(d),
         lookahead_pos,
         max_dist,
         max_match_len,
@@ -330,12 +353,6 @@ pub unsafe extern "C" fn tdefl_find_match(d: *mut tdefl_compressor,
 pub unsafe extern "C" fn tdefl_record_literal(d: *mut tdefl_compressor, lit: u8) {
     let mut lz = LZOxide::new(d);
     tdefl_record_literal_oxide(&mut HuffmanOxide::new(d), &mut lz, lit);
-
-    let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
-    d.m_pLZ_code_buf = (&mut lz.codes[0] as *mut u8).offset(lz.code_position as isize);
-    d.m_pLZ_flags = (&mut lz.codes[0] as *mut u8).offset(lz.flag_position as isize);
-    d.m_total_lz_bytes = lz.total_bytes;
-    d.m_num_flags_left = lz.num_flags_left;
 }
 
 #[no_mangle]
@@ -345,12 +362,6 @@ pub unsafe extern "C" fn tdefl_record_match(d: *mut tdefl_compressor,
 {
     let mut lz = LZOxide::new(d);
     tdefl_record_match_oxide(&mut HuffmanOxide::new(d), &mut lz, match_len, match_dist);
-
-    let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
-    d.m_pLZ_code_buf = (&mut lz.codes[0] as *mut u8).offset(lz.code_position as isize);
-    d.m_pLZ_flags = (&mut lz.codes[0] as *mut u8).offset(lz.flag_position as isize);
-    d.m_total_lz_bytes = lz.total_bytes;
-    d.m_num_flags_left = lz.num_flags_left;
 }
 
 #[no_mangle]
