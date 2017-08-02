@@ -555,7 +555,7 @@ pub fn tdefl_compress_lz_codes_oxide(h: &mut HuffmanOxide,
 
 pub fn tdefl_compress_block_oxide(h: &mut HuffmanOxide,
                                   output: &mut OutputBufferOxide,
-                                  lz_code_buf: &[u8],
+                                  lz: &LZOxide,
                                   static_block: bool) -> io::Result<bool>
 {
     if static_block {
@@ -564,7 +564,7 @@ pub fn tdefl_compress_block_oxide(h: &mut HuffmanOxide,
         tdefl_start_dynamic_block_oxide(h, output)?;
     }
 
-    tdefl_compress_lz_codes_oxide(h, output, lz_code_buf)
+    tdefl_compress_lz_codes_oxide(h, output, &lz.codes[..lz.code_position])
 }
 
 // TODO: only slow version

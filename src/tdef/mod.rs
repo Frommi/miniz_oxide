@@ -274,12 +274,11 @@ pub unsafe extern "C" fn tdefl_start_static_block(d: *mut tdefl_compressor) {
 #[no_mangle]
 pub unsafe extern "C" fn tdefl_compress_lz_codes(d: *mut tdefl_compressor) -> bool {
     let mut ob = OutputBufferOxide::new(d);
+    let lz = LZOxide::new(d);
+
     let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
 
-    let len = d.m_pLZ_code_buf as usize - (&d.m_lz_code_buf as *const [u8; TDEFL_LZ_CODE_BUF_SIZE]) as usize;
-    let lz_code_buf = slice::from_raw_parts(&d.m_lz_code_buf[0] as *const u8, len);
-
-    let res = match tdefl_compress_lz_codes_oxide(&mut HuffmanOxide::new(d), &mut ob, &lz_code_buf) {
+    let res = match tdefl_compress_lz_codes_oxide(&mut HuffmanOxide::new(d), &mut ob, &lz.codes[..lz.code_position]) {
         Err(_) => false,
         Ok(b) => b
     };
@@ -292,12 +291,11 @@ pub unsafe extern "C" fn tdefl_compress_lz_codes(d: *mut tdefl_compressor) -> bo
 #[no_mangle]
 pub unsafe extern "C" fn tdefl_compress_block(d: *mut tdefl_compressor, static_block: bool) -> bool {
     let mut ob = OutputBufferOxide::new(d);
+    let lz = LZOxide::new(d);
 
     let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
-    let len = d.m_pLZ_code_buf as usize - (&d.m_lz_code_buf as *const [u8; TDEFL_LZ_CODE_BUF_SIZE]) as usize;
-    let lz_code_buf = slice::from_raw_parts(&d.m_lz_code_buf[0] as *const u8, len);
 
-    let res = match tdefl_compress_block_oxide(&mut HuffmanOxide::new(d), &mut ob, lz_code_buf, static_block) {
+    let res = match tdefl_compress_block_oxide(&mut HuffmanOxide::new(d), &mut ob, &lz, static_block) {
         Err(_) => false,
         Ok(b) => b
     };
