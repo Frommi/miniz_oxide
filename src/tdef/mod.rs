@@ -61,7 +61,7 @@ pub const TDEFL_MAX_HUFF_SYMBOLS_1: usize = 32;
 pub const TDEFL_MAX_HUFF_SYMBOLS_2: usize = 19;
 pub const TDEFL_LZ_DICT_SIZE: usize = 32768;
 pub const TDEFL_LZ_DICT_SIZE_MASK: c_uint = TDEFL_LZ_DICT_SIZE as c_uint - 1;
-pub const TDEFL_MIN_MATCH_LEN: usize = 3;
+pub const TDEFL_MIN_MATCH_LEN: c_uint = 3;
 pub const TDEFL_MAX_MATCH_LEN: usize = 258;
 
 pub const TDEFL_WRITE_ZLIB_HEADER: c_uint = 0x01000;
@@ -362,6 +362,23 @@ pub unsafe extern "C" fn tdefl_record_match(d: *mut tdefl_compressor,
 {
     let mut lz = LZOxide::new(d);
     tdefl_record_match_oxide(&mut HuffmanOxide::new(d), &mut lz, match_len, match_dist);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn tdefl_compress_normal(d: *mut tdefl_compressor) -> bool {
+    let mut h = HuffmanOxide::new(d);
+    let mut lz = LZOxide::new(d);
+    let mut dict = DictOxide::new(d);
+    let mut p = ParamsOxide::new(d);
+    let mut c = CallbackOxide::new(d);
+
+    tdefl_compress_normal_oxide(
+        &mut h,
+        &mut lz,
+        &mut dict,
+        &mut p,
+        &mut c
+    )
 }
 
 #[no_mangle]

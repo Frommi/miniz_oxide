@@ -30,6 +30,7 @@ pub struct DictOxide<'a> {
     pub src_pos: usize,
 
     pub code_buf_dict_pos: c_uint,
+    pub lookahead_size: c_uint,
     pub lookahead_pos: c_uint,
     pub size: c_uint
 }
@@ -49,11 +50,19 @@ pub struct ParamsOxide {
     pub d: *mut tdefl_compressor,
 
     pub flags: c_uint,
+    pub greedy_parsing: bool,
     pub block_index: c_uint,
 
+    pub saved_match_dist: c_uint,
+    pub saved_match_len: libc::c_uint,
+    pub saved_lit: u8,
+
+    pub flush: TDEFLFlush,
     pub flush_ofs: c_uint,
     pub flush_remaining: c_uint,
     pub adler32: c_uint,
+
+    pub src_buf_left: usize,
 
     pub out_buf_ofs: usize,
     pub prev_return_status: TDEFLStatus
@@ -63,8 +72,8 @@ pub struct CallbackOxide<'a> {
     pub put_buf_func: tdefl_put_buf_func_ptr,
     pub put_buf_user: Option<&'a mut c_void>,
 
-    pub in_buf: *const u8,
-    pub out_buf: *mut u8,
+    pub in_buf: Option<&'a [u8]>,
+    pub out_buf: Option<&'a mut [u8]>,
 
     pub in_buf_size: Option<&'a mut usize>,
     pub out_buf_size: Option<&'a mut usize>
@@ -84,6 +93,7 @@ impl<'a> DictOxide<'a> {
             src_pos: d.m_pSrc as usize - d.m_pIn_buf as usize,
 
             code_buf_dict_pos: d.m_lz_code_buf_dict_pos,
+            lookahead_size: d.m_lookahead_size,
             lookahead_pos: d.m_lookahead_pos,
             size: d.m_dict_size
         }
@@ -99,6 +109,7 @@ impl<'a> Drop for DictOxide<'a> {
             d.m_pIn_buf.offset(self.src_pos as isize) as *const u8
         };
         d.m_lz_code_buf_dict_pos = self.code_buf_dict_pos;
+        d.m_lookahead_size = self.lookahead_size;
         d.m_lookahead_pos = self.lookahead_pos;
         d.m_dict_size = self.size;
     }
@@ -271,10 +282,16 @@ impl Drop for ParamsOxide {
         };
 
         d.m_flags = self.flags;
+        d.m_greedy_parsing = self.greedy_parsing as c_int;
         d.m_block_index = self.block_index;
+        d.m_saved_match_dist = self.saved_match_dist;
+        d.m_saved_match_len = self.saved_match_len;
+        d.m_saved_lit = self.saved_lit as c_uint;
+        d.m_flush = self.flush;
         d.m_output_flush_ofs = self.flush_ofs;
         d.m_output_flush_remaining = self.flush_remaining;
         d.m_adler32 = self.adler32;
+        d.m_src_buf_left = self.src_buf_left;
         d.m_out_buf_ofs = self.out_buf_ofs;
         d.m_prev_return_status = self.prev_return_status;
     }
@@ -287,10 +304,16 @@ impl ParamsOxide {
         ParamsOxide {
             d: d,
             flags: d.m_flags,
+            greedy_parsing: d.m_greedy_parsing != 0,
             block_index: d.m_block_index,
+            saved_match_dist: d.m_saved_match_dist,
+            saved_match_len: d.m_saved_match_len,
+            saved_lit: d.m_saved_lit as u8,
+            flush: d.m_flush,
             flush_ofs: d.m_output_flush_ofs,
             flush_remaining: d.m_output_flush_remaining,
             adler32: d.m_adler32,
+            src_buf_left: d.m_src_buf_left,
             out_buf_ofs: d.m_out_buf_ofs,
             prev_return_status: d.m_prev_return_status
         }
@@ -301,15 +324,23 @@ impl<'a> CallbackOxide<'a> {
     pub unsafe fn new(d: *mut tdefl_compressor) -> Self {
         let d = d.as_mut().expect("Bad tdefl_compressor pointer");
 
+        let mut in_size = d.m_pIn_buf_size.as_mut();
+        let mut out_size = d.m_pOut_buf_size.as_mut();
+
+        let in_buf = d.m_pIn_buf.as_ref().and_then(|buf| in_size.as_mut().map(|size| (buf, size)))
+            .map(|(buf, size)| slice::from_raw_parts(buf as *const c_void as *const u8, **size));
+        let out_buf = d.m_pOut_buf.as_mut().and_then(|buf| out_size.as_mut().map(|size| (buf, size)))
+            .map(|(buf, size)| slice::from_raw_parts_mut(buf as *mut c_void as *mut u8, **size));
+
         CallbackOxide {
             put_buf_func: d.m_pPut_buf_func,
             put_buf_user: d.m_pPut_buf_user.as_mut(),
 
-            in_buf: d.m_pIn_buf as *const u8,
-            out_buf: d.m_pOut_buf as *mut u8,
+            in_buf_size: in_size,
+            out_buf_size: out_size,
 
-            in_buf_size: d.m_pIn_buf_size.as_mut(),
-            out_buf_size: d.m_pOut_buf_size.as_mut()
+            in_buf: in_buf,
+            out_buf: out_buf,
         }
     }
 }
@@ -757,7 +788,7 @@ pub fn tdefl_flush_block_oxide(h: &mut HuffmanOxide,
 
     lz.init_flag();
 
-    if (p.flags & TDEFL_WRITE_ZLIB_HEADER != 0) && p.block_index == 0 {
+    if p.flags & TDEFL_WRITE_ZLIB_HEADER != 0 && p.block_index == 0 {
         output.put_bits(0x78, 8)?;
         output.put_bits(0x01, 8)?;
     }
@@ -843,7 +874,7 @@ pub fn tdefl_flush_block_oxide(h: &mut HuffmanOxide,
                     let bytes_to_copy = cmp::min(n as usize, **(c.out_buf_size.as_mut().unwrap()) - p.out_buf_ofs);
                     unsafe {
                         ptr::copy_nonoverlapping(&output.inner.get_ref()[0] as *const u8,
-                                                 c.out_buf.offset(p.out_buf_ofs as isize),
+                                                 (&mut (c.out_buf.as_mut().unwrap())[p.out_buf_ofs as usize]) as *mut u8,
                                                  bytes_to_copy);
                     }
 
@@ -951,7 +982,7 @@ pub fn tdefl_record_match_oxide(h: &mut HuffmanOxide,
                                 mut match_len: c_uint,
                                 mut match_dist: c_uint)
 {
-    assert!(match_len as usize >= TDEFL_MIN_MATCH_LEN);
+    assert!(match_len >= TDEFL_MIN_MATCH_LEN);
     assert!(match_dist >= 1);
     assert!(match_dist as usize <= TDEFL_LZ_DICT_SIZE);
 
@@ -973,6 +1004,162 @@ pub fn tdefl_record_match_oxide(h: &mut HuffmanOxide,
     } as usize;
     h.count[1][symbol] += 1;
     h.count[0][TDEFL_LEN_SYM[match_len as usize] as usize] += 1;
+}
+
+pub fn tdefl_compress_normal_oxide(h: &mut HuffmanOxide,
+                                   lz: &mut LZOxide,
+                                   dict: &mut DictOxide,
+                                   p: &mut ParamsOxide,
+                                   c: &mut CallbackOxide) -> bool
+{
+    let mut  src_pos = dict.src_pos;
+    let mut src_buf_left = p.src_buf_left;
+
+    while src_buf_left != 0 || (p.flush != TDEFLFlush::None && dict.lookahead_size != 0) {
+        let num_bytes_to_process = cmp::min(src_buf_left, TDEFL_MAX_MATCH_LEN - dict.lookahead_size as usize);
+        if dict.lookahead_size + dict.size >= TDEFL_MIN_MATCH_LEN - 1 {
+            let mut dst_pos = (dict.lookahead_pos + dict.lookahead_size) & TDEFL_LZ_DICT_SIZE_MASK;
+            let mut ins_pos = dict.lookahead_pos + dict.lookahead_size - 2;
+            let mut hash = ((dict.dict[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] as c_uint) << TDEFL_LZ_HASH_SHIFT) ^
+                (dict.dict[((ins_pos + 1) & TDEFL_LZ_DICT_SIZE_MASK) as usize] as c_uint);
+
+            src_buf_left -= num_bytes_to_process;
+            dict.lookahead_size += num_bytes_to_process as c_uint;
+            for &c in &c.in_buf.unwrap()[src_pos..src_pos + num_bytes_to_process] {
+                dict.dict[dst_pos as usize] = c;
+                if (dst_pos as usize) < TDEFL_MAX_MATCH_LEN - 1 {
+                    dict.dict[TDEFL_LZ_DICT_SIZE + dst_pos as usize] = c;
+                }
+
+                hash = ((hash << TDEFL_LZ_HASH_SHIFT) ^ (c as c_uint)) & (TDEFL_LZ_HASH_SIZE as c_uint - 1);
+                dict.next[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] = dict.hash[hash as usize];
+                dict.hash[hash as usize] = ins_pos as u16;
+                dst_pos = (dst_pos + 1) & TDEFL_LZ_DICT_SIZE_MASK;
+                ins_pos += 1;
+            }
+            src_pos += num_bytes_to_process;
+        } else {
+            for &c in &c.in_buf.unwrap()[src_pos..src_pos + num_bytes_to_process] {
+                let dst_pos = (dict.lookahead_pos + dict.lookahead_size) & TDEFL_LZ_DICT_SIZE_MASK;
+                src_buf_left -= 1;
+                dict.dict[dst_pos as usize] = c;
+                if (dst_pos as usize) < TDEFL_MAX_MATCH_LEN - 1 {
+                    dict.dict[TDEFL_LZ_DICT_SIZE + dst_pos as usize] = c;
+                }
+
+                dict.lookahead_size += 1;
+                if dict.lookahead_size + dict.size >= TDEFL_MIN_MATCH_LEN {
+                    let ins_pos = dict.lookahead_pos + dict.lookahead_size - 3;
+                    let hash = (((dict.dict[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] as c_uint) << (TDEFL_LZ_HASH_SHIFT * 2)) ^
+                        (((dict.dict[((ins_pos + 1) & TDEFL_LZ_DICT_SIZE_MASK) as usize] as c_uint) << TDEFL_LZ_HASH_SHIFT) ^ (c as c_uint))) &
+                        (TDEFL_LZ_HASH_SIZE as c_uint - 1);
+
+                    dict.next[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] = dict.hash[hash as usize];
+                    dict.hash[hash as usize] = ins_pos as u16;
+                }
+            }
+
+            src_pos += num_bytes_to_process;
+        }
+
+        dict.size = cmp::min(TDEFL_LZ_DICT_SIZE as c_uint - dict.lookahead_size, dict.size);
+        if p.flush == TDEFLFlush::None && (dict.lookahead_size as usize) < TDEFL_MAX_MATCH_LEN { break }
+
+        let mut len_to_move = 1;
+        let mut cur_match_dist = 0;
+        let mut cur_match_len = if p.saved_match_len != 0 { p.saved_match_len } else { TDEFL_MIN_MATCH_LEN - 1 };
+        let cur_pos = dict.lookahead_pos & TDEFL_LZ_DICT_SIZE_MASK;
+        if p.flags & (TDEFL_RLE_MATCHES | TDEFL_FORCE_ALL_RAW_BLOCKS) != 0 {
+            if dict.size != 0 && p.flags & TDEFL_FORCE_ALL_RAW_BLOCKS == 0 {
+                let c = dict.dict[((cur_pos - 1) & TDEFL_LZ_DICT_SIZE_MASK) as usize];
+                cur_match_len = dict.dict[cur_pos as usize..(cur_pos + dict.lookahead_size) as usize]
+                    .iter().take_while(|&x| *x == c).count() as c_uint;
+                if cur_match_len < TDEFL_MIN_MATCH_LEN { cur_match_len = 0 } else { cur_match_dist = 1 }
+            }
+        } else {
+            let dist_len = tdefl_find_match_oxide(
+                dict,
+                dict.lookahead_pos,
+                dict.size,
+                dict.lookahead_size,
+                cur_match_dist,
+                cur_match_len
+            );
+            cur_match_dist = dist_len.0;
+            cur_match_len = dist_len.1;
+        }
+
+        let far_and_small = cur_match_len == TDEFL_MIN_MATCH_LEN && cur_match_dist >= 8 * 1024;
+        let filter_small = p.flags & TDEFL_FILTER_MATCHES != 0 && cur_match_len <= 5;
+        if far_and_small || filter_small || cur_pos == cur_match_dist {
+            cur_match_dist = 0;
+            cur_match_len = 0;
+        }
+
+        if p.saved_match_len != 0 {
+            if cur_match_len > p.saved_match_len {
+                tdefl_record_literal_oxide(h, lz, p.saved_lit);
+                if cur_match_len >= 128 {
+                    tdefl_record_match_oxide(h, lz, cur_match_len, cur_match_dist);
+                    p.saved_match_len = 0;
+                    len_to_move = cur_match_len;
+                } else {
+                    p.saved_lit = dict.dict[cur_pos as usize];
+                    p.saved_match_dist = cur_match_dist;
+                    p.saved_match_len = cur_match_len;
+                }
+            } else {
+                tdefl_record_match_oxide(h, lz, p.saved_match_len, p.saved_match_dist);
+                len_to_move = p.saved_match_len - 1;
+                p.saved_match_len = 0;
+            }
+        } else if cur_match_dist == 0 {
+            tdefl_record_literal_oxide(h, lz, dict.dict[cmp::min(cur_pos as usize, dict.dict.len() - 1)]);
+        } else if p.greedy_parsing || (p.flags & TDEFL_RLE_MATCHES != 0) || cur_match_len >= 128 {
+            tdefl_record_match_oxide(h, lz, cur_match_len, cur_match_dist);
+            len_to_move = cur_match_len;
+        } else {
+            p.saved_lit = dict.dict[cmp::min(cur_pos as usize, dict.dict.len() - 1)];
+            p.saved_match_dist = cur_match_dist;
+            p.saved_match_len = cur_match_len;
+        }
+
+        dict.lookahead_pos += len_to_move;
+        assert!(dict.lookahead_size >= len_to_move);
+        dict.lookahead_size -= len_to_move;
+        dict.size = cmp::min(dict.size + len_to_move, TDEFL_LZ_DICT_SIZE as c_uint);
+
+        let lz_buf_tight = lz.code_position > TDEFL_LZ_CODE_BUF_SIZE - 8;
+        let raw = p.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0;
+        let fat = ((lz.code_position * 115) >> 7) >= lz.total_bytes as usize;
+        let fat_or_raw = (lz.total_bytes > 31 * 1024) && (fat || raw);
+
+        if lz_buf_tight || fat_or_raw {
+            dict.src_pos = src_pos;
+            p.src_buf_left = src_buf_left;
+
+            unsafe {
+                (*lz.d).m_out_buf_ofs = p.out_buf_ofs;
+            }
+
+            let output = unsafe { OutputBufferOxide::choose_buffer_new(lz.d) };
+            let n = tdefl_flush_block_oxide(
+                h,
+                output.0,
+                lz,
+                dict,
+                p,
+                c,
+                TDEFLFlush::None,
+                output.1
+            ).unwrap_or(TDEFLStatus::PutBufFailed as c_int);
+            if n != 0 { return n > 0 }
+        }
+    }
+
+    dict.src_pos = src_pos;
+    p.src_buf_left = src_buf_left;
+    true
 }
 
 pub fn tdefl_get_adler32_oxide(d: &tdefl_compressor) -> c_uint {
