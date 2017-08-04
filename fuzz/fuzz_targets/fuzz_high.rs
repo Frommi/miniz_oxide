@@ -22,15 +22,17 @@ fuzz_target!(|data: &[u8]| {
 
     let uncompressed_size = s.len() as c_ulong;
 
-    let mut rust_compressed_size: c_ulong = 2048;
-    let mut rust_compressed_buf = [0u8; 2048];
-    let mut rust_decompressed_size: c_ulong = 2048;
-    let mut rust_decompressed_buf = [0u8; 2048];
+    const n: usize = 600000;
 
-    let mut c_compressed_size: c_ulong = 2048;
-    let mut c_compressed_buf = [0u8; 2048];
-    let mut c_decompressed_size: c_ulong = 2048;
-    let mut c_decompressed_buf = [0u8; 2048];
+    let mut rust_compressed_size: c_ulong = n as c_ulong;
+    let mut rust_compressed_buf = [0u8; n];
+    let mut rust_decompressed_size: c_ulong = n as c_ulong;
+    let mut rust_decompressed_buf = [0u8; n];
+
+    let mut c_compressed_size: c_ulong = n as c_ulong;
+    let mut c_compressed_buf = [0u8; n];
+    let mut c_decompressed_size: c_ulong = n as c_ulong;
+    let mut c_decompressed_buf = [0u8; n];
 
     let rust_res =  unsafe {
         miniz_oxide::mz_compress(rust_compressed_buf.as_mut_ptr(),

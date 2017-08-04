@@ -550,7 +550,7 @@ mz_bool tdefl_compress_lz_codes(tdefl_compressor *d);
 //    return (d->m_pOutput_buf < d->m_pOutput_buf_end);
 //}
 //#else
-//static mz_bool tdefl_compress_lz_codes(tdefl_compressor *d)
+//mz_bool tdefl_compress_lz_codes(tdefl_compressor *d)
 //{
 //    mz_uint flags;
 //    mz_uint8 *pLZ_codes;
@@ -817,7 +817,7 @@ static inline mz_uint16 TDEFL_READ_UNALIGNED_WORD2(const mz_uint16* p)
 //    }
 //}
 //#else
-//static MZ_FORCEINLINE void tdefl_find_match(tdefl_compressor *d, mz_uint lookahead_pos, mz_uint max_dist, mz_uint max_match_len, mz_uint *pMatch_dist, mz_uint *pMatch_len)
+//MZ_FORCEINLINE void tdefl_find_match(tdefl_compressor *d, mz_uint lookahead_pos, mz_uint max_dist, mz_uint max_match_len, mz_uint *pMatch_dist, mz_uint *pMatch_len)
 //{
 //    mz_uint dist, pos = lookahead_pos & TDEFL_LZ_DICT_SIZE_MASK, match_len = *pMatch_len, probe_pos = pos, next_probe_pos, probe_len;
 //    mz_uint num_probes_left = d->m_max_probes[match_len >= 32];

@@ -908,8 +908,8 @@ pub fn tdefl_find_match_oxide(dict: &DictOxide,
     let mut probe_pos = pos;
     let mut num_probes_left = dict.max_probes[(match_len >= 32) as usize];
 
-    let mut c0 = dict.dict[(probe_pos + match_len) as usize];
-    let mut c1 = dict.dict[(probe_pos + match_len - 1) as usize];
+    let mut c0 = dict.dict[(pos + match_len) as usize];
+    let mut c1 = dict.dict[(pos + match_len - 1) as usize];
 
     if max_match_len <= match_len { return (match_dist, match_len) }
 
@@ -929,7 +929,7 @@ pub fn tdefl_find_match_oxide(dict: &DictOxide,
             let mut tdefl_probe = || -> ProbeResult {
                 let next_probe_pos = dict.next[probe_pos as usize] as c_uint;
 
-                dist = lookahead_pos - next_probe_pos as c_uint;
+                dist = ((lookahead_pos - next_probe_pos) & 0xFFFF) as c_uint;
                 if next_probe_pos == 0 || dist > max_dist {
                     return ProbeResult::OutOfBounds
                 }
