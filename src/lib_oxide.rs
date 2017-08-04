@@ -3,6 +3,7 @@ use super::*;
 use tdef::TDEFL_COMPUTE_ADLER32;
 use tdef::tdefl_get_adler32_oxide;
 use tdef::TDEFLStatus;
+use tdef::TDEFLFlush;
 
 use tinfl::TINFL_STATUS_DONE;
 use tinfl::TINFL_STATUS_FAILED;
@@ -238,7 +239,7 @@ pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, flush:
             &mut in_bytes,
             next_out.as_mut_ptr() as *mut c_void,
             &mut out_bytes,
-            flush as c_int
+            TDEFLFlush::from(flush)
         ) };
 
         *next_in = &next_in[in_bytes..];
@@ -247,11 +248,11 @@ pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>, flush:
         stream_oxide.total_out += out_bytes as c_ulong;
         stream_oxide.adler = tdefl_get_adler32_oxide(state) as c_ulong;
 
-        if defl_status < 0 {
+        if defl_status == TDEFLStatus::BadParam || defl_status == TDEFLStatus::PutBufFailed {
             return Err(MZError::Stream);
         }
 
-        if defl_status == TDEFLStatus::Done as c_int {
+        if defl_status == TDEFLStatus::Done {
             return Ok(MZStatus::StreamEnd);
         }
 

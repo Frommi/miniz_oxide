@@ -11,6 +11,7 @@ use std::io::{Cursor, Write};
 use std::ptr;
 
 use MZError;
+use MZFlush;
 mod tdef_oxide;
 pub use self::tdef_oxide::*;
 
@@ -33,6 +34,18 @@ pub enum TDEFLFlush {
     Sync = 2,
     Full = 3,
     Finish = 4
+}
+
+impl From<MZFlush> for TDEFLFlush {
+    fn from(flush: MZFlush) -> Self {
+        match flush {
+            MZFlush::None => TDEFLFlush::None,
+            MZFlush::Sync => TDEFLFlush::Sync,
+            MZFlush::Full => TDEFLFlush::Full,
+            MZFlush::Finish => TDEFLFlush::Finish,
+            _ => TDEFLFlush::None // TODO: ??? What to do ???
+        }
+    }
 }
 
 impl TDEFLFlush {
@@ -207,13 +220,6 @@ extern {
                       pPut_buf_func: tdefl_put_buf_func_ptr,
                       pPut_buf_user: *mut c_void,
                       flags: c_int) -> c_int;
-
-    pub fn tdefl_compress(d: *mut tdefl_compressor,
-                          pIn_buf: *const c_void,
-                          pIn_buf_size: *mut size_t,
-                          pOut_buf: *mut c_void,
-                          pOut_buf_size: *mut size_t,
-                          flush: c_int) -> c_int;
 }
 
 #[repr(C)]
@@ -387,6 +393,23 @@ pub unsafe extern "C" fn tdefl_flush_output_buffer(d: *mut tdefl_compressor) -> 
     let mut dict = DictOxide::new(d);
     let mut p = ParamsOxide::new(d);
     tdefl_flush_output_buffer_oxide(&mut c, &mut dict, &mut p)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn tdefl_compress(d: *mut tdefl_compressor,
+                                        in_buf: *const c_void,
+                                        in_size: *mut usize,
+                                        out_buf: *mut c_void,
+                                        out_size: *mut usize,
+                                        flush: TDEFLFlush) -> TDEFLStatus
+{
+    if let Some(d) = d.as_mut() {
+        tdefl_compress_oxide(d, in_buf, in_size, out_buf, out_size, flush)
+    } else {
+        in_size.as_mut().map(|in_size| *in_size = 0);
+        out_size.as_mut().map(|out_size| *out_size = 0);
+        TDEFLStatus::BadParam
+    }
 }
 
 #[no_mangle]

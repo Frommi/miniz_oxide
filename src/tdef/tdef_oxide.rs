@@ -1196,6 +1196,74 @@ pub fn tdefl_flush_output_buffer_oxide(c: &mut CallbackOxide,
     }
 }
 
+pub fn tdefl_compress_oxide(d: &mut tdefl_compressor,
+                            in_buf: *const c_void,
+                            in_size: *mut usize,
+                            out_buf: *mut c_void,
+                            out_size: *mut usize,
+                            flush: TDEFLFlush) -> TDEFLStatus
+{
+    d.m_pIn_buf = in_buf;
+    d.m_pOut_buf = out_buf;
+    d.m_pIn_buf_size = in_size;
+    d.m_pOut_buf_size = out_size;
+    d.m_pSrc = in_buf as *const u8;
+    d.m_src_buf_left = unsafe { in_size.as_ref().map_or(0, |x| *x) };
+    d.m_out_buf_ofs = 0;
+    d.m_flush = flush;
+
+    let callback_xor_buf = d.m_pPut_buf_func.is_none() ^ (out_buf.is_null() || out_size.is_null());
+    let prev_ok = d.m_prev_return_status == TDEFLStatus::Okay;
+    let want_eq_need = d.m_wants_to_finish == 0 || flush == TDEFLFlush::Finish;
+    let has_in_size_but_no_buf = unsafe {
+        in_size.as_ref().map_or(false, |x| *x != 0) && in_buf.is_null()
+    };
+    let has_out_size_but_no_buf = unsafe {
+        out_size.as_ref().map_or(false, |x| *x != 0) && out_buf.is_null()
+    };
+
+    if !callback_xor_buf || !prev_ok || !want_eq_need || has_in_size_but_no_buf || has_out_size_but_no_buf {
+        unsafe {
+            in_size.as_mut().map(|in_size| *in_size = 0);
+            out_size.as_mut().map(|out_size| *out_size = 0);
+        }
+
+        d.m_prev_return_status = TDEFLStatus::BadParam;
+        return d.m_prev_return_status;
+    }
+
+    d.m_wants_to_finish = (d.m_wants_to_finish != 0 || flush == TDEFLFlush::Finish) as c_uint;
+    if d.m_output_flush_remaining != 0 || d.m_finished != 0 {
+        d.m_prev_return_status = unsafe { tdefl_flush_output_buffer(d) };
+        return d.m_prev_return_status;
+    }
+
+    if unsafe { !tdefl_compress_normal(d) } {
+        return d.m_prev_return_status;
+    }
+
+    if d.m_flags & (TDEFL_WRITE_ZLIB_HEADER | TDEFL_COMPUTE_ADLER32) != 0 && !in_buf.is_null() {
+        unsafe {
+            d.m_adler32 = ::mz_adler32(d.m_adler32 as c_ulong, in_buf as *const u8, d.m_pSrc as usize - in_buf as usize) as c_uint;
+        }
+    }
+
+    if flush != TDEFLFlush::None && d.m_lookahead_size == 0 && d.m_src_buf_left == 0 && d.m_output_flush_remaining == 0 {
+        if unsafe { tdefl_flush_block(d, flush as c_int) } < 0 {
+            return d.m_prev_return_status;
+        }
+        d.m_finished = (flush == TDEFLFlush::Finish) as c_uint;
+        if flush == TDEFLFlush::Full {
+            memset(&mut d.m_hash[..], 0);
+            memset(&mut d.m_next[..], 0);
+            d.m_dict_size = 0;
+        }
+    }
+
+    d.m_prev_return_status = unsafe { tdefl_flush_output_buffer(d) };
+    d.m_prev_return_status
+}
+
 pub fn tdefl_get_adler32_oxide(d: &tdefl_compressor) -> c_uint {
     d.m_adler32
 }
