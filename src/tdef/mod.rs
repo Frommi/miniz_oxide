@@ -382,6 +382,14 @@ pub unsafe extern "C" fn tdefl_compress_normal(d: *mut tdefl_compressor) -> bool
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn tdefl_flush_output_buffer(d: *mut tdefl_compressor) -> TDEFLStatus {
+    let mut c = CallbackOxide::new(d);
+    let mut dict = DictOxide::new(d);
+    let mut p = ParamsOxide::new(d);
+    tdefl_flush_output_buffer_oxide(&mut c, &mut dict, &mut p)
+}
+
+#[no_mangle]
 pub extern "C" fn tdefl_create_comp_flags_from_zip_params(level: c_int,
                                                           window_bits: c_int,
                                                           strategy: c_int) -> c_uint

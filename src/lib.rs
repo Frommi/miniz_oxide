@@ -26,6 +26,7 @@ pub use tdef::{
     tdefl_record_literal,
     tdefl_record_match,
     tdefl_compress_normal,
+    tdefl_flush_output_buffer,
     tdefl_compressor,
     tdefl_put_buf_func_ptr
 };

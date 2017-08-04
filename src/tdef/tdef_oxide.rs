@@ -60,6 +60,8 @@ pub struct ParamsOxide {
     pub flush: TDEFLFlush,
     pub flush_ofs: c_uint,
     pub flush_remaining: c_uint,
+    pub finished: bool,
+
     pub adler32: c_uint,
 
     pub src_buf_left: usize,
@@ -290,6 +292,7 @@ impl Drop for ParamsOxide {
         d.m_flush = self.flush;
         d.m_output_flush_ofs = self.flush_ofs;
         d.m_output_flush_remaining = self.flush_remaining;
+        d.m_finished = self.finished as c_uint;
         d.m_adler32 = self.adler32;
         d.m_src_buf_left = self.src_buf_left;
         d.m_out_buf_ofs = self.out_buf_ofs;
@@ -312,6 +315,7 @@ impl ParamsOxide {
             flush: d.m_flush,
             flush_ofs: d.m_output_flush_ofs,
             flush_remaining: d.m_output_flush_remaining,
+            finished: d.m_finished != 0,
             adler32: d.m_adler32,
             src_buf_left: d.m_src_buf_left,
             out_buf_ofs: d.m_out_buf_ofs,
@@ -1160,6 +1164,36 @@ pub fn tdefl_compress_normal_oxide(h: &mut HuffmanOxide,
     dict.src_pos = src_pos;
     p.src_buf_left = src_buf_left;
     true
+}
+
+pub fn tdefl_flush_output_buffer_oxide(c: &mut CallbackOxide,
+                                       dict: &mut DictOxide,
+                                       p: &mut ParamsOxide) -> TDEFLStatus
+{
+    if let Some(ref mut in_size) = c.in_buf_size {
+        **in_size = dict.src_pos;
+    }
+
+    if let (Some(out_size), Some(out_buf)) = (c.out_buf_size.as_mut(), c.out_buf.as_mut()) {
+        let n = cmp::min(**out_size - p.out_buf_ofs, p.flush_remaining as usize);
+        unsafe {
+            ptr::copy_nonoverlapping(
+                &mut (*dict.d).m_output_buf[p.flush_ofs as usize],
+                (&mut (**out_buf)[0] as *mut u8).offset(p.out_buf_ofs as isize),
+                n
+            );
+        }
+        p.flush_ofs += n as c_uint;
+        p.flush_remaining -= n as c_uint;
+        p.out_buf_ofs += n;
+        **out_size = p.out_buf_ofs;
+    }
+
+    return if p.finished && p.flush_remaining == 0 {
+        TDEFLStatus::Done
+    } else {
+        TDEFLStatus::Okay
+    }
 }
 
 pub fn tdefl_get_adler32_oxide(d: &tdefl_compressor) -> c_uint {

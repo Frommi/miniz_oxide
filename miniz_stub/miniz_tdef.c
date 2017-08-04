@@ -1231,26 +1231,27 @@ mz_bool tdefl_compress_normal(tdefl_compressor *d);
 //    return MZ_TRUE;
 //}
 
-static tdefl_status tdefl_flush_output_buffer(tdefl_compressor *d)
-{
-    if (d->m_pIn_buf_size)
-    {
-        *d->m_pIn_buf_size = d->m_pSrc - (const mz_uint8 *)d->m_pIn_buf;
-    }
-
-    if (d->m_pOut_buf_size)
-    {
-        size_t n = MZ_MIN(*d->m_pOut_buf_size - d->m_out_buf_ofs, d->m_output_flush_remaining);
-        memcpy((mz_uint8 *)d->m_pOut_buf + d->m_out_buf_ofs, d->m_output_buf + d->m_output_flush_ofs, n);
-        d->m_output_flush_ofs += (mz_uint)n;
-        d->m_output_flush_remaining -= (mz_uint)n;
-        d->m_out_buf_ofs += n;
-
-        *d->m_pOut_buf_size = d->m_out_buf_ofs;
-    }
-
-    return (d->m_finished && !d->m_output_flush_remaining) ? TDEFL_STATUS_DONE : TDEFL_STATUS_OKAY;
-}
+tdefl_status tdefl_flush_output_buffer(tdefl_compressor *d);
+//tdefl_status tdefl_flush_output_buffer(tdefl_compressor *d)
+//{
+//    if (d->m_pIn_buf_size)
+//    {
+//        *d->m_pIn_buf_size = d->m_pSrc - (const mz_uint8 *)d->m_pIn_buf;
+//    }
+//
+//    if (d->m_pOut_buf_size)
+//    {
+//        size_t n = MZ_MIN(*d->m_pOut_buf_size - d->m_out_buf_ofs, d->m_output_flush_remaining);
+//        memcpy((mz_uint8 *)d->m_pOut_buf + d->m_out_buf_ofs, d->m_output_buf + d->m_output_flush_ofs, n);
+//        d->m_output_flush_ofs += (mz_uint)n;
+//        d->m_output_flush_remaining -= (mz_uint)n;
+//        d->m_out_buf_ofs += n;
+//
+//        *d->m_pOut_buf_size = d->m_out_buf_ofs;
+//    }
+//
+//    return (d->m_finished && !d->m_output_flush_remaining) ? TDEFL_STATUS_DONE : TDEFL_STATUS_OKAY;
+//}
 
 tdefl_status tdefl_compress(tdefl_compressor *d, const void *pIn_buf, size_t *pIn_buf_size, void *pOut_buf, size_t *pOut_buf_size, tdefl_flush flush)
 {
