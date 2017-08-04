@@ -200,7 +200,7 @@ pub fn mz_deflate_init2_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>,
         tdef::tdefl_init(stream_oxide.state.inner, None, ptr::null_mut(), comp_flags as c_int)
     };
 
-    if status != TDEFLStatus::Okay as c_int {
+    if status != TDEFLStatus::Okay {
         mz_deflate_end_oxide(stream_oxide)?;
         return Err(MZError::Param);
     }

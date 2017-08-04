@@ -214,14 +214,6 @@ const MZ_BITMASKS: [u32; 17] = [
 
 const TDEFL_NUM_PROBES: [c_uint; 11] = [0, 1, 6, 32, 16, 32, 128, 256, 512, 768, 1500];
 
-#[allow(bad_style)]
-extern {
-    pub fn tdefl_init(d: *mut tdefl_compressor,
-                      pPut_buf_func: tdefl_put_buf_func_ptr,
-                      pPut_buf_user: *mut c_void,
-                      flags: c_int) -> c_int;
-}
-
 #[repr(C)]
 #[derive(Copy, Clone)]
 #[allow(bad_style)]
@@ -410,6 +402,59 @@ pub unsafe extern "C" fn tdefl_compress(d: *mut tdefl_compressor,
         out_size.as_mut().map(|out_size| *out_size = 0);
         TDEFLStatus::BadParam
     }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn tdefl_init(d: *mut tdefl_compressor,
+                                    put_buf_func: tdefl_put_buf_func_ptr,
+                                    put_buf_user: *mut c_void,
+                                    flags: c_int) -> TDEFLStatus
+{
+    let mut d = d.as_mut().expect("bad tdefl_compressor pointer");
+
+    d.m_pPut_buf_func = put_buf_func;
+    d.m_pPut_buf_user = put_buf_user;
+    d.m_flags = flags as c_uint;
+    d.m_max_probes[0] = 1 + ((d.m_flags & 0xFFF) + 2) / 3;
+    d.m_greedy_parsing = (d.m_flags & TDEFL_GREEDY_PARSING_FLAG != 0) as c_int;
+    d.m_max_probes[1] = 1 + (((d.m_flags & 0xFFF) >> 2) + 2) / 3;
+    if d.m_flags & TDEFL_NONDETERMINISTIC_PARSING_FLAG == 0 {
+        tdef_oxide::memset(&mut d.m_hash[..], 0);
+    }
+    d.m_lookahead_pos = 0;
+    d.m_lookahead_size = 0;
+    d.m_dict_size = 0;
+    d.m_total_lz_bytes = 0;
+    d.m_lz_code_buf_dict_pos = 0;
+    d.m_bits_in = 0;
+    d.m_output_flush_ofs = 0;
+    d.m_output_flush_remaining = 0;
+    d.m_finished = 0;
+    d.m_block_index = 0;
+    d.m_bit_buffer = 0;
+    d.m_wants_to_finish = 0;
+    d.m_pLZ_code_buf = &mut d.m_lz_code_buf[1];
+    d.m_pLZ_flags = &mut d.m_lz_code_buf[0];
+    d.m_num_flags_left = 8;
+    d.m_pOutput_buf = &mut d.m_output_buf[0];
+    d.m_pOutput_buf_end = &mut d.m_output_buf[0];
+    d.m_prev_return_status = TDEFLStatus::Okay;
+    d.m_saved_match_dist = 0;
+    d.m_saved_match_len = 0;
+    d.m_saved_lit = 0;
+    d.m_adler32 = 1;
+    d.m_pIn_buf = ptr::null();
+    d.m_pOut_buf = ptr::null_mut();
+    d.m_pIn_buf_size = ptr::null_mut();
+    d.m_pOut_buf_size = ptr::null_mut();
+    d.m_flush = TDEFLFlush::None;
+    d.m_pSrc = ptr::null();
+    d.m_src_buf_left = 0;
+    d.m_out_buf_ofs = 0;
+    tdef_oxide::memset(&mut d.m_huff_count[0][..TDEFL_MAX_HUFF_SYMBOLS_0], 0);
+    tdef_oxide::memset(&mut d.m_huff_count[1][..TDEFL_MAX_HUFF_SYMBOLS_1], 0);
+
+    TDEFLStatus::Okay
 }
 
 #[no_mangle]

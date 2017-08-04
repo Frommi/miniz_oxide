@@ -1,6 +1,6 @@
 use super::*;
 
-fn memset<T : Clone>(slice: &mut [T], val: T) {
+pub fn memset<T : Clone>(slice: &mut [T], val: T) {
     for x in slice { *x = val.clone() }
 }
 
