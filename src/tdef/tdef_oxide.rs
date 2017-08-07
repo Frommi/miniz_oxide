@@ -1075,7 +1075,7 @@ pub fn tdefl_compress_normal_oxide(h: &mut HuffmanOxide,
         let cur_pos = dict.lookahead_pos & TDEFL_LZ_DICT_SIZE_MASK;
         if p.flags & (TDEFL_RLE_MATCHES | TDEFL_FORCE_ALL_RAW_BLOCKS) != 0 {
             if dict.size != 0 && p.flags & TDEFL_FORCE_ALL_RAW_BLOCKS == 0 {
-                let c = dict.dict[((cur_pos - 1) & TDEFL_LZ_DICT_SIZE_MASK) as usize];
+                let c = dict.dict[((cur_pos.wrapping_sub(1)) & TDEFL_LZ_DICT_SIZE_MASK) as usize];
                 cur_match_len = dict.dict[cur_pos as usize..(cur_pos + dict.lookahead_size) as usize]
                     .iter().take_while(|&x| *x == c).count() as c_uint;
                 if cur_match_len < TDEFL_MIN_MATCH_LEN { cur_match_len = 0 } else { cur_match_dist = 1 }
