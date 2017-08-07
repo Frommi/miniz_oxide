@@ -28,6 +28,7 @@ pub use tdef::{
     tdefl_compress_normal,
     tdefl_flush_output_buffer,
     tdefl_compress,
+    tdefl_compress_buffer,
     tdefl_init,
     tdefl_compressor,
     tdefl_put_buf_func_ptr

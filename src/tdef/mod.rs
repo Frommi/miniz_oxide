@@ -405,6 +405,23 @@ pub unsafe extern "C" fn tdefl_compress(d: *mut tdefl_compressor,
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn tdefl_compress_buffer(d: *mut tdefl_compressor,
+                                               in_buf: *const c_void,
+                                               mut in_size: usize,
+                                               flush: TDEFLFlush) -> TDEFLStatus
+{
+    assert!(!(*d).m_pPut_buf_func.is_none());
+    tdefl_compress(
+        d,
+        in_buf,
+        &mut in_size,
+        ptr::null_mut(),
+        ptr::null_mut(),
+        flush
+    )
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn tdefl_init(d: *mut tdefl_compressor,
                                     put_buf_func: tdefl_put_buf_func_ptr,
                                     put_buf_user: *mut c_void,
