@@ -1,3 +1,4 @@
+#![feature(asm)]
 extern crate libc;
 
 use std::slice;

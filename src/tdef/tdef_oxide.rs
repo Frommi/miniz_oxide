@@ -19,6 +19,30 @@ pub struct OutputBufferOxide<'a> {
     pub bits_in: &'a mut u32
 }
 
+pub struct BitBuffer {
+    pub bit_buffer: u64,
+    pub bits_in: u32
+}
+
+impl BitBuffer {
+    pub fn put_fast(&mut self, bits: u64, len: u32) {
+        self.bit_buffer |= bits << self.bits_in;
+        self.bits_in += len;
+    }
+
+    pub fn flush(&mut self, output: &mut OutputBufferOxide) -> io::Result<()> {
+        let pos = output.inner.position() as usize;
+        let inner = &mut((*output.inner.get_mut())[pos]) as *mut u8 as *mut u64;
+        unsafe {
+            ptr::write_unaligned(inner, self.bit_buffer);
+        }
+        output.inner.seek(SeekFrom::Current((self.bits_in >> 3) as i64))?;
+        self.bit_buffer >>= self.bits_in & !7;
+        self.bits_in &= 7;
+        Ok(())
+    }
+}
+
 pub struct DictOxide<'a> {
     pub d: *mut tdefl_compressor,
 
@@ -710,6 +734,10 @@ pub fn tdefl_compress_lz_codes_oxide(h: &mut HuffmanOxide,
                                      lz_code_buf: &[u8]) -> io::Result<bool>
 {
     let mut flags = 1;
+    let mut bb = BitBuffer {
+        bit_buffer: *output.bit_buffer as u64,
+        bits_in: *output.bits_in
+    };
 
     let mut i = 0;
     while i < lz_code_buf.len() {
@@ -723,36 +751,63 @@ pub fn tdefl_compress_lz_codes_oxide(h: &mut HuffmanOxide,
             let num_extra_bits;
 
             let match_len = lz_code_buf[i] as usize;
-            let match_dist = lz_code_buf[i + 1] as usize | ((lz_code_buf[i + 2] as usize) << 8);
+            let match_dist = read_unaligned_dict::<u16>(lz_code_buf, i as isize + 1);
             i += 3;
 
             assert!(h.code_sizes[0][TDEFL_LEN_SYM[match_len] as usize] != 0);
-            output.put_bits(h.codes[0][TDEFL_LEN_SYM[match_len] as usize] as u32,
-                            h.code_sizes[0][TDEFL_LEN_SYM[match_len] as usize] as u32)?;
-
-            output.put_bits(match_len as u32 & MZ_BITMASKS[TDEFL_LEN_EXTRA[match_len] as usize] as u32,
-                            TDEFL_LEN_EXTRA[match_len] as u32)?;
+            bb.put_fast(h.codes[0][TDEFL_LEN_SYM[match_len] as usize] as u64,
+                        h.code_sizes[0][TDEFL_LEN_SYM[match_len] as usize] as u32);
+            bb.put_fast(match_len as u64 & MZ_BITMASKS[TDEFL_LEN_EXTRA[match_len] as usize] as u64,
+                        TDEFL_LEN_EXTRA[match_len] as u32);
 
             if match_dist < 512 {
-                sym = TDEFL_SMALL_DIST_SYM[match_dist] as usize;
-                num_extra_bits = TDEFL_SMALL_DIST_EXTRA[match_dist] as usize;
+                sym = TDEFL_SMALL_DIST_SYM[match_dist as usize] as usize;
+                num_extra_bits = TDEFL_SMALL_DIST_EXTRA[match_dist as usize] as usize;
             } else {
-                sym = TDEFL_LARGE_DIST_SYM[match_dist >> 8] as usize;
-                num_extra_bits = TDEFL_LARGE_DIST_EXTRA[match_dist >> 8] as usize;
+                sym = TDEFL_LARGE_DIST_SYM[(match_dist >> 8) as usize] as usize;
+                num_extra_bits = TDEFL_LARGE_DIST_EXTRA[(match_dist >> 8) as usize] as usize;
             }
 
             assert!(h.code_sizes[1][sym] != 0);
-            output.put_bits(h.codes[1][sym] as u32, h.code_sizes[1][sym] as u32)?;
-            output.put_bits(match_dist as u32 & MZ_BITMASKS[num_extra_bits as usize] as u32, num_extra_bits as u32)?;
+            bb.put_fast(h.codes[1][sym] as u64, h.code_sizes[1][sym] as u32);
+            bb.put_fast(match_dist as u64 & MZ_BITMASKS[num_extra_bits as usize] as u64, num_extra_bits as u32);
         } else {
-            let lit = lz_code_buf[i];
+            let mut lit = lz_code_buf[i];
             i += 1;
 
             assert!(h.code_sizes[0][lit as usize] != 0);
-            output.put_bits(h.codes[0][lit as usize] as u32, h.code_sizes[0][lit as usize] as u32)?;
+            bb.put_fast(h.codes[0][lit as usize] as u64, h.code_sizes[0][lit as usize] as u32);
+
+            if flags & 2 == 0 && i < lz_code_buf.len() {
+                flags >>= 1;
+                lit = lz_code_buf[i];
+                i += 1;
+
+                assert!(h.code_sizes[0][lit as usize] != 0);
+                bb.put_fast(h.codes[0][lit as usize] as u64, h.code_sizes[0][lit as usize] as u32);
+
+                if flags & 2 == 0 && i < lz_code_buf.len() {
+                    flags >>= 1;
+                    lit = lz_code_buf[i];
+                    i += 1;
+
+                    assert!(h.code_sizes[0][lit as usize] != 0);
+                    bb.put_fast(h.codes[0][lit as usize] as u64, h.code_sizes[0][lit as usize] as u32);
+                }
+            }
         }
 
+        bb.flush(output)?;
         flags >>= 1;
+    }
+
+    *output.bits_in = 0;
+    *output.bit_buffer = 0;
+    while bb.bits_in != 0 {
+        let n = cmp::min(bb.bits_in, 16);
+        output.put_bits(bb.bit_buffer as u32 & MZ_BITMASKS[n as usize], n)?;
+        bb.bit_buffer >>= n;
+        bb.bits_in -= n;
     }
 
     output.put_bits(h.codes[0][256] as u32, h.code_sizes[0][256] as u32)?;
@@ -898,7 +953,13 @@ pub fn tdefl_flush_block_oxide(h: &mut HuffmanOxide,
     Ok(p.flush_remaining as c_int)
 }
 
-// TODO: only slow version
+fn read_unaligned_dict<T>(dict: &[u8], pos: isize) -> T {
+    unsafe {
+        ptr::read_unaligned((dict as *const [u8] as *const u8).offset(pos) as *const T)
+    }
+}
+
+
 pub fn tdefl_find_match_oxide(dict: &DictOxide,
                               lookahead_pos: c_uint,
                               max_dist: c_uint,
@@ -912,8 +973,8 @@ pub fn tdefl_find_match_oxide(dict: &DictOxide,
     let mut probe_pos = pos;
     let mut num_probes_left = dict.max_probes[(match_len >= 32) as usize];
 
-    let mut c0 = dict.dict[(pos + match_len) as usize];
-    let mut c1 = dict.dict[(pos + match_len - 1) as usize];
+    let mut c01: u16 = read_unaligned_dict(dict.dict, (pos + match_len - 1) as isize);
+    let s01: u16 = read_unaligned_dict(dict.dict, pos as isize);
 
     if max_match_len <= match_len { return (match_dist, match_len) }
 
@@ -939,7 +1000,7 @@ pub fn tdefl_find_match_oxide(dict: &DictOxide,
                 }
 
                 probe_pos = next_probe_pos & TDEFL_LZ_DICT_SIZE_MASK;
-                if (dict.dict[(probe_pos + match_len) as usize] == c0) && (dict.dict[(probe_pos + match_len - 1) as usize] == c1) {
+                if read_unaligned_dict::<u16>(dict.dict, (probe_pos + match_len - 1) as isize) == c01 {
                     ProbeResult::Found
                 } else {
                     ProbeResult::NotFound
@@ -956,17 +1017,34 @@ pub fn tdefl_find_match_oxide(dict: &DictOxide,
         }
 
         if dist == 0 { return (match_dist, match_len) }
+        if read_unaligned_dict::<u16>(dict.dict, probe_pos as isize) != s01 { continue }
 
-        let probe_len = dict.dict[pos as usize..].iter().zip(&dict.dict[probe_pos as usize..])
-            .take(max_match_len as usize).take_while(|&(&p, &q)| p == q).count() as c_uint;
+        let mut probe_len = 32;
+        let mut p = pos as isize;
+        let mut q = probe_pos as isize;
+        'probe: loop {
+            let result: u8;
+            for _ in 0..4 {
+                p += 2;
+                q += 2;
+                if read_unaligned_dict::<u16>(dict.dict, p) != read_unaligned_dict(dict.dict, q) {
+                    break 'probe;
+                }
+            }
+            probe_len -= 1;
+            if probe_len == 0 {
+                return (dist, cmp::min(max_match_len, TDEFL_MAX_MATCH_LEN as c_uint))
+            }
+        }
 
+        probe_len = (p - pos as isize + (dict.dict[p as usize] == dict.dict[q as usize]) as isize) as c_uint;
         if probe_len > match_len {
             match_dist = dist;
-            match_len = probe_len;
-            if probe_len == max_match_len { return (match_dist, match_len) }
-
-            c0 = dict.dict[(pos + match_len) as usize];
-            c1 = dict.dict[(pos + match_len - 1) as usize];
+            match_len = cmp::min(max_match_len, probe_len);
+            if match_len == max_match_len {
+                return (match_dist, match_len);
+            }
+            c01 = read_unaligned_dict(dict.dict, (pos + match_len - 1) as isize);
         }
     }
 }
