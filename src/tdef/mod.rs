@@ -475,6 +475,16 @@ pub unsafe extern "C" fn tdefl_init(d: *mut tdefl_compressor,
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn tdefl_get_prev_return_status(d: *mut tdefl_compressor) -> TDEFLStatus {
+    (*d).m_prev_return_status
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn tdefl_get_adler32(d: *mut tdefl_compressor) -> c_uint {
+    (*d).m_adler32
+}
+
+#[no_mangle]
 pub extern "C" fn tdefl_create_comp_flags_from_zip_params(level: c_int,
                                                           window_bits: c_int,
                                                           strategy: c_int) -> c_uint

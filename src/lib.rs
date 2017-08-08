@@ -31,6 +31,8 @@ pub use tdef::{
     tdefl_compress,
     tdefl_compress_buffer,
     tdefl_init,
+    tdefl_get_prev_return_status,
+    tdefl_get_adler32,
     tdefl_compressor,
     tdefl_put_buf_func_ptr
 };

@@ -728,7 +728,6 @@ pub fn tdefl_start_static_block_oxide(h: &mut HuffmanOxide, output: &mut OutputB
     output.put_bits(1, 2)
 }
 
-// TODO: only slow version
 pub fn tdefl_compress_lz_codes_oxide(h: &mut HuffmanOxide,
                                      output: &mut OutputBufferOxide,
                                      lz_code_buf: &[u8]) -> io::Result<bool>
@@ -1023,7 +1022,6 @@ pub fn tdefl_find_match_oxide(dict: &DictOxide,
         let mut p = pos as isize;
         let mut q = probe_pos as isize;
         'probe: loop {
-            let result: u8;
             for _ in 0..4 {
                 p += 2;
                 q += 2;

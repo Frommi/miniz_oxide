@@ -1363,15 +1363,17 @@ tdefl_status tdefl_init(tdefl_compressor *d, tdefl_put_buf_func_ptr pPut_buf_fun
 //    return TDEFL_STATUS_OKAY;
 //}
 
-tdefl_status tdefl_get_prev_return_status(tdefl_compressor *d)
-{
-    return d->m_prev_return_status;
-}
+tdefl_status tdefl_get_prev_return_status(tdefl_compressor *d);
+//tdefl_status tdefl_get_prev_return_status(tdefl_compressor *d)
+//{
+//    return d->m_prev_return_status;
+//}
 
-mz_uint32 tdefl_get_adler32(tdefl_compressor *d)
-{
-    return d->m_adler32;
-}
+mz_uint32 tdefl_get_adler32(tdefl_compressor *d);
+//mz_uint32 tdefl_get_adler32(tdefl_compressor *d)
+//{
+//    return d->m_adler32;
+//}
 
 mz_bool tdefl_compress_mem_to_output(const void *pBuf, size_t buf_len, tdefl_put_buf_func_ptr pPut_buf_func, void *pPut_buf_user, int flags)
 {
