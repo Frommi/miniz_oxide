@@ -4,24 +4,140 @@ pub fn memset<T : Clone>(slice: &mut [T], val: T) {
     for x in slice { *x = val.clone() }
 }
 
-pub struct HuffmanOxide<'a> {
-    pub count: &'a mut [[u16; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
-    pub codes: &'a mut [[u16; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
-    pub code_sizes: &'a mut [[u8; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES]
+pub struct CompressorOxide {
+    pub lz: LZOxide,
+    pub params: ParamsOxide,
+    pub callback: Option<CallbackFunc>,
+    pub local_buf: [u8; TDEFL_OUT_BUF_SIZE],
+    pub huff: HuffmanOxide,
+    pub dict: DictOxide,
+}
+
+#[derive(Copy, Clone)]
+pub struct CallbackFunc {
+    pub put_buf_func: PutBufFuncPtrNotNull,
+    pub put_buf_user: *mut c_void,
+}
+
+pub struct CallbackBuf<'a> {
+    pub out_buf: &'a mut [u8],
+}
+
+pub enum CallbackOut<'a> {
+    Func(CallbackFunc),
+    Buf(CallbackBuf<'a>),
+}
+
+impl<'a> CallbackOut<'a> {
+    pub fn new_output_buffer<'b>(
+        &'b mut self,
+        local_buf: &'b mut [u8],
+        out_buf_ofs: usize
+    ) -> OutputBufferOxide<'b> {
+        let is_local;
+        let buf_len = TDEFL_OUT_BUF_SIZE - 16;
+        let chosen_buffer = match *self {
+            CallbackOut::Buf(ref mut cb) if cb.out_buf.len() - out_buf_ofs >= TDEFL_OUT_BUF_SIZE => {
+                is_local = false;
+                &mut cb.out_buf[out_buf_ofs..out_buf_ofs + buf_len]
+            },
+            _ => {
+                is_local = true;
+                &mut local_buf[..buf_len]
+            },
+        };
+
+        let cursor = Cursor::new(chosen_buffer);
+        OutputBufferOxide {
+            inner: cursor,
+            local: is_local,
+            bit_buffer: 0,
+            bits_in: 0,
+        }
+    }
+}
+
+pub struct CallbackOxide<'a> {
+    pub in_buf: Option<&'a [u8]>,
+    pub out: CallbackOut<'a>,
+}
+
+impl<'a> CallbackOxide<'a> {
+    pub unsafe fn new(
+        callback_func: Option<CallbackFunc>,
+        in_buf: *const c_void,
+        in_size: usize,
+        out_buf: *mut c_void,
+        out_size: usize,
+    ) -> Result<Self, TDEFLStatus> {
+        let out = match callback_func {
+            None => CallbackOut::Buf(CallbackBuf {
+                out_buf: slice::from_raw_parts_mut(
+                    (out_buf as *mut u8).as_mut().ok_or(TDEFLStatus::BadParam)?,
+                    out_size
+                ),
+            }),
+            Some(func) => {
+                if out_size > 0 || out_buf.as_mut().is_some() {
+                    return Err(TDEFLStatus::BadParam);
+                }
+                CallbackOut::Func(func)
+            },
+        };
+
+        if in_size > 0 && in_buf.is_null() {
+            return Err(TDEFLStatus::BadParam);
+        }
+
+        Ok(CallbackOxide {
+            in_buf: (in_buf as *const u8).as_ref().map(|in_buf|
+                slice::from_raw_parts(in_buf, in_size)
+            ),
+            out: out,
+        })
+    }
+}
+
+impl CompressorOxide {
+    pub unsafe fn new(callback: Option<CallbackFunc>, flags: c_uint) -> Self {
+        CompressorOxide {
+            callback: callback,
+            lz: LZOxide::new(),
+            params: ParamsOxide::new(flags),
+            local_buf: [0; TDEFL_OUT_BUF_SIZE],
+            huff: HuffmanOxide::new(),
+            dict: DictOxide::new(flags),
+        }
+    }
+}
+
+pub struct HuffmanOxide {
+    pub count: [[u16; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
+    pub codes: [[u16; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
+    pub code_sizes: [[u8; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
+}
+
+impl HuffmanOxide {
+    pub fn new() -> Self {
+        HuffmanOxide {
+            count: [[0; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
+            codes: [[0; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
+            code_sizes: [[0; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
+        }
+    }
 }
 
 pub struct OutputBufferOxide<'a> {
-    pub d: *mut tdefl_compressor,
-
     pub inner: Cursor<&'a mut [u8]>,
+    pub local: bool,
 
-    pub bit_buffer: &'a mut u32,
-    pub bits_in: &'a mut u32
+    pub bit_buffer: u32,
+    pub bits_in: u32,
 }
 
 pub struct BitBuffer {
     pub bit_buffer: u64,
-    pub bits_in: u32
+    pub bits_in: u32,
 }
 
 impl BitBuffer {
@@ -43,36 +159,47 @@ impl BitBuffer {
     }
 }
 
-pub struct DictOxide<'a> {
-    pub d: *mut tdefl_compressor,
-
-    pub max_probes: &'a mut [c_uint; 2],
-    pub dict: &'a mut [u8; TDEFL_LZ_DICT_SIZE + TDEFL_MAX_MATCH_LEN - 1],
-    pub next: &'a mut [u16; TDEFL_LZ_DICT_SIZE],
-    pub hash: &'a mut [u16; TDEFL_LZ_DICT_SIZE],
-
-    pub src_pos: usize,
+pub struct DictOxide {
+    pub max_probes: [c_uint; 2],
+    pub dict: [u8; TDEFL_LZ_DICT_SIZE + TDEFL_MAX_MATCH_LEN - 1],
+    pub next: [u16; TDEFL_LZ_DICT_SIZE],
+    pub hash: [u16; TDEFL_LZ_DICT_SIZE],
 
     pub code_buf_dict_pos: c_uint,
     pub lookahead_size: c_uint,
     pub lookahead_pos: c_uint,
-    pub size: c_uint
+    pub size: c_uint,
 }
 
-pub struct LZOxide<'a> {
-    pub d: *mut tdefl_compressor,
+impl DictOxide {
+    pub fn new(flags: c_uint) -> Self {
+        DictOxide {
+            max_probes: [
+                1 + ((flags & 0xFFF) + 2) / 3,
+                1 + (((flags & 0xFFF) >> 2) + 2) / 3
+            ],
+            dict: [0; TDEFL_LZ_DICT_SIZE + TDEFL_MAX_MATCH_LEN - 1],
+            next: [0; TDEFL_LZ_DICT_SIZE],
+            hash: [0; TDEFL_LZ_DICT_SIZE],
 
-    pub codes: &'a mut [u8; TDEFL_LZ_CODE_BUF_SIZE],
+            code_buf_dict_pos: 0,
+            lookahead_size: 0,
+            lookahead_pos: 0,
+            size: 0,
+        }
+    }
+}
+
+pub struct LZOxide {
+    pub codes: [u8; TDEFL_LZ_CODE_BUF_SIZE],
     pub code_position: usize,
     pub flag_position: usize,
 
     pub total_bytes: c_uint,
-    pub num_flags_left: c_uint
+    pub num_flags_left: c_uint,
 }
 
 pub struct ParamsOxide {
-    pub d: *mut tdefl_compressor,
-
     pub flags: c_uint,
     pub greedy_parsing: bool,
     pub block_index: c_uint,
@@ -88,97 +215,48 @@ pub struct ParamsOxide {
 
     pub adler32: c_uint,
 
+    pub src_pos: usize,
     pub src_buf_left: usize,
 
     pub out_buf_ofs: usize,
-    pub prev_return_status: TDEFLStatus
+    pub prev_return_status: TDEFLStatus,
+
+    pub saved_bit_buffer: u32,
+    pub saved_bits_in: u32,
 }
 
-pub struct CallbackOxide<'a> {
-    pub put_buf_func: tdefl_put_buf_func_ptr,
-    pub put_buf_user: Option<&'a mut c_void>,
-
-    pub in_buf: Option<&'a [u8]>,
-    pub out_buf: Option<&'a mut [u8]>,
-
-    pub in_buf_size: Option<&'a mut usize>,
-    pub out_buf_size: Option<&'a mut usize>
-}
-
-impl<'a> DictOxide<'a> {
-    pub unsafe fn new(d: *mut tdefl_compressor) -> Self {
-        let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
-        DictOxide {
-            d: d,
-
-            max_probes: &mut d.m_max_probes,
-            dict: &mut d.m_dict,
-            hash: &mut d.m_hash,
-            next: &mut d.m_next,
-
-            src_pos: d.m_pSrc as usize - d.m_pIn_buf as usize,
-
-            code_buf_dict_pos: d.m_lz_code_buf_dict_pos,
-            lookahead_size: d.m_lookahead_size,
-            lookahead_pos: d.m_lookahead_pos,
-            size: d.m_dict_size
+impl ParamsOxide {
+    pub fn new(flags: c_uint) -> Self {
+        ParamsOxide {
+            flags: flags,
+            greedy_parsing: flags & TDEFL_GREEDY_PARSING_FLAG != 0,
+            block_index: 0,
+            saved_match_dist: 0,
+            saved_match_len: 0,
+            saved_lit: 0,
+            flush: TDEFLFlush::None,
+            flush_ofs: 0,
+            flush_remaining: 0,
+            finished: false,
+            adler32: ::MZ_ADLER32_INIT as c_uint,
+            src_pos: 0,
+            src_buf_left: 0,
+            out_buf_ofs: 0,
+            prev_return_status: TDEFLStatus::Okay,
+            saved_bit_buffer: 0,
+            saved_bits_in: 0,
         }
     }
 }
 
-impl<'a> Drop for DictOxide<'a> {
-    fn drop(&mut self) {
-        let mut d = unsafe {
-            self.d.as_mut().expect("Bad tdefl_compressor pointer")
-        };
-        d.m_pSrc = unsafe {
-            d.m_pIn_buf.offset(self.src_pos as isize) as *const u8
-        };
-        d.m_lz_code_buf_dict_pos = self.code_buf_dict_pos;
-        d.m_lookahead_size = self.lookahead_size;
-        d.m_lookahead_pos = self.lookahead_pos;
-        d.m_dict_size = self.size;
-    }
-}
-
-impl<'a> HuffmanOxide<'a> {
-    pub unsafe fn new(d: *mut tdefl_compressor) -> Self {
-        let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
-        HuffmanOxide {
-            count: &mut d.m_huff_count,
-            code_sizes: &mut d.m_huff_code_sizes,
-            codes: &mut d.m_huff_codes
-        }
-    }
-}
-
-impl<'a> Drop for LZOxide<'a> {
-    fn drop(&mut self) {
-        let mut d = unsafe {
-            self.d.as_mut().expect("Bad tdefl_compressor pointer")
-        };
-
-        d.m_pLZ_code_buf = &mut d.m_lz_code_buf[self.code_position];
-        d.m_pLZ_flags = &mut d.m_lz_code_buf[self.flag_position];
-        d.m_total_lz_bytes = self.total_bytes;
-        d.m_num_flags_left = self.num_flags_left;
-    }
-}
-
-impl<'a> LZOxide<'a> {
-    pub unsafe fn new(d: *mut tdefl_compressor) -> Self {
-        let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
-        let code_index = d.m_pLZ_code_buf as usize - &d.m_lz_code_buf[0] as *const u8 as usize;
-        let flag_index = d.m_pLZ_flags as usize - &d.m_lz_code_buf[0] as *const u8 as usize;
+impl LZOxide {
+    pub fn new() -> Self {
         LZOxide {
-            d: d,
-
-            codes: &mut d.m_lz_code_buf,
-            code_position: code_index,
-            flag_position: flag_index,
-
-            total_bytes: d.m_total_lz_bytes,
-            num_flags_left: d.m_num_flags_left,
+            codes: [0; TDEFL_LZ_CODE_BUF_SIZE],
+            code_position: 1,
+            flag_position: 0,
+            total_bytes: 0,
+            num_flags_left: 8,
         }
     }
 
@@ -186,7 +264,6 @@ impl<'a> LZOxide<'a> {
         self.codes[self.code_position] = val;
         self.code_position += 1;
     }
-
 
     pub fn init_flag(&mut self) {
         if self.num_flags_left == 8 {
@@ -215,64 +292,22 @@ impl<'a> LZOxide<'a> {
     }
 }
 
-struct SavedOutputBufferOxide {
+pub struct SavedOutputBufferOxide {
     pub pos: u64,
     pub bit_buffer: u32,
-    pub bits_in: u32
-}
-
-impl<'a> Drop for OutputBufferOxide<'a> {
-    fn drop(&mut self) {
-        unsafe {
-            let mut d = self.d.as_mut().expect("Bad tdefl_compressor pointer");
-            d.m_pOutput_buf = d.m_pOutput_buf.offset(self.inner.position() as isize);
-        }
-    }
+    pub bits_in: u32,
+    pub local: bool,
 }
 
 impl<'a> OutputBufferOxide<'a> {
-    pub unsafe fn new(d: *mut tdefl_compressor) -> Self {
-        let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
-
-        let len = d.m_pOutput_buf_end as usize - d.m_pOutput_buf as usize;
-        let cursor = Cursor::new(
-            slice::from_raw_parts_mut(d.m_pOutput_buf, len as usize)
-        );
-
-        OutputBufferOxide {
-            d: d,
-            inner: cursor,
-            bit_buffer: &mut d.m_bit_buffer,
-            bits_in: &mut d.m_bits_in
-        }
-    }
-
-    pub unsafe fn choose_buffer_new(d: *mut tdefl_compressor) -> (Self, bool) {
-        let mut d = d.as_mut().expect("Bad tdefl_compressor pointer");
-
-        let choose_local;
-        let chosen_buffer = if d.m_pPut_buf_func.is_none() && *d.m_pOut_buf_size - d.m_out_buf_ofs >= TDEFL_OUT_BUF_SIZE {
-            choose_local = false;
-            (d.m_pOut_buf as *mut u8).offset(d.m_out_buf_ofs as isize)
-        } else {
-            choose_local = true;
-            &mut d.m_output_buf[0]
-        };
-
-        d.m_pOutput_buf = chosen_buffer;
-        d.m_pOutput_buf_end = d.m_pOutput_buf.offset(TDEFL_OUT_BUF_SIZE as isize - 16);
-
-        (OutputBufferOxide::new(d), choose_local)
-    }
-
     fn put_bits(&mut self, bits: u32, len: u32) -> io::Result<()> {
         assert!(bits <= ((1u32 << len) - 1u32));
-        *self.bit_buffer |= bits << *self.bits_in;
-        *self.bits_in += len;
-        while *self.bits_in >= 8 {
-            self.inner.write(&[*self.bit_buffer as u8][..])?;
-            *self.bit_buffer >>= 8;
-            *self.bits_in -= 8;
+        self.bit_buffer |= bits << self.bits_in;
+        self.bits_in += len;
+        while self.bits_in >= 8 {
+            self.inner.write(&[self.bit_buffer as u8][..])?;
+            self.bit_buffer >>= 8;
+            self.bits_in -= 8;
         }
         Ok(())
     }
@@ -280,20 +315,27 @@ impl<'a> OutputBufferOxide<'a> {
     fn save(&self) -> SavedOutputBufferOxide {
         SavedOutputBufferOxide {
             pos: self.inner.position(),
-            bit_buffer: *self.bit_buffer,
-            bits_in: *self.bits_in
+            bit_buffer: self.bit_buffer,
+            bits_in: self.bits_in,
+            local: self.local,
         }
     }
 
     fn load(&mut self, saved: SavedOutputBufferOxide) {
         self.inner.set_position(saved.pos);
-        *self.bit_buffer = saved.bit_buffer;
-        *self.bits_in = saved.bits_in;
+        self.bit_buffer = saved.bit_buffer;
+        self.bits_in = saved.bits_in;
+        self.local = saved.local;
+    }
+
+    fn load_bits(&mut self, saved: &SavedOutputBufferOxide) {
+        self.bit_buffer = saved.bit_buffer;
+        self.bits_in = saved.bits_in;
     }
 
     fn pad_to_bytes(&mut self) -> io::Result<()> {
-        if *self.bits_in != 0 {
-            let len = 8 - *self.bits_in;
+        if self.bits_in != 0 {
+            let len = 8 - self.bits_in;
             self.put_bits(0, len)?;
         }
 
@@ -301,81 +343,10 @@ impl<'a> OutputBufferOxide<'a> {
     }
 }
 
-impl Drop for ParamsOxide {
-    fn drop(&mut self) {
-        let mut d = unsafe {
-            self.d.as_mut().expect("Bad tdefl_compressor pointer")
-        };
-
-        d.m_flags = self.flags;
-        d.m_greedy_parsing = self.greedy_parsing as c_int;
-        d.m_block_index = self.block_index;
-        d.m_saved_match_dist = self.saved_match_dist;
-        d.m_saved_match_len = self.saved_match_len;
-        d.m_saved_lit = self.saved_lit as c_uint;
-        d.m_flush = self.flush;
-        d.m_output_flush_ofs = self.flush_ofs;
-        d.m_output_flush_remaining = self.flush_remaining;
-        d.m_finished = self.finished as c_uint;
-        d.m_adler32 = self.adler32;
-        d.m_src_buf_left = self.src_buf_left;
-        d.m_out_buf_ofs = self.out_buf_ofs;
-        d.m_prev_return_status = self.prev_return_status;
-    }
-}
-
-impl ParamsOxide {
-    pub unsafe fn new(d: *mut tdefl_compressor) -> Self {
-        let d = d.as_mut().expect("Bad tdefl_compressor pointer");
-
-        ParamsOxide {
-            d: d,
-            flags: d.m_flags,
-            greedy_parsing: d.m_greedy_parsing != 0,
-            block_index: d.m_block_index,
-            saved_match_dist: d.m_saved_match_dist,
-            saved_match_len: d.m_saved_match_len,
-            saved_lit: d.m_saved_lit as u8,
-            flush: d.m_flush,
-            flush_ofs: d.m_output_flush_ofs,
-            flush_remaining: d.m_output_flush_remaining,
-            finished: d.m_finished != 0,
-            adler32: d.m_adler32,
-            src_buf_left: d.m_src_buf_left,
-            out_buf_ofs: d.m_out_buf_ofs,
-            prev_return_status: d.m_prev_return_status
-        }
-    }
-}
-
-impl<'a> CallbackOxide<'a> {
-    pub unsafe fn new(d: *mut tdefl_compressor) -> Self {
-        let d = d.as_mut().expect("Bad tdefl_compressor pointer");
-
-        let mut in_size = d.m_pIn_buf_size.as_mut();
-        let mut out_size = d.m_pOut_buf_size.as_mut();
-
-        let in_buf = d.m_pIn_buf.as_ref().and_then(|buf| in_size.as_mut().map(|size| (buf, size)))
-            .map(|(buf, size)| slice::from_raw_parts(buf as *const c_void as *const u8, **size));
-        let out_buf = d.m_pOut_buf.as_mut().and_then(|buf| out_size.as_mut().map(|size| (buf, size)))
-            .map(|(buf, size)| slice::from_raw_parts_mut(buf as *mut c_void as *mut u8, **size));
-
-        CallbackOxide {
-            put_buf_func: d.m_pPut_buf_func,
-            put_buf_user: d.m_pPut_buf_user.as_mut(),
-
-            in_buf_size: in_size,
-            out_buf_size: out_size,
-
-            in_buf: in_buf,
-            out_buf: out_buf,
-        }
-    }
-}
-
-pub fn tdefl_radix_sort_syms_oxide<'a>(symbols0: &'a mut [tdefl_sym_freq],
-                                       symbols1: &'a mut [tdefl_sym_freq]) -> &'a mut [tdefl_sym_freq]
-{
+pub fn tdefl_radix_sort_syms_oxide<'a>(
+    symbols0: &'a mut [tdefl_sym_freq],
+    symbols1: &'a mut [tdefl_sym_freq]
+) -> &'a mut [tdefl_sym_freq] {
     let mut hist = [[0; 256]; 2];
 
     for freq in symbols0.iter() {
@@ -468,10 +439,11 @@ pub fn tdefl_calculate_minimum_redundancy_oxide(symbols: &mut [tdefl_sym_freq]) 
     }
 }
 
-pub fn tdefl_huffman_enforce_max_code_size_oxide(num_codes: &mut [c_int],
-                                                 code_list_len: usize,
-                                                 max_code_size: usize)
-{
+pub fn tdefl_huffman_enforce_max_code_size_oxide(
+    num_codes: &mut [c_int],
+    code_list_len: usize,
+    max_code_size: usize
+) {
     if code_list_len <= 1 { return; }
 
     num_codes[max_code_size] += num_codes[max_code_size + 1..].iter().sum();
@@ -491,12 +463,13 @@ pub fn tdefl_huffman_enforce_max_code_size_oxide(num_codes: &mut [c_int],
     }
 }
 
-pub fn tdefl_optimize_huffman_table_oxide(h: &mut HuffmanOxide,
-                                          table_num: usize,
-                                          table_len: usize,
-                                          code_size_limit: usize,
-                                          static_table: bool)
-{
+pub fn tdefl_optimize_huffman_table_oxide(
+    h: &mut HuffmanOxide,
+    table_num: usize,
+    table_len: usize,
+    code_size_limit: usize,
+    static_table: bool
+) {
     let mut num_codes = [0 as c_int; TDEFL_MAX_SUPPORTED_HUFF_CODESIZE + 1];
     let mut next_code = [0 as c_uint; TDEFL_MAX_SUPPORTED_HUFF_CODESIZE + 1];
 
@@ -569,7 +542,10 @@ pub fn tdefl_optimize_huffman_table_oxide(h: &mut HuffmanOxide,
 const TDEFL_PACKED_CODE_SIZE_SYMS_SWIZZLE: [u8; 19] =
     [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
 
-pub fn tdefl_start_dynamic_block_oxide(h: &mut HuffmanOxide, output: &mut OutputBufferOxide) -> io::Result<()> {
+pub fn tdefl_start_dynamic_block_oxide(
+    h: &mut HuffmanOxide,
+    output: &mut OutputBufferOxide
+) -> io::Result<()> {
     h.count[0][256] = 1;
 
     tdefl_optimize_huffman_table_oxide(h, 0, TDEFL_MAX_HUFF_SYMBOLS_0, 15, false);
@@ -714,7 +690,10 @@ pub fn tdefl_start_dynamic_block_oxide(h: &mut HuffmanOxide, output: &mut Output
     Ok(())
 }
 
-pub fn tdefl_start_static_block_oxide(h: &mut HuffmanOxide, output: &mut OutputBufferOxide) -> io::Result<()> {
+pub fn tdefl_start_static_block_oxide(
+    h: &mut HuffmanOxide,
+    output: &mut OutputBufferOxide
+) -> io::Result<()> {
     memset(&mut h.code_sizes[0][0..144], 8);
     memset(&mut h.code_sizes[0][144..256], 9);
     memset(&mut h.code_sizes[0][256..280], 7);
@@ -728,14 +707,15 @@ pub fn tdefl_start_static_block_oxide(h: &mut HuffmanOxide, output: &mut OutputB
     output.put_bits(1, 2)
 }
 
-pub fn tdefl_compress_lz_codes_oxide(h: &mut HuffmanOxide,
-                                     output: &mut OutputBufferOxide,
-                                     lz_code_buf: &[u8]) -> io::Result<bool>
-{
+pub fn tdefl_compress_lz_codes_oxide(
+    h: &mut HuffmanOxide,
+    output: &mut OutputBufferOxide,
+    lz_code_buf: &[u8]
+) -> io::Result<bool> {
     let mut flags = 1;
     let mut bb = BitBuffer {
-        bit_buffer: *output.bit_buffer as u64,
-        bits_in: *output.bits_in
+        bit_buffer: output.bit_buffer as u64,
+        bits_in: output.bits_in
     };
 
     let mut i = 0;
@@ -800,8 +780,8 @@ pub fn tdefl_compress_lz_codes_oxide(h: &mut HuffmanOxide,
         flags >>= 1;
     }
 
-    *output.bits_in = 0;
-    *output.bit_buffer = 0;
+    output.bits_in = 0;
+    output.bit_buffer = 0;
     while bb.bits_in != 0 {
         let n = cmp::min(bb.bits_in, 16);
         output.put_bits(bb.bit_buffer as u32 & MZ_BITMASKS[n as usize], n)?;
@@ -814,11 +794,12 @@ pub fn tdefl_compress_lz_codes_oxide(h: &mut HuffmanOxide,
     Ok(true)
 }
 
-pub fn tdefl_compress_block_oxide(h: &mut HuffmanOxide,
-                                  output: &mut OutputBufferOxide,
-                                  lz: &LZOxide,
-                                  static_block: bool) -> io::Result<bool>
-{
+pub fn tdefl_compress_block_oxide(
+    h: &mut HuffmanOxide,
+    output: &mut OutputBufferOxide,
+    lz: &LZOxide,
+    static_block: bool
+) -> io::Result<bool> {
     if static_block {
         tdefl_start_static_block_oxide(h, output)?;
     } else {
@@ -828,128 +809,148 @@ pub fn tdefl_compress_block_oxide(h: &mut HuffmanOxide,
     tdefl_compress_lz_codes_oxide(h, output, &lz.codes[..lz.code_position])
 }
 
-pub fn tdefl_flush_block_oxide(h: &mut HuffmanOxide,
-                               mut output: OutputBufferOxide,
-                               lz: &mut LZOxide,
-                               dict: &mut DictOxide,
-                               p: &mut ParamsOxide,
-                               c: &mut CallbackOxide,
-                               flush: TDEFLFlush,
-                               local_buf: bool) -> io::Result<c_int>
-{
-    let use_raw_block = (p.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0) &&
-        (dict.lookahead_pos - dict.code_buf_dict_pos) <= dict.size;
+pub fn tdefl_flush_block_oxide(
+    huff: &mut HuffmanOxide,
+    lz: &mut LZOxide,
+    dict: &mut DictOxide,
+    params: &mut ParamsOxide,
+    callback: &mut CallbackOxide,
+    local_buf: &mut [u8],
+    flush: TDEFLFlush
+) -> io::Result<c_int> {
 
-    assert!(p.flush_remaining == 0);
-    p.flush_ofs = 0;
-    p.flush_remaining = 0;
+    let saved_bits;
+    {
+        let mut output = callback.out.new_output_buffer(local_buf, params.out_buf_ofs);
+        output.bit_buffer = params.saved_bit_buffer;
+        output.bits_in = params.saved_bits_in;
 
-    lz.init_flag();
+        let use_raw_block = (params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0) &&
+            (dict.lookahead_pos - dict.code_buf_dict_pos) <= dict.size;
 
-    if p.flags & TDEFL_WRITE_ZLIB_HEADER != 0 && p.block_index == 0 {
-        output.put_bits(0x78, 8)?;
-        output.put_bits(0x01, 8)?;
-    }
+        assert!(params.flush_remaining == 0);
+        params.flush_ofs = 0;
+        params.flush_remaining = 0;
 
-    output.put_bits((flush == TDEFLFlush::Finish) as u32, 1)?;
+        lz.init_flag();
 
-    let saved_buffer = output.save();
-
-    let mut comp_success = false;
-    if !use_raw_block {
-        let use_static = (p.flags & TDEFL_FORCE_ALL_STATIC_BLOCKS != 0) || (lz.total_bytes < 48);
-        comp_success = tdefl_compress_block_oxide(h, &mut output, lz, use_static)?;
-    }
-
-    let expanded = (lz.total_bytes != 0) &&
-        (output.inner.position() - saved_buffer.pos + 1 >= lz.total_bytes as u64) &&
-        (dict.lookahead_pos - dict.code_buf_dict_pos <= dict.size);
-
-    if use_raw_block || expanded {
-        output.load(saved_buffer);
-
-        output.put_bits(0, 2)?;
-        output.pad_to_bytes()?;
-
-        for _ in 0..2 {
-            output.put_bits(lz.total_bytes & 0xFFFF, 16)?;
-            lz.total_bytes ^= 0xFFFF;
+        if params.flags & TDEFL_WRITE_ZLIB_HEADER != 0 && params.block_index == 0 {
+            output.put_bits(0x78, 8)?;
+            output.put_bits(0x01, 8)?;
         }
 
-        for i in 0..lz.total_bytes {
-            let pos = (dict.code_buf_dict_pos + i) & TDEFL_LZ_DICT_SIZE_MASK;
-            output.put_bits(dict.dict[pos as usize] as u32, 8)?;
-        }
-    } else if !comp_success {
-        output.load(saved_buffer);
-        tdefl_compress_block_oxide(h, &mut output, lz, true)?;
-    }
+        output.put_bits((flush == TDEFLFlush::Finish) as u32, 1)?;
 
-    if flush != TDEFLFlush::None {
-        if flush == TDEFLFlush::Finish {
+        let saved_buffer = output.save();
+
+        let mut comp_success = false;
+        if !use_raw_block {
+            let use_static = (params.flags & TDEFL_FORCE_ALL_STATIC_BLOCKS != 0) || (lz.total_bytes < 48);
+            comp_success = tdefl_compress_block_oxide(huff, &mut output, lz, use_static)?;
+        }
+
+        let expanded = (lz.total_bytes != 0) &&
+            (output.inner.position() - saved_buffer.pos + 1 >= lz.total_bytes as u64) &&
+            (dict.lookahead_pos - dict.code_buf_dict_pos <= dict.size);
+
+        if use_raw_block || expanded {
+            output.load(saved_buffer);
+
+            output.put_bits(0, 2)?;
             output.pad_to_bytes()?;
-            if p.flags & TDEFL_WRITE_ZLIB_HEADER != 0 {
-                let mut adler = p.adler32;
-                for _ in 0..4 {
-                    output.put_bits((adler >> 24) & 0xFF, 8)?;
-                    adler <<= 8;
-                }
+
+            for _ in 0..2 {
+                output.put_bits(lz.total_bytes & 0xFFFF, 16)?;
+                lz.total_bytes ^= 0xFFFF;
             }
-        } else {
-            output.put_bits(0, 3)?;
-            output.pad_to_bytes()?;
-            output.put_bits(0, 16)?;
-            output.put_bits(0xFFFF, 16)?;
+
+            for i in 0..lz.total_bytes {
+                let pos = (dict.code_buf_dict_pos + i) & TDEFL_LZ_DICT_SIZE_MASK;
+                output.put_bits(dict.dict[pos as usize] as u32, 8)?;
+            }
+        } else if !comp_success {
+            output.load(saved_buffer);
+            tdefl_compress_block_oxide(huff, &mut output, lz, true)?;
         }
+
+        if flush != TDEFLFlush::None {
+            if flush == TDEFLFlush::Finish {
+                output.pad_to_bytes()?;
+                if params.flags & TDEFL_WRITE_ZLIB_HEADER != 0 {
+                    let mut adler = params.adler32;
+                    for _ in 0..4 {
+                        output.put_bits((adler >> 24) & 0xFF, 8)?;
+                        adler <<= 8;
+                    }
+                }
+            } else {
+                output.put_bits(0, 3)?;
+                output.pad_to_bytes()?;
+                output.put_bits(0, 16)?;
+                output.put_bits(0xFFFF, 16)?;
+            }
+        }
+
+        memset(&mut huff.count[0][..TDEFL_MAX_HUFF_SYMBOLS_0], 0);
+        memset(&mut huff.count[1][..TDEFL_MAX_HUFF_SYMBOLS_1], 0);
+
+        lz.code_position = 1;
+        lz.flag_position = 0;
+        lz.num_flags_left = 8;
+        dict.code_buf_dict_pos += lz.total_bytes;
+        lz.total_bytes = 0;
+        params.block_index += 1;
+
+        saved_bits = output.save();
     }
 
-    memset(&mut h.count[0][..TDEFL_MAX_HUFF_SYMBOLS_0], 0);
-    memset(&mut h.count[1][..TDEFL_MAX_HUFF_SYMBOLS_1], 0);
+    let mut pos = saved_bits.pos;
+    let local = saved_bits.local;
+    params.saved_bit_buffer = saved_bits.bit_buffer;
+    params.saved_bits_in = saved_bits.bits_in;
 
-    lz.code_position = 1;
-    lz.flag_position = 0;
-    lz.num_flags_left = 8;
-    dict.code_buf_dict_pos += lz.total_bytes;
-    lz.total_bytes = 0;
-    p.block_index += 1;
-
-    let mut n = output.inner.position();
-    if n != 0 {
-        match (c.put_buf_func, c.put_buf_user.as_mut()) {
-            (Some(callback), Some(user)) => {
-                c.in_buf_size.as_mut().map(|size| **size = dict.src_pos);
+    if pos != 0 {
+        match callback.out {
+            CallbackOut::Func(ref mut cf) => {
+                // TODO: callback about buf_in_size before put_buf_func
                 let call_success = unsafe {
-                    (callback)(&output.inner.get_ref()[0] as *const u8 as *const c_void, n as c_int, *user)
+                    (cf.put_buf_func)(
+                        &local_buf[0] as *const u8 as *const c_void,
+                        pos as c_int,
+                        cf.put_buf_user
+                    )
                 };
 
                 if !call_success {
-                    p.prev_return_status = TDEFLStatus::PutBufFailed;
-                    return Ok(p.prev_return_status as c_int);
+                    params.prev_return_status = TDEFLStatus::PutBufFailed;
+                    return Ok(params.prev_return_status as c_int);
                 }
             },
-            _ => {
-                if local_buf {
-                    let bytes_to_copy = cmp::min(n as usize, **(c.out_buf_size.as_mut().unwrap()) - p.out_buf_ofs);
+            CallbackOut::Buf(ref mut cb) => {
+                if local {
+                    let bytes_to_copy = cmp::min(pos as usize, cb.out_buf.len() - params.out_buf_ofs);
                     unsafe {
-                        ptr::copy_nonoverlapping(&output.inner.get_ref()[0] as *const u8,
-                                                 (&mut (c.out_buf.as_mut().unwrap())[p.out_buf_ofs as usize]) as *mut u8,
-                                                 bytes_to_copy);
+                        ptr::copy_nonoverlapping(
+                            &local_buf[0],
+                            &mut cb.out_buf[params.out_buf_ofs],
+                            bytes_to_copy
+                        );
                     }
 
-                    p.out_buf_ofs += bytes_to_copy;
-                    n -= bytes_to_copy as u64;
-                    if n != 0 {
-                        p.flush_ofs = bytes_to_copy as c_uint;
-                        p.flush_remaining = n as c_uint;
+                    params.out_buf_ofs += bytes_to_copy;
+                    pos -= bytes_to_copy as u64;
+                    if pos != 0 {
+                        params.flush_ofs = bytes_to_copy as c_uint;
+                        params.flush_remaining = pos as c_uint;
                     }
                 } else {
-                    p.out_buf_ofs += n as usize;
+                    params.out_buf_ofs += pos as usize;
                 }
-            }
+            },
         }
     }
 
-    Ok(p.flush_remaining as c_int)
+    Ok(params.flush_remaining as c_int)
 }
 
 fn read_unaligned_dict<T>(dict: &[u8], pos: isize) -> T {
@@ -958,29 +959,28 @@ fn read_unaligned_dict<T>(dict: &[u8], pos: isize) -> T {
     }
 }
 
-
-pub fn tdefl_find_match_oxide(dict: &DictOxide,
-                              lookahead_pos: c_uint,
-                              max_dist: c_uint,
-                              max_match_len: c_uint,
-                              mut match_dist: c_uint,
-                              mut match_len: c_uint) -> (c_uint, c_uint)
-{
+pub fn tdefl_find_match_oxide(
+    dict: &DictOxide,
+    lookahead_pos: c_uint,
+    max_dist: c_uint,
+    max_match_len: c_uint,
+    mut match_dist: c_uint,
+    mut match_len: c_uint
+) -> (c_uint, c_uint) {
     assert!(max_match_len as usize <= TDEFL_MAX_MATCH_LEN);
 
     let pos = lookahead_pos & TDEFL_LZ_DICT_SIZE_MASK;
     let mut probe_pos = pos;
     let mut num_probes_left = dict.max_probes[(match_len >= 32) as usize];
 
-    let mut c01: u16 = read_unaligned_dict(dict.dict, (pos + match_len - 1) as isize);
-    let s01: u16 = read_unaligned_dict(dict.dict, pos as isize);
+    let mut c01: u16 = read_unaligned_dict(&dict.dict[..], (pos + match_len - 1) as isize);
+    let s01: u16 = read_unaligned_dict(&dict.dict[..], pos as isize);
 
     if max_match_len <= match_len { return (match_dist, match_len) }
 
     loop {
         let mut dist = 0;
-        let mut found = false;
-        while !found {
+        'found: loop {
             num_probes_left -= 1;
             if num_probes_left == 0 { return (match_dist, match_len) }
 
@@ -999,7 +999,7 @@ pub fn tdefl_find_match_oxide(dict: &DictOxide,
                 }
 
                 probe_pos = next_probe_pos & TDEFL_LZ_DICT_SIZE_MASK;
-                if read_unaligned_dict::<u16>(dict.dict, (probe_pos + match_len - 1) as isize) == c01 {
+                if read_unaligned_dict::<u16>(&dict.dict[..], (probe_pos + match_len - 1) as isize) == c01 {
                     ProbeResult::Found
                 } else {
                     ProbeResult::NotFound
@@ -1009,14 +1009,14 @@ pub fn tdefl_find_match_oxide(dict: &DictOxide,
             for _ in 0..3 {
                 match tdefl_probe() {
                     ProbeResult::OutOfBounds => return (match_dist, match_len),
-                    ProbeResult::Found => { found = true; break },
+                    ProbeResult::Found => break 'found,
                     ProbeResult::NotFound => ()
                 }
             }
         }
 
         if dist == 0 { return (match_dist, match_len) }
-        if read_unaligned_dict::<u16>(dict.dict, probe_pos as isize) != s01 { continue }
+        if read_unaligned_dict::<u16>(&dict.dict[..], probe_pos as isize) != s01 { continue }
 
         let mut probe_len = 32;
         let mut p = pos as isize;
@@ -1025,7 +1025,7 @@ pub fn tdefl_find_match_oxide(dict: &DictOxide,
             for _ in 0..4 {
                 p += 2;
                 q += 2;
-                if read_unaligned_dict::<u16>(dict.dict, p) != read_unaligned_dict(dict.dict, q) {
+                if read_unaligned_dict::<u16>(&dict.dict[..], p) != read_unaligned_dict(&dict.dict[..], q) {
                     break 'probe;
                 }
             }
@@ -1042,7 +1042,7 @@ pub fn tdefl_find_match_oxide(dict: &DictOxide,
             if match_len == max_match_len {
                 return (match_dist, match_len);
             }
-            c01 = read_unaligned_dict(dict.dict, (pos + match_len - 1) as isize);
+            c01 = read_unaligned_dict(&dict.dict[..], (pos + match_len - 1) as isize);
         }
     }
 }
@@ -1057,11 +1057,12 @@ pub fn tdefl_record_literal_oxide(h: &mut HuffmanOxide, lz: &mut LZOxide, lit: u
     h.count[0][lit as usize] += 1;
 }
 
-pub fn tdefl_record_match_oxide(h: &mut HuffmanOxide,
-                                lz: &mut LZOxide,
-                                mut match_len: c_uint,
-                                mut match_dist: c_uint)
-{
+pub fn tdefl_record_match_oxide(
+    h: &mut HuffmanOxide,
+    lz: &mut LZOxide,
+    mut match_len: c_uint,
+    mut match_dist: c_uint
+) {
     assert!(match_len >= TDEFL_MIN_MATCH_LEN);
     assert!(match_dist >= 1);
     assert!(match_dist as usize <= TDEFL_LZ_DICT_SIZE);
@@ -1086,26 +1087,28 @@ pub fn tdefl_record_match_oxide(h: &mut HuffmanOxide,
     h.count[0][TDEFL_LEN_SYM[match_len as usize] as usize] += 1;
 }
 
-pub fn tdefl_compress_normal_oxide(h: &mut HuffmanOxide,
-                                   lz: &mut LZOxide,
-                                   dict: &mut DictOxide,
-                                   p: &mut ParamsOxide,
-                                   c: &mut CallbackOxide) -> bool
-{
-    let mut  src_pos = dict.src_pos;
-    let mut src_buf_left = p.src_buf_left;
-
-    while src_buf_left != 0 || (p.flush != TDEFLFlush::None && dict.lookahead_size != 0) {
+pub fn tdefl_compress_normal_oxide(
+    huff: &mut HuffmanOxide,
+    lz: &mut LZOxide,
+    dict: &mut DictOxide,
+    params: &mut ParamsOxide,
+    callback: &mut CallbackOxide,
+    local_buf: &mut [u8]
+) -> bool {
+    let mut src_pos = params.src_pos;
+    let mut src_buf_left = params.src_buf_left;
+    while src_buf_left != 0 || (params.flush != TDEFLFlush::None && dict.lookahead_size != 0) {
+        let in_buf = callback.in_buf.expect("Unexpected null in_buf"); // TODO: make connection  params.src_buf_left <-> in_buf
         let num_bytes_to_process = cmp::min(src_buf_left, TDEFL_MAX_MATCH_LEN - dict.lookahead_size as usize);
+        src_buf_left -= num_bytes_to_process;
         if dict.lookahead_size + dict.size >= TDEFL_MIN_MATCH_LEN - 1 {
             let mut dst_pos = (dict.lookahead_pos + dict.lookahead_size) & TDEFL_LZ_DICT_SIZE_MASK;
             let mut ins_pos = dict.lookahead_pos + dict.lookahead_size - 2;
             let mut hash = ((dict.dict[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] as c_uint) << TDEFL_LZ_HASH_SHIFT) ^
                 (dict.dict[((ins_pos + 1) & TDEFL_LZ_DICT_SIZE_MASK) as usize] as c_uint);
 
-            src_buf_left -= num_bytes_to_process;
             dict.lookahead_size += num_bytes_to_process as c_uint;
-            for &c in &c.in_buf.unwrap()[src_pos..src_pos + num_bytes_to_process] {
+            for &c in &in_buf[src_pos..src_pos + num_bytes_to_process] {
                 dict.dict[dst_pos as usize] = c;
                 if (dst_pos as usize) < TDEFL_MAX_MATCH_LEN - 1 {
                     dict.dict[TDEFL_LZ_DICT_SIZE + dst_pos as usize] = c;
@@ -1119,9 +1122,8 @@ pub fn tdefl_compress_normal_oxide(h: &mut HuffmanOxide,
             }
             src_pos += num_bytes_to_process;
         } else {
-            for &c in &c.in_buf.unwrap()[src_pos..src_pos + num_bytes_to_process] {
+            for &c in &in_buf[src_pos..src_pos + num_bytes_to_process] {
                 let dst_pos = (dict.lookahead_pos + dict.lookahead_size) & TDEFL_LZ_DICT_SIZE_MASK;
-                src_buf_left -= 1;
                 dict.dict[dst_pos as usize] = c;
                 if (dst_pos as usize) < TDEFL_MAX_MATCH_LEN - 1 {
                     dict.dict[TDEFL_LZ_DICT_SIZE + dst_pos as usize] = c;
@@ -1143,14 +1145,14 @@ pub fn tdefl_compress_normal_oxide(h: &mut HuffmanOxide,
         }
 
         dict.size = cmp::min(TDEFL_LZ_DICT_SIZE as c_uint - dict.lookahead_size, dict.size);
-        if p.flush == TDEFLFlush::None && (dict.lookahead_size as usize) < TDEFL_MAX_MATCH_LEN { break }
+        if params.flush == TDEFLFlush::None && (dict.lookahead_size as usize) < TDEFL_MAX_MATCH_LEN { break }
 
         let mut len_to_move = 1;
         let mut cur_match_dist = 0;
-        let mut cur_match_len = if p.saved_match_len != 0 { p.saved_match_len } else { TDEFL_MIN_MATCH_LEN - 1 };
+        let mut cur_match_len = if params.saved_match_len != 0 { params.saved_match_len } else { TDEFL_MIN_MATCH_LEN - 1 };
         let cur_pos = dict.lookahead_pos & TDEFL_LZ_DICT_SIZE_MASK;
-        if p.flags & (TDEFL_RLE_MATCHES | TDEFL_FORCE_ALL_RAW_BLOCKS) != 0 {
-            if dict.size != 0 && p.flags & TDEFL_FORCE_ALL_RAW_BLOCKS == 0 {
+        if params.flags & (TDEFL_RLE_MATCHES | TDEFL_FORCE_ALL_RAW_BLOCKS) != 0 {
+            if dict.size != 0 && params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS == 0 {
                 let c = dict.dict[((cur_pos.wrapping_sub(1)) & TDEFL_LZ_DICT_SIZE_MASK) as usize];
                 cur_match_len = dict.dict[cur_pos as usize..(cur_pos + dict.lookahead_size) as usize]
                     .iter().take_while(|&x| *x == c).count() as c_uint;
@@ -1170,38 +1172,38 @@ pub fn tdefl_compress_normal_oxide(h: &mut HuffmanOxide,
         }
 
         let far_and_small = cur_match_len == TDEFL_MIN_MATCH_LEN && cur_match_dist >= 8 * 1024;
-        let filter_small = p.flags & TDEFL_FILTER_MATCHES != 0 && cur_match_len <= 5;
+        let filter_small = params.flags & TDEFL_FILTER_MATCHES != 0 && cur_match_len <= 5;
         if far_and_small || filter_small || cur_pos == cur_match_dist {
             cur_match_dist = 0;
             cur_match_len = 0;
         }
 
-        if p.saved_match_len != 0 {
-            if cur_match_len > p.saved_match_len {
-                tdefl_record_literal_oxide(h, lz, p.saved_lit);
+        if params.saved_match_len != 0 {
+            if cur_match_len > params.saved_match_len {
+                tdefl_record_literal_oxide(huff, lz, params.saved_lit);
                 if cur_match_len >= 128 {
-                    tdefl_record_match_oxide(h, lz, cur_match_len, cur_match_dist);
-                    p.saved_match_len = 0;
+                    tdefl_record_match_oxide(huff, lz, cur_match_len, cur_match_dist);
+                    params.saved_match_len = 0;
                     len_to_move = cur_match_len;
                 } else {
-                    p.saved_lit = dict.dict[cur_pos as usize];
-                    p.saved_match_dist = cur_match_dist;
-                    p.saved_match_len = cur_match_len;
+                    params.saved_lit = dict.dict[cur_pos as usize];
+                    params.saved_match_dist = cur_match_dist;
+                    params.saved_match_len = cur_match_len;
                 }
             } else {
-                tdefl_record_match_oxide(h, lz, p.saved_match_len, p.saved_match_dist);
-                len_to_move = p.saved_match_len - 1;
-                p.saved_match_len = 0;
+                tdefl_record_match_oxide(huff, lz, params.saved_match_len, params.saved_match_dist);
+                len_to_move = params.saved_match_len - 1;
+                params.saved_match_len = 0;
             }
         } else if cur_match_dist == 0 {
-            tdefl_record_literal_oxide(h, lz, dict.dict[cmp::min(cur_pos as usize, dict.dict.len() - 1)]);
-        } else if p.greedy_parsing || (p.flags & TDEFL_RLE_MATCHES != 0) || cur_match_len >= 128 {
-            tdefl_record_match_oxide(h, lz, cur_match_len, cur_match_dist);
+            tdefl_record_literal_oxide(huff, lz, dict.dict[cmp::min(cur_pos as usize, dict.dict.len() - 1)]);
+        } else if params.greedy_parsing || (params.flags & TDEFL_RLE_MATCHES != 0) || cur_match_len >= 128 {
+            tdefl_record_match_oxide(huff, lz, cur_match_len, cur_match_dist);
             len_to_move = cur_match_len;
         } else {
-            p.saved_lit = dict.dict[cmp::min(cur_pos as usize, dict.dict.len() - 1)];
-            p.saved_match_dist = cur_match_dist;
-            p.saved_match_len = cur_match_len;
+            params.saved_lit = dict.dict[cmp::min(cur_pos as usize, dict.dict.len() - 1)];
+            params.saved_match_dist = cur_match_dist;
+            params.saved_match_len = cur_match_len;
         }
 
         dict.lookahead_pos += len_to_move;
@@ -1210,144 +1212,168 @@ pub fn tdefl_compress_normal_oxide(h: &mut HuffmanOxide,
         dict.size = cmp::min(dict.size + len_to_move, TDEFL_LZ_DICT_SIZE as c_uint);
 
         let lz_buf_tight = lz.code_position > TDEFL_LZ_CODE_BUF_SIZE - 8;
-        let raw = p.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0;
+        let raw = params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0;
         let fat = ((lz.code_position * 115) >> 7) >= lz.total_bytes as usize;
         let fat_or_raw = (lz.total_bytes > 31 * 1024) && (fat || raw);
 
         if lz_buf_tight || fat_or_raw {
-            dict.src_pos = src_pos;
-            p.src_buf_left = src_buf_left;
+            params.src_pos = src_pos;
+            params.src_buf_left = src_buf_left;
 
-            unsafe {
-                (*lz.d).m_out_buf_ofs = p.out_buf_ofs;
-            }
-
-            let output = unsafe { OutputBufferOxide::choose_buffer_new(lz.d) };
             let n = tdefl_flush_block_oxide(
-                h,
-                output.0,
+                huff,
                 lz,
                 dict,
-                p,
-                c,
+                params,
+                callback,
+                local_buf,
                 TDEFLFlush::None,
-                output.1
             ).unwrap_or(TDEFLStatus::PutBufFailed as c_int);
             if n != 0 { return n > 0 }
         }
     }
 
-    dict.src_pos = src_pos;
-    p.src_buf_left = src_buf_left;
+    params.src_pos = src_pos;
+    params.src_buf_left = src_buf_left;
     true
 }
 
-pub fn tdefl_flush_output_buffer_oxide(c: &mut CallbackOxide,
-                                       dict: &mut DictOxide,
-                                       p: &mut ParamsOxide) -> TDEFLStatus
-{
-    if let Some(ref mut in_size) = c.in_buf_size {
-        **in_size = dict.src_pos;
-    }
-
-    if let (Some(out_size), Some(out_buf)) = (c.out_buf_size.as_mut(), c.out_buf.as_mut()) {
-        let n = cmp::min(**out_size - p.out_buf_ofs, p.flush_remaining as usize);
-        unsafe {
-            ptr::copy_nonoverlapping(
-                &mut (*dict.d).m_output_buf[p.flush_ofs as usize],
-                (&mut (**out_buf)[0] as *mut u8).offset(p.out_buf_ofs as isize),
-                n
-            );
+pub fn tdefl_flush_output_buffer_oxide(
+    c: &mut CallbackOxide,
+    p: &mut ParamsOxide,
+    local_buf: &[u8]
+) -> (TDEFLStatus, usize, usize) {
+    let mut res = (TDEFLStatus::Okay, p.src_pos, 0);
+    if let CallbackOut::Buf(ref mut cb) = c.out {
+        let n = cmp::min(cb.out_buf.len() - p.out_buf_ofs, p.flush_remaining as usize);
+        if n != 0 {
+            unsafe {
+                ptr::copy_nonoverlapping(
+                    &local_buf[p.flush_ofs as usize],
+                    &mut cb.out_buf[p.out_buf_ofs],
+                    n
+                );
+            }
         }
         p.flush_ofs += n as c_uint;
         p.flush_remaining -= n as c_uint;
         p.out_buf_ofs += n;
-        **out_size = p.out_buf_ofs;
+        res.2 = p.out_buf_ofs;
     }
 
-    return if p.finished && p.flush_remaining == 0 {
-        TDEFLStatus::Done
-    } else {
-        TDEFLStatus::Okay
+    if p.finished && p.flush_remaining == 0 {
+        res.0 = TDEFLStatus::Done
     }
+    res
 }
 
-pub fn tdefl_compress_oxide(d: &mut tdefl_compressor,
-                            in_buf: *const c_void,
-                            in_size: *mut usize,
-                            out_buf: *mut c_void,
-                            out_size: *mut usize,
-                            flush: TDEFLFlush) -> TDEFLStatus
-{
-    d.m_pIn_buf = in_buf;
-    d.m_pOut_buf = out_buf;
-    d.m_pIn_buf_size = in_size;
-    d.m_pOut_buf_size = out_size;
-    d.m_pSrc = in_buf as *const u8;
-    d.m_src_buf_left = unsafe { in_size.as_ref().map_or(0, |x| *x) };
-    d.m_out_buf_ofs = 0;
-    d.m_flush = flush;
+pub fn tdefl_compress_oxide(
+    d: &mut CompressorOxide,
+    callback: &mut CallbackOxide,
+    flush: TDEFLFlush
+) -> (TDEFLStatus, usize, usize) {
+    d.params.src_buf_left = callback.in_buf.map_or(0, |buf| buf.len());
+    d.params.out_buf_ofs = 0;
+    d.params.src_pos = 0;
 
-    let callback_xor_buf = d.m_pPut_buf_func.is_none() ^ (out_buf.is_null() || out_size.is_null());
-    let prev_ok = d.m_prev_return_status == TDEFLStatus::Okay;
-    let want_eq_need = d.m_wants_to_finish == 0 || flush == TDEFLFlush::Finish;
-    let has_in_size_but_no_buf = unsafe {
-        in_size.as_ref().map_or(false, |x| *x != 0) && in_buf.is_null()
-    };
-    let has_out_size_but_no_buf = unsafe {
-        out_size.as_ref().map_or(false, |x| *x != 0) && out_buf.is_null()
-    };
+    let prev_ok = d.params.prev_return_status == TDEFLStatus::Okay;
+    let flush_finish_once = d.params.flush != TDEFLFlush::Finish ||
+        flush == TDEFLFlush::Finish;
 
-    if !callback_xor_buf || !prev_ok || !want_eq_need || has_in_size_but_no_buf || has_out_size_but_no_buf {
-        unsafe {
-            in_size.as_mut().map(|in_size| *in_size = 0);
-            out_size.as_mut().map(|out_size| *out_size = 0);
-        }
-
-        d.m_prev_return_status = TDEFLStatus::BadParam;
-        return d.m_prev_return_status;
+    d.params.flush = flush;
+    if !prev_ok || !flush_finish_once {
+        d.params.prev_return_status = TDEFLStatus::BadParam;
+        return (d.params.prev_return_status, 0, 0);
     }
 
-    d.m_wants_to_finish = (d.m_wants_to_finish != 0 || flush == TDEFLFlush::Finish) as c_uint;
-    if d.m_output_flush_remaining != 0 || d.m_finished != 0 {
-        d.m_prev_return_status = unsafe { tdefl_flush_output_buffer(d) };
-        return d.m_prev_return_status;
+    if d.params.flush_remaining != 0 || d.params.finished {
+        let res = tdefl_flush_output_buffer_oxide(
+            callback,
+            &mut d.params,
+            &d.local_buf[..]
+        );
+        d.params.prev_return_status = res.0;
+        return res;
     }
 
-    if unsafe { !tdefl_compress_normal(d) } {
-        return d.m_prev_return_status;
+    let compress_success = tdefl_compress_normal_oxide(
+        &mut d.huff,
+        &mut d.lz,
+        &mut d.dict,
+        &mut d.params,
+        callback,
+        &mut d.local_buf[..]
+    );
+
+    if !compress_success {
+        return (d.params.prev_return_status, d.params.src_pos, d.params.out_buf_ofs);
     }
 
-    if d.m_flags & (TDEFL_WRITE_ZLIB_HEADER | TDEFL_COMPUTE_ADLER32) != 0 && !in_buf.is_null() {
-        unsafe {
-            d.m_adler32 = ::mz_adler32(d.m_adler32 as c_ulong, in_buf as *const u8, d.m_pSrc as usize - in_buf as usize) as c_uint;
-        }
-    }
-
-    if flush != TDEFLFlush::None && d.m_lookahead_size == 0 && d.m_src_buf_left == 0 && d.m_output_flush_remaining == 0 {
-        if unsafe { tdefl_flush_block(d, flush as c_int) } < 0 {
-            return d.m_prev_return_status;
-        }
-        d.m_finished = (flush == TDEFLFlush::Finish) as c_uint;
-        if flush == TDEFLFlush::Full {
-            memset(&mut d.m_hash[..], 0);
-            memset(&mut d.m_next[..], 0);
-            d.m_dict_size = 0;
+    if let Some(in_buf) = callback.in_buf {
+        if d.params.flags & (TDEFL_WRITE_ZLIB_HEADER | TDEFL_COMPUTE_ADLER32) != 0 {
+            d.params.adler32 = ::mz_adler32_oxide(
+                d.params.adler32,
+                &in_buf[..d.params.src_pos]
+            );
         }
     }
 
-    d.m_prev_return_status = unsafe { tdefl_flush_output_buffer(d) };
-    d.m_prev_return_status
+    let flush_none = d.params.flush == TDEFLFlush::None;
+    let remaining = d.params.src_buf_left != 0 || d.params.flush_remaining != 0;
+    if !flush_none && d.dict.lookahead_size == 0 && !remaining {
+        let flush = d.params.flush;
+        match tdefl_flush_block_oxide(
+            &mut d.huff,
+            &mut d.lz,
+            &mut d.dict,
+            &mut d.params,
+            callback,
+            &mut d.local_buf[..],
+            flush
+        ) {
+            Err(_) => {
+                d.params.prev_return_status = TDEFLStatus::PutBufFailed;
+                return (d.params.prev_return_status, d.params.src_pos, d.params.out_buf_ofs);
+            },
+            Ok(x) if x < 0 => return (d.params.prev_return_status, d.params.src_pos, d.params.out_buf_ofs),
+            _ => {
+                d.params.finished = d.params.flush == TDEFLFlush::Finish;
+                if d.params.flush == TDEFLFlush::Full {
+                    memset(&mut d.dict.hash[..], 0);
+                    memset(&mut d.dict.next[..], 0);
+                    d.dict.size = 0;
+                }
+            },
+        }
+    }
+
+    let res = tdefl_flush_output_buffer_oxide(
+        callback,
+        &mut d.params,
+        &d.local_buf[..]
+    );
+    d.params.prev_return_status = res.0;
+
+    res
 }
 
-pub fn tdefl_get_adler32_oxide(d: &tdefl_compressor) -> c_uint {
-    d.m_adler32
+pub fn tdefl_get_adler32_oxide(d: &CompressorOxide) -> c_uint {
+    d.params.adler32
 }
 
-pub fn tdefl_create_comp_flags_from_zip_params_oxide(level: c_int,
-                                                     window_bits: c_int,
-                                                     strategy: c_int) -> c_uint
-{
+pub fn tdefl_get_prev_return_status_oxide(d: &CompressorOxide) -> TDEFLStatus {
+    d.params.prev_return_status
+}
+
+pub fn tdefl_get_flags_oxide(d: &CompressorOxide) -> c_int {
+    d.params.flags as c_int
+}
+
+pub fn tdefl_create_comp_flags_from_zip_params_oxide(
+    level: c_int,
+    window_bits: c_int,
+    strategy: c_int
+) -> c_uint {
     let num_probes = (if level >= 0 {
         cmp::min(10, level)
     } else {

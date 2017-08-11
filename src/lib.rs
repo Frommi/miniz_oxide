@@ -1,4 +1,3 @@
-#![feature(asm)]
 extern crate libc;
 
 use std::slice;
@@ -13,29 +12,19 @@ pub use lib_oxide::*;
 
 mod tdef;
 pub use tdef::{
-    tdefl_radix_sort_syms,
-    tdefl_calculate_minimum_redundancy,
-    tdefl_huffman_enforce_max_code_size,
-    tdefl_optimize_huffman_table,
-    tdefl_start_dynamic_block,
-    tdefl_create_comp_flags_from_zip_params,
-    tdefl_start_static_block,
-    tdefl_compress_lz_codes,
-    tdefl_compress_block,
-    tdefl_flush_block,
-    tdefl_find_match,
-    tdefl_record_literal,
-    tdefl_record_match,
-    tdefl_compress_normal,
-    tdefl_flush_output_buffer,
     tdefl_compress,
     tdefl_compress_buffer,
     tdefl_init,
     tdefl_get_prev_return_status,
     tdefl_get_adler32,
-    tdefl_compressor,
-    tdefl_put_buf_func_ptr
+    tdefl_create_comp_flags_from_zip_params,
+    PutBufFuncPtr
 };
+
+#[allow(bad_style)]
+type tdefl_compressor = tdef::CompressorOxide;
+#[allow(bad_style)]
+type tdefl_put_buf_func_ptr = PutBufFuncPtr;
 
 mod tinfl;
 pub use tinfl::tinfl_decompressor;
@@ -251,25 +240,34 @@ oxidize!(mz_inflateEnd, mz_inflate_end_oxide;);
 #[no_mangle]
 #[allow(bad_style)]
 pub unsafe extern "C" fn mz_deflateInit(stream: *mut mz_stream, level: c_int) -> c_int {
-    mz_deflateInit2(stream, level, MZ_DEFLATED, MZ_DEFAULT_WINDOW_BITS, 9, CompressionStrategy::Default as c_int)
+    mz_deflateInit2(
+        stream,
+        level,
+        MZ_DEFLATED,
+        MZ_DEFAULT_WINDOW_BITS,
+        9,
+        CompressionStrategy::Default as c_int
+    )
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn mz_compress(dest: *mut u8,
-                                     dest_len: *mut c_ulong,
-                                     source: *const u8,
-                                     source_len: c_ulong) -> c_int
-{
+pub unsafe extern "C" fn mz_compress(
+    dest: *mut u8,
+    dest_len: *mut c_ulong,
+    source: *const u8,
+    source_len: c_ulong
+) -> c_int {
     mz_compress2(dest, dest_len, source, source_len, CompressionLevel::DefaultCompression as c_int)
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn mz_compress2(dest: *mut u8,
-                                      dest_len: *mut c_ulong,
-                                      source: *const u8,
-                                      source_len: c_ulong,
-                                      level: c_int) -> c_int
-{
+pub unsafe extern "C" fn mz_compress2(
+    dest: *mut u8,
+    dest_len: *mut c_ulong,
+    source: *const u8,
+    source_len: c_ulong,
+    level: c_int
+) -> c_int {
     dest_len.as_mut().map_or(MZError::Param as c_int, |dest_len| {
         if (source_len | *dest_len) > 0xFFFFFFFF {
             return MZError::Param as c_int;
@@ -302,11 +300,12 @@ pub unsafe extern "C" fn mz_inflateInit(stream: *mut mz_stream) -> c_int {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn mz_uncompress(dest: *mut u8,
-                                       dest_len: *mut c_ulong,
-                                       source: *const u8,
-                                       source_len: c_ulong) -> c_int
-{
+pub unsafe extern "C" fn mz_uncompress(
+    dest: *mut u8,
+    dest_len: *mut c_ulong,
+    source: *const u8,
+    source_len: c_ulong
+) -> c_int {
     dest_len.as_mut().map_or(MZError::Param as c_int, |dest_len| {
         if (source_len | *dest_len) > 0xFFFFFFFF {
             return MZError::Param as c_int;
