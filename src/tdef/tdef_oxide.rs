@@ -261,7 +261,6 @@ impl LZOxide {
     }
 
     pub fn write_code(&mut self, val: u8) {
-        // TODO: uncheck slice get
         self.codes[self.code_position] = val;
         self.code_position += 1;
     }
@@ -383,7 +382,6 @@ pub fn tdefl_radix_sort_syms_oxide<'a>(
     current_symbols
 }
 
-// TODO change to iterators
 pub fn tdefl_calculate_minimum_redundancy_oxide(symbols: &mut [tdefl_sym_freq]) {
     match symbols.len() {
         0 => (),
@@ -403,11 +401,11 @@ pub fn tdefl_calculate_minimum_redundancy_oxide(symbols: &mut [tdefl_sym_freq]) 
                 }
 
                 if (leaf >= n) || (root < next && symbols[root].m_key < symbols[leaf].m_key) {
-                    symbols[next].m_key = symbols[next].m_key + symbols[root].m_key; // TODO why cast to u16 in C?
+                    symbols[next].m_key = symbols[next].m_key.wrapping_add(symbols[root].m_key);
                     symbols[root].m_key = next as u16;
                     root += 1;
                 } else {
-                    symbols[next].m_key = symbols[next].m_key + symbols[leaf].m_key;
+                    symbols[next].m_key = symbols[next].m_key.wrapping_add(symbols[leaf].m_key);
                     leaf += 1;
                 }
             }
@@ -572,29 +570,30 @@ pub fn tdefl_start_dynamic_block_oxide(
     struct RLE {
         pub rle_z_count: u32,
         pub rle_repeat_count: u32,
-        pub prev_code_size: u8
+        pub prev_code_size: u8,
     }
 
     let mut rle = RLE {
         rle_z_count: 0,
         rle_repeat_count: 0,
-        prev_code_size: 0xFF
+        prev_code_size: 0xFF,
     };
 
-    let tdefl_rle_prev_code_size = |rle: &mut RLE,
-                                    packed_code_sizes: &mut Cursor<&mut [u8]>,
-                                    h: &mut HuffmanOxide| -> io::Result<()>
-        {
+    let tdefl_rle_prev_code_size = |
+        rle: &mut RLE,
+        packed_code_sizes: &mut Cursor<&mut [u8]>,
+        h: &mut HuffmanOxide,
+    | -> io::Result<()> {
             if rle.rle_repeat_count != 0 {
                 if rle.rle_repeat_count < 3 {
-                    h.count[2][rle.prev_code_size as usize] = (h.count[2][rle.prev_code_size as usize] as i32 + rle.rle_repeat_count as i32) as u16; // TODO
+                    h.count[2][rle.prev_code_size as usize] = h.count[2][rle.prev_code_size as usize].wrapping_add(rle.rle_repeat_count as u16);
                     while rle.rle_repeat_count != 0 {
                         rle.rle_repeat_count -= 1;
                         packed_code_sizes.write(&[rle.prev_code_size][..])?;
                     }
                 } else {
-                    h.count[2][16] = (h.count[2][16] as i32 + 1) as u16;
-                    packed_code_sizes.write(&[16, (rle.rle_repeat_count as i32 - 3) as u8][..])?;
+                    h.count[2][16] = h.count[2][16].wrapping_add(1);
+                    packed_code_sizes.write(&[16, (rle.rle_repeat_count - 3) as u8][..])?;
                 }
                 rle.rle_repeat_count = 0;
             }
@@ -602,23 +601,24 @@ pub fn tdefl_start_dynamic_block_oxide(
             Ok(())
         };
 
-    let tdefl_rle_zero_code_size = |rle: &mut RLE,
-                                    packed_code_sizes: &mut Cursor<&mut [u8]>,
-                                    h: &mut HuffmanOxide| -> io::Result<()>
-        {
+    let tdefl_rle_zero_code_size = |
+        rle: &mut RLE,
+        packed_code_sizes: &mut Cursor<&mut [u8]>,
+        h: &mut HuffmanOxide,
+    | -> io::Result<()> {
             if rle.rle_z_count != 0 {
                 if rle.rle_z_count < 3 {
-                    h.count[2][0] = (h.count[2][0] as i32 + rle.rle_z_count as i32) as u16;
+                    h.count[2][0] = h.count[2][0].wrapping_add(rle.rle_z_count as u16);
                     while rle.rle_z_count != 0 {
                         rle.rle_z_count -= 1;
                         packed_code_sizes.write(&[0][..])?;
                     }
                 } else if rle.rle_z_count <= 10 {
-                    h.count[2][17] = (h.count[2][17] as i32 + 1) as u16;
-                    packed_code_sizes.write(&[17, (rle.rle_z_count as i32 - 3) as u8][..])?;
+                    h.count[2][17] = h.count[2][17].wrapping_add(1);
+                    packed_code_sizes.write(&[17, (rle.rle_z_count - 3) as u8][..])?;
                 } else {
-                    h.count[2][18] = (h.count[2][18] as i32 + 1) as u16;
-                    packed_code_sizes.write(&[18, (rle.rle_z_count as i32 - 11) as u8][..])?;
+                    h.count[2][18] = h.count[2][18].wrapping_add(1);
+                    packed_code_sizes.write(&[18, (rle.rle_z_count - 11) as u8][..])?;
                 }
                 rle.rle_z_count = 0;
             }
@@ -640,7 +640,7 @@ pub fn tdefl_start_dynamic_block_oxide(
             tdefl_rle_zero_code_size(&mut rle, &mut packed_code_sizes_cursor, h)?;
             if code_size != rle.prev_code_size {
                 tdefl_rle_prev_code_size(&mut rle, &mut packed_code_sizes_cursor, h)?;
-                h.count[2][code_size as usize] = (h.count[2][code_size as usize] as i32 + 1) as u16; // TODO why as u16?
+                h.count[2][code_size as usize] = h.count[2][code_size as usize].wrapping_add(1);
                 packed_code_sizes_cursor.write(&[code_size][..])?;
             } else {
                 rle.rle_repeat_count += 1;
@@ -727,6 +727,8 @@ pub fn tdefl_compress_lz_codes_oxide(
         }
 
         if flags & 1 == 1 {
+            flags >>= 1;
+
             let sym;
             let num_extra_bits;
 
@@ -752,33 +754,21 @@ pub fn tdefl_compress_lz_codes_oxide(
             bb.put_fast(h.codes[1][sym] as u64, h.code_sizes[1][sym] as u32);
             bb.put_fast(match_dist as u64 & MZ_BITMASKS[num_extra_bits as usize] as u64, num_extra_bits as u32);
         } else {
-            let mut lit = lz_code_buf[i];
-            i += 1;
-
-            assert!(h.code_sizes[0][lit as usize] != 0);
-            bb.put_fast(h.codes[0][lit as usize] as u64, h.code_sizes[0][lit as usize] as u32);
-
-            if flags & 2 == 0 && i < lz_code_buf.len() {
+            for _ in 0..3 {
                 flags >>= 1;
-                lit = lz_code_buf[i];
+                let lit = lz_code_buf[i];
                 i += 1;
 
                 assert!(h.code_sizes[0][lit as usize] != 0);
                 bb.put_fast(h.codes[0][lit as usize] as u64, h.code_sizes[0][lit as usize] as u32);
 
-                if flags & 2 == 0 && i < lz_code_buf.len() {
-                    flags >>= 1;
-                    lit = lz_code_buf[i];
-                    i += 1;
-
-                    assert!(h.code_sizes[0][lit as usize] != 0);
-                    bb.put_fast(h.codes[0][lit as usize] as u64, h.code_sizes[0][lit as usize] as u32);
+                if flags & 1 == 1 || i >= lz_code_buf.len() {
+                    break;
                 }
             }
         }
 
         bb.flush(output)?;
-        flags >>= 1;
     }
 
     output.bits_in = 0;
@@ -1354,12 +1344,7 @@ pub fn tdefl_compress_fast_oxide(
                 assert!(dict.lookahead_size >= cur_match_len);
                 dict.lookahead_size -= cur_match_len;
 
-                let lz_buf_tight = lz.code_position > TDEFL_LZ_CODE_BUF_SIZE - 8;
-                if lz_buf_tight {
-                    let saved_lookahead_pos = dict.lookahead_pos; // TODO
-                    let saved_lookahead_size = dict.lookahead_size;
-                    let saved_dict_size = dict.size;
-
+                if lz.code_position > TDEFL_LZ_CODE_BUF_SIZE - 8 {
                     let n = match tdefl_flush_block_oxide(
                         huff,
                         lz,
@@ -1373,10 +1358,6 @@ pub fn tdefl_compress_fast_oxide(
                         Ok(status) => status
                     };
                     if n != 0 { return n > 0 }
-
-                    dict.lookahead_pos = saved_lookahead_pos;
-                    dict.lookahead_size = saved_lookahead_size;
-                    dict.size = saved_dict_size;
                 }
             }
         }
@@ -1394,12 +1375,7 @@ pub fn tdefl_compress_fast_oxide(
             cur_pos = (cur_pos + 1) & TDEFL_LZ_DICT_SIZE_MASK;
             dict.lookahead_size -= 1;
 
-            let lz_buf_tight = lz.code_position > TDEFL_LZ_CODE_BUF_SIZE - 8;
-            if lz_buf_tight {
-                let saved_lookahead_pos = dict.lookahead_pos;  // TODO
-                let saved_lookahead_size = dict.lookahead_size;
-                let saved_dict_size = dict.size;
-
+            if lz.code_position > TDEFL_LZ_CODE_BUF_SIZE - 8 {
                 let n = match tdefl_flush_block_oxide(
                     huff,
                     lz,
@@ -1413,10 +1389,6 @@ pub fn tdefl_compress_fast_oxide(
                     Ok(status) => status
                 };
                 if n != 0 { return n > 0 }
-
-                dict.lookahead_pos = saved_lookahead_pos;
-                dict.lookahead_size = saved_lookahead_size;
-                dict.size = saved_dict_size;
             }
         }
     }
