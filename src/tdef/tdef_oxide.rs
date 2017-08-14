@@ -111,9 +111,17 @@ impl CompressorOxide {
     }
 }
 
+/// A struct containing data about huffman codes and symbol frequencies.
+///
+/// NOTE: Only the literal/lengths have enough symbols to actually use
+/// the full array. It's unclear why it's defined like this in miniz,
+/// it could be for cache/alignment reasons.
 pub struct HuffmanOxide {
+    /// Number of occurances of each symbol.
     pub count: [[u16; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
+    /// The bits of the huffman code assigned to the symbol
     pub codes: [[u16; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
+    /// The length of the huffman code assigned to the symbol.
     pub code_sizes: [[u8; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
 }
 
@@ -126,6 +134,13 @@ impl HuffmanOxide {
         }
     }
 }
+
+/// Tables used for literal/lengths in HuffmanOxide.
+const LITLEN_TABLE: usize = 0;
+/// Tables for distances.
+const DIST_TABLE: usize = 1;
+/// Tables for the run-length encoded huffman lenghts for literals/lengths/distances.
+const HUFF_CODES_TABLE: usize = 2;
 
 pub struct OutputBufferOxide<'a> {
     pub inner: Cursor<&'a mut [u8]>,
@@ -541,6 +556,64 @@ pub fn tdefl_optimize_huffman_table_oxide(
 const TDEFL_PACKED_CODE_SIZE_SYMS_SWIZZLE: [u8; 19] =
     [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
 
+/// Status of RLE encoding of huffman code lengths.
+struct RLE {
+    pub rle_z_count: u32,
+    pub rle_repeat_count: u32,
+    pub prev_code_size: u8,
+}
+
+#[inline]
+fn tdefl_rle_prev_code_size(
+    rle: &mut RLE,
+    packed_code_sizes: &mut Cursor<&mut [u8]>,
+    h: &mut HuffmanOxide,
+) -> io::Result<()> {
+    let counts = &mut h.count[HUFF_CODES_TABLE];
+    if rle.rle_repeat_count != 0 {
+        if rle.rle_repeat_count < 3 {
+            counts[rle.prev_code_size as usize] = counts[rle.prev_code_size as usize].wrapping_add(rle.rle_repeat_count as u16);
+            while rle.rle_repeat_count != 0 {
+                rle.rle_repeat_count -= 1;
+                packed_code_sizes.write(&[rle.prev_code_size][..])?;
+            }
+        } else {
+            counts[16] = counts[16].wrapping_add(1);
+            packed_code_sizes.write(&[16, (rle.rle_repeat_count - 3) as u8][..])?;
+        }
+        rle.rle_repeat_count = 0;
+    }
+
+    Ok(())
+}
+
+#[inline]
+fn tdefl_rle_zero_code_size(
+    rle: &mut RLE,
+    packed_code_sizes: &mut Cursor<&mut [u8]>,
+    h: &mut HuffmanOxide,
+) -> io::Result<()> {
+    let counts = &mut h.count[HUFF_CODES_TABLE];
+    if rle.rle_z_count != 0 {
+        if rle.rle_z_count < 3 {
+            counts[0] = counts[0].wrapping_add(rle.rle_z_count as u16);
+            while rle.rle_z_count != 0 {
+                rle.rle_z_count -= 1;
+                packed_code_sizes.write(&[0][..])?;
+            }
+        } else if rle.rle_z_count <= 10 {
+            counts[17] = counts[17].wrapping_add(1);
+            packed_code_sizes.write(&[17, (rle.rle_z_count - 3) as u8][..])?;
+        } else {
+            counts[18] = counts[18].wrapping_add(1);
+            packed_code_sizes.write(&[18, (rle.rle_z_count - 11) as u8][..])?;
+        }
+        rle.rle_z_count = 0;
+    }
+
+    Ok(())
+}
+
 pub fn tdefl_start_dynamic_block_oxide(
     h: &mut HuffmanOxide,
     output: &mut OutputBufferOxide,
@@ -567,66 +640,13 @@ pub fn tdefl_start_dynamic_block_oxide(
     &code_sizes_to_pack[num_lit_codes..total_code_sizes_to_pack]
         .copy_from_slice(&h.code_sizes[1][..num_dist_codes]);
 
-    struct RLE {
-        pub rle_z_count: u32,
-        pub rle_repeat_count: u32,
-        pub prev_code_size: u8,
-    }
-
     let mut rle = RLE {
         rle_z_count: 0,
         rle_repeat_count: 0,
         prev_code_size: 0xFF,
     };
 
-    let tdefl_rle_prev_code_size = |
-        rle: &mut RLE,
-        packed_code_sizes: &mut Cursor<&mut [u8]>,
-        h: &mut HuffmanOxide,
-    | -> io::Result<()> {
-        if rle.rle_repeat_count != 0 {
-            if rle.rle_repeat_count < 3 {
-                h.count[2][rle.prev_code_size as usize] = h.count[2][rle.prev_code_size as usize].wrapping_add(rle.rle_repeat_count as u16);
-                while rle.rle_repeat_count != 0 {
-                    rle.rle_repeat_count -= 1;
-                    packed_code_sizes.write(&[rle.prev_code_size][..])?;
-                }
-            } else {
-                h.count[2][16] = h.count[2][16].wrapping_add(1);
-                packed_code_sizes.write(&[16, (rle.rle_repeat_count - 3) as u8][..])?;
-            }
-            rle.rle_repeat_count = 0;
-        }
-
-        Ok(())
-    };
-
-    let tdefl_rle_zero_code_size = |
-        rle: &mut RLE,
-        packed_code_sizes: &mut Cursor<&mut [u8]>,
-        h: &mut HuffmanOxide,
-    | -> io::Result<()> {
-        if rle.rle_z_count != 0 {
-            if rle.rle_z_count < 3 {
-                h.count[2][0] = h.count[2][0].wrapping_add(rle.rle_z_count as u16);
-                while rle.rle_z_count != 0 {
-                    rle.rle_z_count -= 1;
-                    packed_code_sizes.write(&[0][..])?;
-                }
-            } else if rle.rle_z_count <= 10 {
-                h.count[2][17] = h.count[2][17].wrapping_add(1);
-                packed_code_sizes.write(&[17, (rle.rle_z_count - 3) as u8][..])?;
-            } else {
-                h.count[2][18] = h.count[2][18].wrapping_add(1);
-                packed_code_sizes.write(&[18, (rle.rle_z_count - 11) as u8][..])?;
-            }
-            rle.rle_z_count = 0;
-        }
-
-        Ok(())
-    };
-
-    memset(&mut h.count[2][..TDEFL_MAX_HUFF_SYMBOLS_2], 0);
+    memset(&mut h.count[HUFF_CODES_TABLE][..TDEFL_MAX_HUFF_SYMBOLS_2], 0);
 
     let mut packed_code_sizes_cursor = Cursor::new(&mut packed_code_sizes[..]);
     for &code_size in &code_sizes_to_pack[..total_code_sizes_to_pack] {
@@ -640,7 +660,8 @@ pub fn tdefl_start_dynamic_block_oxide(
             tdefl_rle_zero_code_size(&mut rle, &mut packed_code_sizes_cursor, h)?;
             if code_size != rle.prev_code_size {
                 tdefl_rle_prev_code_size(&mut rle, &mut packed_code_sizes_cursor, h)?;
-                h.count[2][code_size as usize] = h.count[2][code_size as usize].wrapping_add(1);
+                h.count[HUFF_CODES_TABLE][code_size as usize] =
+                    h.count[HUFF_CODES_TABLE][code_size as usize].wrapping_add(1);
                 packed_code_sizes_cursor.write(&[code_size][..])?;
             } else {
                 rle.rle_repeat_count += 1;
@@ -666,12 +687,12 @@ pub fn tdefl_start_dynamic_block_oxide(
     output.put_bits((num_dist_codes - 1) as u32, 5)?;
 
     let mut num_bit_lengths = 18 - TDEFL_PACKED_CODE_SIZE_SYMS_SWIZZLE
-        .iter().rev().take_while(|&swizzle| h.code_sizes[2][*swizzle as usize] == 0).count();
+        .iter().rev().take_while(|&swizzle| h.code_sizes[HUFF_CODES_TABLE][*swizzle as usize] == 0).count();
 
     num_bit_lengths = cmp::max(4, num_bit_lengths + 1);
     output.put_bits(num_bit_lengths as u32 - 4, 4)?;
     for &swizzle in &TDEFL_PACKED_CODE_SIZE_SYMS_SWIZZLE[..num_bit_lengths] {
-        output.put_bits(h.code_sizes[2][swizzle as usize] as u32, 3)?;
+        output.put_bits(h.code_sizes[HUFF_CODES_TABLE][swizzle as usize] as u32, 3)?;
     }
 
     let mut packed_code_size_index = 0 as usize;
@@ -680,7 +701,8 @@ pub fn tdefl_start_dynamic_block_oxide(
         let code = packed_code_sizes[packed_code_size_index] as usize;
         packed_code_size_index += 1;
         assert!(code < TDEFL_MAX_HUFF_SYMBOLS_2);
-        output.put_bits(h.codes[2][code] as u32, h.code_sizes[2][code] as u32)?;
+        output.put_bits(h.codes[HUFF_CODES_TABLE][code] as u32,
+                        h.code_sizes[HUFF_CODES_TABLE][code] as u32)?;
         if code >= 16 {
             output.put_bits(packed_code_sizes[packed_code_size_index] as u32,
                             [2, 3, 7][code - 16])?;
