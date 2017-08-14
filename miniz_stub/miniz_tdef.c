@@ -1375,20 +1375,21 @@ mz_uint32 tdefl_get_adler32(tdefl_compressor *d);
 //    return d->m_adler32;
 //}
 
-mz_bool tdefl_compress_mem_to_output(const void *pBuf, size_t buf_len, tdefl_put_buf_func_ptr pPut_buf_func, void *pPut_buf_user, int flags)
-{
-    tdefl_compressor *pComp;
-    mz_bool succeeded;
-    if (((buf_len) && (!pBuf)) || (!pPut_buf_func))
-        return MZ_FALSE;
-    pComp = (tdefl_compressor *)MZ_MALLOC(sizeof(tdefl_compressor));
-    if (!pComp)
-        return MZ_FALSE;
-    succeeded = (tdefl_init(pComp, pPut_buf_func, pPut_buf_user, flags) == TDEFL_STATUS_OKAY);
-    succeeded = succeeded && (tdefl_compress_buffer(pComp, pBuf, buf_len, TDEFL_FINISH) == TDEFL_STATUS_DONE);
-    MZ_FREE(pComp);
-    return succeeded;
-}
+mz_bool tdefl_compress_mem_to_output(const void *pBuf, size_t buf_len, tdefl_put_buf_func_ptr pPut_buf_func, void *pPut_buf_user, int flags);
+//mz_bool tdefl_compress_mem_to_output(const void *pBuf, size_t buf_len, tdefl_put_buf_func_ptr pPut_buf_func, void *pPut_buf_user, int flags)
+//{
+//    tdefl_compressor *pComp;
+//    mz_bool succeeded;
+//    if (((buf_len) && (!pBuf)) || (!pPut_buf_func))
+//        return MZ_FALSE;
+//    pComp = (tdefl_compressor *)MZ_MALLOC(sizeof(tdefl_compressor));
+//    if (!pComp)
+//        return MZ_FALSE;
+//    succeeded = (tdefl_init(pComp, pPut_buf_func, pPut_buf_user, flags) == TDEFL_STATUS_OKAY);
+//    succeeded = succeeded && (tdefl_compress_buffer(pComp, pBuf, buf_len, TDEFL_FINISH) == TDEFL_STATUS_DONE);
+//    MZ_FREE(pComp);
+//    return succeeded;
+//}
 
 typedef struct
 {

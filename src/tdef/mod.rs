@@ -243,6 +243,29 @@ pub unsafe extern "C" fn tdefl_get_adler32(d: Option<&mut CompressorOxide>) -> c
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn tdefl_compress_mem_to_output(
+    buf: *const c_void,
+    buf_len: usize,
+    put_buf_func: PutBufFuncPtr,
+    put_buf_user: *mut c_void,
+    flags: c_int
+) -> bool {
+    if let Some(put_buf_func) = put_buf_func {
+        let mut compressor = Box::new(CompressorOxide::new(Some(CallbackFunc {
+            put_buf_func: put_buf_func,
+            put_buf_user: put_buf_user
+        }), flags as c_uint));
+
+        match tdefl_compress_buffer(Some(&mut *compressor), buf, buf_len, TDEFLFlush::Finish) {
+            TDEFLStatus::Done => true,
+            _ => false
+        }
+    } else {
+        false
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn tdefl_create_comp_flags_from_zip_params(
     level: c_int,
     window_bits: c_int,
