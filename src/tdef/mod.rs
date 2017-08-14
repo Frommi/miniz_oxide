@@ -64,7 +64,7 @@ pub const TDEFL_LZ_CODE_BUF_SIZE: usize = 64 * 1024;
 pub const TDEFL_OUT_BUF_SIZE: usize = (TDEFL_LZ_CODE_BUF_SIZE * 13) / 10;
 pub const TDEFL_MAX_HUFF_SYMBOLS: usize = 288;
 pub const TDEFL_LZ_HASH_BITS: c_int = 15;
-pub const TDEFL_LEVEL1_HASH_SIZE_MASK: c_int = 4095;
+pub const TDEFL_LEVEL1_HASH_SIZE_MASK: c_uint = 4095;
 pub const TDEFL_LZ_HASH_SHIFT: c_int = (TDEFL_LZ_HASH_BITS + 2) / 3;
 pub const TDEFL_LZ_HASH_SIZE: usize = 1 << TDEFL_LZ_HASH_BITS;
 
