@@ -19,6 +19,8 @@ pub use tdef::{
     tdefl_get_adler32,
     tdefl_create_comp_flags_from_zip_params,
     tdefl_compress_mem_to_output,
+    tdefl_compress_mem_to_heap,
+    tdefl_compress_mem_to_mem,
     PutBufFuncPtr
 };
 
@@ -115,6 +117,13 @@ impl MZFlush {
 extern {
     pub fn miniz_def_alloc_func(opaque: *mut c_void, items: size_t, size: size_t) -> *mut c_void;
     pub fn miniz_def_free_func(opaque: *mut c_void, address: *mut c_void);
+
+    pub fn miniz_def_realloc_func(
+        opaque: *mut c_void,
+        address: *mut c_void,
+        items: size_t, size:
+        size_t
+    ) -> *mut c_void;
 }
 
 

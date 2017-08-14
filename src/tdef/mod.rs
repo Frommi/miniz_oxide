@@ -251,17 +251,132 @@ pub unsafe extern "C" fn tdefl_compress_mem_to_output(
     flags: c_int
 ) -> bool {
     if let Some(put_buf_func) = put_buf_func {
-        let mut compressor = Box::new(CompressorOxide::new(Some(CallbackFunc {
+        let compressor = ::miniz_def_alloc_func(
+            ptr::null_mut(),
+            1,
+            mem::size_of::<CompressorOxide>()
+        ) as *mut CompressorOxide;
+
+        *compressor = CompressorOxide::new(Some(CallbackFunc {
             put_buf_func: put_buf_func,
             put_buf_user: put_buf_user
-        }), flags as c_uint));
+        }), flags as c_uint);
 
-        match tdefl_compress_buffer(Some(&mut *compressor), buf, buf_len, TDEFLFlush::Finish) {
-            TDEFLStatus::Done => true,
-            _ => false
-        }
+        let res = tdefl_compress_buffer(compressor.as_mut(), buf, buf_len, TDEFLFlush::Finish) == TDEFLStatus::Done;
+        ::miniz_def_free_func(ptr::null_mut(), compressor as *mut c_void);
+        res
     } else {
         false
+    }
+}
+
+struct BufferUser {
+    pub size: usize,
+    pub capacity: usize,
+    pub buf: *mut u8,
+    pub expandable: bool,
+}
+
+pub unsafe extern "C" fn output_buffer_putter(buf: *const c_void, len: c_int, user: *mut c_void) -> bool {
+    let user = (user as *mut BufferUser).as_mut();
+    match user {
+        None => false,
+        Some(user) => {
+            let new_size = user.size + len as usize;
+            if new_size > user.capacity {
+                if !user.expandable { return false }
+                let mut new_capacity = cmp::max(user.capacity, 128);
+                while new_size > new_capacity {
+                    new_capacity <<= 1;
+                }
+
+                let new_buf = ::miniz_def_realloc_func(
+                    ptr::null_mut(),
+                    user.buf as *mut c_void,
+                    1,
+                    new_capacity
+                );
+
+                if new_buf.is_null() {
+                    return false;
+                }
+
+                user.buf = new_buf as *mut u8;
+                user.capacity = new_capacity;
+            }
+
+            ptr::copy_nonoverlapping(
+                buf as *const u8,
+                user.buf.offset(user.size as isize),
+                len as usize
+            );
+            user.size = new_size;
+            true
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn tdefl_compress_mem_to_heap(
+    src_buf: *const c_void,
+    src_buf_len: usize,
+    out_len: *mut usize,
+    flags: c_int
+) -> *mut c_void {
+    match out_len.as_mut() {
+        None => return ptr::null_mut(),
+        Some(len) => {
+            *len = 0;
+
+            let mut buffer_user = BufferUser {
+                size: 0,
+                capacity: 0,
+                buf: ptr::null_mut(),
+                expandable: true,
+            };
+
+            if !tdefl_compress_mem_to_output(
+                src_buf,
+                src_buf_len,
+                Some(output_buffer_putter),
+                &mut buffer_user as *mut BufferUser as *mut c_void,
+                flags
+            ) {
+                ptr::null_mut()
+            } else {
+                *len = buffer_user.size;
+                buffer_user.buf as *mut c_void
+            }
+        }
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn tdefl_compress_mem_to_mem(
+    out_buf: *mut c_void,
+    out_buf_len: usize,
+    src_buf: *const c_void,
+    src_buf_len: usize,
+    flags: c_int
+) -> usize {
+    if out_buf.is_null() { return 0 }
+    let mut buffer_user = BufferUser {
+        size: 0,
+        capacity: out_buf_len,
+        buf: out_buf as *mut u8,
+        expandable: false,
+    };
+
+    if tdefl_compress_mem_to_output(
+        src_buf,
+        src_buf_len,
+        Some(output_buffer_putter),
+        &mut buffer_user as *mut BufferUser as *mut c_void,
+        flags
+    ) {
+        buffer_user.size
+    } else {
+        0
     }
 }
 
