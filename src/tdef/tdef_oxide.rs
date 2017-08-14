@@ -1005,13 +1005,15 @@ pub fn tdefl_find_match_oxide(
         if read_unaligned_dict::<u16>(&dict.dict[..], probe_pos as isize) != s01 { continue }
 
         let mut probe_len = 32;
-        let mut p = pos as isize;
-        let mut q = probe_pos as isize;
+        let mut p = pos;
+        let mut q = probe_pos;
         'probe: loop {
             for _ in 0..4 {
                 p += 2;
                 q += 2;
-                if read_unaligned_dict::<u16>(&dict.dict[..], p) != read_unaligned_dict(&dict.dict[..], q) {
+                let p_data: u16 = read_unaligned_dict(&dict.dict[..], p as isize);
+                let q_data: u16 = read_unaligned_dict(&dict.dict[..], q as isize);
+                if p_data != q_data {
                     break 'probe;
                 }
             }
@@ -1021,7 +1023,7 @@ pub fn tdefl_find_match_oxide(
             }
         }
 
-        probe_len = (p - pos as isize + (dict.dict[p as usize] == dict.dict[q as usize]) as isize) as c_uint;
+        probe_len = p - pos + (dict.dict[p as usize] == dict.dict[q as usize]) as c_uint;
         if probe_len > match_len {
             match_dist = dist;
             match_len = cmp::min(max_match_len, probe_len);
