@@ -26,8 +26,6 @@ pub use tdef::{
 
 #[allow(bad_style)]
 type tdefl_compressor = tdef::CompressorOxide;
-#[allow(bad_style)]
-type tdefl_put_buf_func_ptr = PutBufFuncPtr;
 
 mod tinfl;
 pub use tinfl::tinfl_decompressor;

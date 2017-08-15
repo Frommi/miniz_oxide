@@ -61,9 +61,9 @@ impl TDEFLFlush {
 pub const TDEFL_LZ_CODE_BUF_SIZE: usize = 64 * 1024;
 pub const TDEFL_OUT_BUF_SIZE: usize = (TDEFL_LZ_CODE_BUF_SIZE * 13) / 10;
 pub const TDEFL_MAX_HUFF_SYMBOLS: usize = 288;
-pub const TDEFL_LZ_HASH_BITS: c_int = 15;
-pub const TDEFL_LEVEL1_HASH_SIZE_MASK: c_uint = 4095;
-pub const TDEFL_LZ_HASH_SHIFT: c_int = (TDEFL_LZ_HASH_BITS + 2) / 3;
+pub const TDEFL_LZ_HASH_BITS: i32 = 15;
+pub const TDEFL_LEVEL1_HASH_SIZE_MASK: u32 = 4095;
+pub const TDEFL_LZ_HASH_SHIFT: i32 = (TDEFL_LZ_HASH_BITS + 2) / 3;
 pub const TDEFL_LZ_HASH_SIZE: usize = 1 << TDEFL_LZ_HASH_BITS;
 
 pub const TDEFL_MAX_HUFF_TABLES: usize = 3;
@@ -71,21 +71,21 @@ pub const TDEFL_MAX_HUFF_SYMBOLS_0: usize = 288;
 pub const TDEFL_MAX_HUFF_SYMBOLS_1: usize = 32;
 pub const TDEFL_MAX_HUFF_SYMBOLS_2: usize = 19;
 pub const TDEFL_LZ_DICT_SIZE: usize = 32768;
-pub const TDEFL_LZ_DICT_SIZE_MASK: c_uint = TDEFL_LZ_DICT_SIZE as c_uint - 1;
-pub const TDEFL_MIN_MATCH_LEN: c_uint = 3;
+pub const TDEFL_LZ_DICT_SIZE_MASK: u32 = TDEFL_LZ_DICT_SIZE as u32 - 1;
+pub const TDEFL_MIN_MATCH_LEN: u32 = 3;
 pub const TDEFL_MAX_MATCH_LEN: usize = 258;
 
-pub const TDEFL_WRITE_ZLIB_HEADER: c_uint = 0x01000;
-pub const TDEFL_COMPUTE_ADLER32: c_uint = 0x02000;
-pub const TDEFL_GREEDY_PARSING_FLAG: c_uint = 0x04000;
-pub const TDEFL_NONDETERMINISTIC_PARSING_FLAG: c_uint = 0x08000;
-pub const TDEFL_RLE_MATCHES: c_uint = 0x10000;
-pub const TDEFL_FILTER_MATCHES: c_uint = 0x20000;
-pub const TDEFL_FORCE_ALL_STATIC_BLOCKS: c_uint = 0x40000;
-pub const TDEFL_FORCE_ALL_RAW_BLOCKS: c_uint = 0x80000;
+pub const TDEFL_WRITE_ZLIB_HEADER: u32 = 0x01000;
+pub const TDEFL_COMPUTE_ADLER32: u32 = 0x02000;
+pub const TDEFL_GREEDY_PARSING_FLAG: u32 = 0x04000;
+pub const TDEFL_NONDETERMINISTIC_PARSING_FLAG: u32 = 0x08000;
+pub const TDEFL_RLE_MATCHES: u32 = 0x10000;
+pub const TDEFL_FILTER_MATCHES: u32 = 0x20000;
+pub const TDEFL_FORCE_ALL_STATIC_BLOCKS: u32 = 0x40000;
+pub const TDEFL_FORCE_ALL_RAW_BLOCKS: u32 = 0x80000;
 
-pub const TDEFL_DEFAULT_MAX_PROBES: c_int = 128;
-pub const TDEFL_MAX_PROBES_MASK: c_int = 0xFFF;
+pub const TDEFL_DEFAULT_MAX_PROBES: i32 = 128;
+pub const TDEFL_MAX_PROBES_MASK: i32 = 0xFFF;
 
 const TDEFL_MAX_SUPPORTED_HUFF_CODESIZE: usize = 32;
 
@@ -150,7 +150,7 @@ const MZ_BITMASKS: [u32; 17] = [
     0x01FF, 0x03FF, 0x07FF, 0x0FFF, 0x1FFF, 0x3FFF, 0x7FFF, 0xFFFF
 ];
 
-const TDEFL_NUM_PROBES: [c_uint; 11] = [0, 1, 6, 32, 16, 32, 128, 256, 512, 768, 1500];
+const TDEFL_NUM_PROBES: [u32; 11] = [0, 1, 6, 32, 16, 32, 128, 256, 512, 768, 1500];
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -214,7 +214,7 @@ pub unsafe extern "C" fn tdefl_init(
             put_buf_func.map(|func|
                 CallbackFunc { put_buf_func: func, put_buf_user: put_buf_user }
             ),
-            flags as c_uint,
+            flags as u32,
         );
         TDEFLStatus::Okay
     } else {
@@ -231,7 +231,7 @@ pub unsafe extern "C" fn tdefl_get_prev_return_status(
 
 #[no_mangle]
 pub unsafe extern "C" fn tdefl_get_adler32(d: Option<&mut CompressorOxide>) -> c_uint {
-    d.map_or(::MZ_ADLER32_INIT as c_uint, |d| d.params.adler32)
+    d.map_or(::MZ_ADLER32_INIT as u32, |d| d.params.adler32)
 }
 
 #[no_mangle]
@@ -252,7 +252,7 @@ pub unsafe extern "C" fn tdefl_compress_mem_to_output(
         *compressor = CompressorOxide::new(Some(CallbackFunc {
             put_buf_func: put_buf_func,
             put_buf_user: put_buf_user
-        }), flags as c_uint);
+        }), flags as u32);
 
         let res = tdefl_compress_buffer(compressor.as_mut(), buf, buf_len, TDEFLFlush::Finish) == TDEFLStatus::Done;
         ::miniz_def_free_func(ptr::null_mut(), compressor as *mut c_void);

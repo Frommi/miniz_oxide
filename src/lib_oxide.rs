@@ -475,7 +475,6 @@ pub fn mz_inflate_end_oxide(stream_oxide: &mut StreamOxide<inflate_state>) -> MZ
     Ok(MZStatus::Ok)
 }
 
-
 // TODO: probably not covered by tests
 pub fn mz_deflate_reset_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) -> MZResult {
     let mut compressor_state = stream_oxide.state.as_mut().ok_or(MZError::Stream)?;
