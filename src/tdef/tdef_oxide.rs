@@ -13,6 +13,31 @@ pub struct CompressorOxide {
     pub dict: DictOxide,
 }
 
+impl CompressorOxide {
+    pub fn new(callback_func: Option<CallbackFunc>, flags: u32) -> Self {
+        CompressorOxide {
+            callback_func: callback_func,
+            lz: LZOxide::new(),
+            params: ParamsOxide::new(flags),
+            local_buf: [0; TDEFL_OUT_BUF_SIZE],
+            huff: HuffmanOxide::new(),
+            dict: DictOxide::new(flags),
+        }
+    }
+
+    pub fn get_adler32(&self) -> u32 {
+        self.params.adler32
+    }
+
+    pub fn get_prev_return_status(&self) -> TDEFLStatus {
+        self.params.prev_return_status
+    }
+
+    pub fn get_flags(&self) -> i32 {
+        self.params.flags as i32
+    }
+}
+
 #[derive(Copy, Clone)]
 pub struct CallbackFunc {
     pub put_buf_func: PutBufFuncPtrNotNull,
@@ -98,28 +123,86 @@ impl<'a> CallbackOxide<'a> {
     }
 }
 
-impl CompressorOxide {
-    pub fn new(callback_func: Option<CallbackFunc>, flags: u32) -> Self {
-        CompressorOxide {
-            callback_func: callback_func,
-            lz: LZOxide::new(),
-            params: ParamsOxide::new(flags),
-            local_buf: [0; TDEFL_OUT_BUF_SIZE],
-            huff: HuffmanOxide::new(),
-            dict: DictOxide::new(flags),
+pub struct OutputBufferOxide<'a> {
+    pub inner: Cursor<&'a mut [u8]>,
+    pub local: bool,
+
+    pub bit_buffer: u32,
+    pub bits_in: u32,
+}
+
+impl<'a> OutputBufferOxide<'a> {
+    fn put_bits(&mut self, bits: u32, len: u32) -> io::Result<()> {
+        assert!(bits <= ((1u32 << len) - 1u32));
+        self.bit_buffer |= bits << self.bits_in;
+        self.bits_in += len;
+        while self.bits_in >= 8 {
+            self.inner.write(&[self.bit_buffer as u8][..])?;
+            self.bit_buffer >>= 8;
+            self.bits_in -= 8;
+        }
+        Ok(())
+    }
+
+    fn save(&self) -> SavedOutputBufferOxide {
+        SavedOutputBufferOxide {
+            pos: self.inner.position(),
+            bit_buffer: self.bit_buffer,
+            bits_in: self.bits_in,
+            local: self.local,
         }
     }
 
-    pub fn get_adler32(&self) -> u32 {
-        self.params.adler32
+    fn load(&mut self, saved: SavedOutputBufferOxide) {
+        self.inner.set_position(saved.pos);
+        self.bit_buffer = saved.bit_buffer;
+        self.bits_in = saved.bits_in;
+        self.local = saved.local;
     }
 
-    pub fn get_prev_return_status(&self) -> TDEFLStatus {
-        self.params.prev_return_status
+    fn load_bits(&mut self, saved: &SavedOutputBufferOxide) {
+        self.bit_buffer = saved.bit_buffer;
+        self.bits_in = saved.bits_in;
     }
 
-    pub fn get_flags(&self) -> i32 {
-        self.params.flags as i32
+    fn pad_to_bytes(&mut self) -> io::Result<()> {
+        if self.bits_in != 0 {
+            let len = 8 - self.bits_in;
+            self.put_bits(0, len)?;
+        }
+
+        Ok(())
+    }
+}
+
+pub struct SavedOutputBufferOxide {
+    pub pos: u64,
+    pub bit_buffer: u32,
+    pub bits_in: u32,
+    pub local: bool,
+}
+
+pub struct BitBuffer {
+    pub bit_buffer: u64,
+    pub bits_in: u32,
+}
+
+impl BitBuffer {
+    pub fn put_fast(&mut self, bits: u64, len: u32) {
+        self.bit_buffer |= bits << self.bits_in;
+        self.bits_in += len;
+    }
+
+    pub fn flush(&mut self, output: &mut OutputBufferOxide) -> io::Result<()> {
+        let pos = output.inner.position() as usize;
+        let inner = &mut((*output.inner.get_mut())[pos]) as *mut u8 as *mut u64;
+        unsafe {
+            ptr::write_unaligned(inner, self.bit_buffer);
+        }
+        output.inner.seek(SeekFrom::Current((self.bits_in >> 3) as i64))?;
+        self.bit_buffer >>= self.bits_in & !7;
+        self.bits_in &= 7;
+        Ok(())
     }
 }
 
@@ -137,6 +220,12 @@ pub struct HuffmanOxide {
     pub code_sizes: [[u8; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
 }
 
+/// Tables used for literal/lengths in HuffmanOxide.
+const LITLEN_TABLE: usize = 0;
+/// Tables for distances.
+const DIST_TABLE: usize = 1;
+/// Tables for the run-length encoded huffman lenghts for literals/lengths/distances.
+const HUFF_CODES_TABLE: usize = 2;
 
 /// Status of RLE encoding of huffman code lengths.
 struct RLE {
@@ -392,45 +481,6 @@ impl HuffmanOxide {
     }
 }
 
-/// Tables used for literal/lengths in HuffmanOxide.
-const LITLEN_TABLE: usize = 0;
-/// Tables for distances.
-const DIST_TABLE: usize = 1;
-/// Tables for the run-length encoded huffman lenghts for literals/lengths/distances.
-const HUFF_CODES_TABLE: usize = 2;
-
-pub struct OutputBufferOxide<'a> {
-    pub inner: Cursor<&'a mut [u8]>,
-    pub local: bool,
-
-    pub bit_buffer: u32,
-    pub bits_in: u32,
-}
-
-pub struct BitBuffer {
-    pub bit_buffer: u64,
-    pub bits_in: u32,
-}
-
-impl BitBuffer {
-    pub fn put_fast(&mut self, bits: u64, len: u32) {
-        self.bit_buffer |= bits << self.bits_in;
-        self.bits_in += len;
-    }
-
-    pub fn flush(&mut self, output: &mut OutputBufferOxide) -> io::Result<()> {
-        let pos = output.inner.position() as usize;
-        let inner = &mut((*output.inner.get_mut())[pos]) as *mut u8 as *mut u64;
-        unsafe {
-            ptr::write_unaligned(inner, self.bit_buffer);
-        }
-        output.inner.seek(SeekFrom::Current((self.bits_in >> 3) as i64))?;
-        self.bit_buffer >>= self.bits_in & !7;
-        self.bits_in &= 7;
-        Ok(())
-    }
-}
-
 pub struct DictOxide {
     pub max_probes: [u32; 2],
     pub dict: [u8; TDEFL_LZ_DICT_SIZE + TDEFL_MAX_MATCH_LEN - 1],
@@ -558,15 +608,6 @@ impl DictOxide {
     }
 }
 
-pub struct LZOxide {
-    pub codes: [u8; TDEFL_LZ_CODE_BUF_SIZE],
-    pub code_position: usize,
-    pub flag_position: usize,
-
-    pub total_bytes: u32,
-    pub num_flags_left: u32,
-}
-
 pub struct ParamsOxide {
     pub flags: u32,
     pub greedy_parsing: bool,
@@ -615,6 +656,15 @@ impl ParamsOxide {
     }
 }
 
+pub struct LZOxide {
+    pub codes: [u8; TDEFL_LZ_CODE_BUF_SIZE],
+    pub code_position: usize,
+    pub flag_position: usize,
+
+    pub total_bytes: u32,
+    pub num_flags_left: u32,
+}
+
 impl LZOxide {
     pub fn new() -> Self {
         LZOxide {
@@ -655,57 +705,6 @@ impl LZOxide {
             self.num_flags_left = 8;
             self.plant_flag();
         }
-    }
-}
-
-pub struct SavedOutputBufferOxide {
-    pub pos: u64,
-    pub bit_buffer: u32,
-    pub bits_in: u32,
-    pub local: bool,
-}
-
-impl<'a> OutputBufferOxide<'a> {
-    fn put_bits(&mut self, bits: u32, len: u32) -> io::Result<()> {
-        assert!(bits <= ((1u32 << len) - 1u32));
-        self.bit_buffer |= bits << self.bits_in;
-        self.bits_in += len;
-        while self.bits_in >= 8 {
-            self.inner.write(&[self.bit_buffer as u8][..])?;
-            self.bit_buffer >>= 8;
-            self.bits_in -= 8;
-        }
-        Ok(())
-    }
-
-    fn save(&self) -> SavedOutputBufferOxide {
-        SavedOutputBufferOxide {
-            pos: self.inner.position(),
-            bit_buffer: self.bit_buffer,
-            bits_in: self.bits_in,
-            local: self.local,
-        }
-    }
-
-    fn load(&mut self, saved: SavedOutputBufferOxide) {
-        self.inner.set_position(saved.pos);
-        self.bit_buffer = saved.bit_buffer;
-        self.bits_in = saved.bits_in;
-        self.local = saved.local;
-    }
-
-    fn load_bits(&mut self, saved: &SavedOutputBufferOxide) {
-        self.bit_buffer = saved.bit_buffer;
-        self.bits_in = saved.bits_in;
-    }
-
-    fn pad_to_bytes(&mut self) -> io::Result<()> {
-        if self.bits_in != 0 {
-            let len = 8 - self.bits_in;
-            self.put_bits(0, len)?;
-        }
-
-        Ok(())
     }
 }
 
