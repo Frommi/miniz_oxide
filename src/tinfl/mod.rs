@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use ::libc::*;
-use std::{mem, usize};
+use std::{mem, ptr, usize};
 
 pub const TINFL_LZ_DICT_SIZE: usize = 32768;
 
@@ -148,10 +148,10 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_mem(
     let status = tinfl_decompress(
         &mut decomp,
         p_src_buf as *const u8,
-        &mut src_buf_len as *mut size_t,
+        &mut src_buf_len,
         p_out_buf as *mut u8,
         p_out_buf as *mut u8,
-        &mut out_buf_len as *mut size_t,
+        &mut out_buf_len,
         // This function takes an unsigned value for flags, so we need to explicitly cast
         // the flags to u32.
         ((flags & !TINFL_FLAG_HAS_MORE_INPUT) | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF) as u32);
@@ -163,12 +163,98 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_mem(
     }
 }
 
+#[no_mangle]
+/// Decompress data from p_src_buf to a continiuosly growing heap-allocated buffer.
+///
+/// Sets `p_out_len` to the length of the returned buffer.
+/// Returns `ptr::null()` if decompression or allocation fails.
+/// The buffer should be freed with `miniz_def_free_func`.
+pub unsafe extern "C" fn tinfl_decompress_mem_to_heap(
+    p_src_buf: *const c_void,
+    src_buf_len: size_t,
+    p_out_len: *mut size_t,
+    flags: c_int) -> *mut c_void {
+    const MIN_BUFFER_CAPACITY: size_t = 128;
 
+    // We're not using a Vec for the buffer here to make sure the buffer is allocated and freed by
+    // the same allocator.
+
+    let mut decomp = tinfl_decompressor::with_init_state_only();
+    // Pointer to the buffer to place the decompressed data into.
+    let mut p_buf: *mut c_void = ptr::null_mut();
+    // Capacity of the current output buffer.
+    let mut out_buf_capacity = 0;
+    //let p_new_buf;
+    *p_out_len = 0;
+    // How far into the source buffer we have read.
+    let mut src_buf_ofs = 0;
+    loop {
+        // The amount of remaining data to decompress.
+        let mut src_buf_size = src_buf_len - src_buf_ofs;
+        // The space left in the output buffer.
+        let mut dst_buf_size = out_buf_capacity - *p_out_len;
+
+        let status = tinfl_decompress(
+            &mut decomp,
+            p_src_buf.offset(src_buf_ofs as isize) as *const u8,
+            &mut src_buf_size,
+            p_buf as *mut u8,
+            if !p_buf.is_null() { p_buf.offset(*p_out_len as isize) as *mut u8}
+            else { ptr::null_mut() },
+            &mut dst_buf_size,
+             // We don't have any pending input that is not in the source buffer yet.
+            ((flags & !TINFL_FLAG_HAS_MORE_INPUT)
+             // We make sure the decompression routine doesn't think we are using a wrapping buffer.
+             | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF) as u32,
+        );
+
+        // If decompression fails or we don't have any input, bail out.
+        if status < 0 || status == TINFL_STATUS_NEEDS_MORE_INPUT {
+            ::miniz_def_free_func(ptr::null_mut(), p_buf);
+            *p_out_len = 0;
+            return ptr::null_mut();
+        }
+
+        src_buf_ofs += src_buf_size;
+        *p_out_len += dst_buf_size;
+
+        if status == TINFL_STATUS_DONE {
+            break;
+        }
+
+        // If we need more space, double the capacity of the output buffer
+        // and keep going.
+        let mut new_out_buf_capacity = out_buf_capacity * 2;
+
+        // Try to get at least 128 bytes of buffer capacity.
+        if new_out_buf_capacity < MIN_BUFFER_CAPACITY {
+            new_out_buf_capacity = MIN_BUFFER_CAPACITY
+        }
+
+        let p_new_buf = ::miniz_def_realloc_func(ptr::null_mut(),
+                                                 p_buf,
+                                                 1,
+                                                 new_out_buf_capacity);
+        // Bail out if growing fails.
+        if p_new_buf.is_null() {
+            ::miniz_def_free_func(ptr::null_mut(), p_buf);
+            *p_out_len = 0;
+            return ptr::null_mut();
+        }
+
+        // Otherwise, continue using the reallocated buffer.
+        p_buf = p_new_buf;
+        out_buf_capacity = new_out_buf_capacity;
+    }
+
+    p_buf
+}
 
 #[cfg(test)]
 mod test {
     use super::*;
     use libc::c_void;
+    use std::{ops, slice};
     /// Safe wrapper for `tinfl_decompress_mem_to_mem` using slices.
     ///
     /// Could maybe make this public later.
@@ -191,6 +277,52 @@ mod test {
         }
     }
 
+    /// Safe wrapper around a buffer allocated with the miniz_def functions.
+    pub struct TinflHeapBuf {
+        buf: *mut c_void,
+        len: size_t,
+    }
+
+    impl TinflHeapBuf {
+        fn as_slice(&self) -> &[u8] {
+            unsafe {
+                slice::from_raw_parts(self.buf as *const u8, self.len)
+            }
+        }
+    }
+
+    impl ops::Drop for TinflHeapBuf {
+        fn drop(&mut self) {
+            unsafe {
+                ::miniz_def_free_func(ptr::null_mut(), self.buf);
+            }
+        }
+    }
+
+    /// Safe wrapper for `tinfl_decompress_mem_to_heap` using slices.
+    ///
+    /// Could maybe make something like this public later.
+    fn tinfl_decompress_mem_to_heap_wrapper(source: &mut [u8], flags: i32) -> Option<TinflHeapBuf> {
+        let source_len = source.len();
+        let mut out_len = 0;
+        unsafe {
+            let buf_ptr = tinfl_decompress_mem_to_heap(
+                source.as_ptr() as *const c_void,
+                source_len,
+                &mut out_len,
+                flags,
+            );
+            if !buf_ptr.is_null() {
+                Some(TinflHeapBuf {
+                    buf: buf_ptr,
+                    len: out_len,
+                })
+            } else {
+                None
+            }
+        }
+    }
+
     #[test]
     fn mem_to_mem() {
         let mut encoded =
@@ -204,5 +336,18 @@ mod test {
             flags,
         ).unwrap();
         assert_eq!(&out_buf[..size], &b"Hello, zlib!"[..]);
+    }
+
+    #[test]
+    fn mem_to_heap() {
+        let mut encoded =
+            [120, 156, 243, 72, 205, 201, 201, 215, 81,
+             168, 202, 201, 76, 82, 4, 0, 27, 101, 4, 19];
+        let flags = TINFL_FLAG_COMPUTE_ADLER32 | TINFL_FLAG_PARSE_ZLIB_HEADER;
+        let out_buf = tinfl_decompress_mem_to_heap_wrapper(
+            &mut encoded[..],
+            flags,
+        ).unwrap();
+        assert_eq!(out_buf.as_slice(), &b"Hello, zlib!"[..]);
     }
 }

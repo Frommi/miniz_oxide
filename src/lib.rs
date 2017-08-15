@@ -31,6 +31,7 @@ mod tinfl;
 pub use tinfl::{
     tinfl_decompressor,
     tinfl_decompress_mem_to_mem,
+    tinfl_decompress_mem_to_heap,
 };
 
 pub const MZ_DEFLATED: c_int = 8;
