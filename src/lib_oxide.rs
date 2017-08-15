@@ -1,7 +1,6 @@
 use super::*;
 
 use tdef::TDEFL_COMPUTE_ADLER32;
-use tdef::tdefl_get_adler32_oxide;
 use tdef::TDEFLStatus;
 use tdef::TDEFLFlush;
 
@@ -196,7 +195,7 @@ pub fn mz_deflate_init2_oxide(
     strategy: c_int
 ) -> MZResult {
     let comp_flags = TDEFL_COMPUTE_ADLER32 as c_uint |
-            tdef::tdefl_create_comp_flags_from_zip_params_oxide(level, window_bits, strategy);
+            tdef::create_comp_flags_from_zip_params(level, window_bits, strategy);
 
     let invalid_level = (mem_level < 1) || (mem_level > 9);
     if (method != MZ_DEFLATED) || invalid_level || invalid_window_bits(window_bits) {
@@ -234,7 +233,7 @@ pub fn mz_deflate_oxide(
         return Err(MZError::Buf);
     }
 
-    if tdef::tdefl_get_prev_return_status_oxide(state) == TDEFLStatus::Done {
+    if tdef::get_prev_return_status(state) == TDEFLStatus::Done {
         return if flush == MZFlush::Finish {
             Ok(MZStatus::StreamEnd)
         } else {
@@ -261,7 +260,7 @@ pub fn mz_deflate_oxide(
         *next_out = &mut mem::replace(next_out, &mut [])[out_bytes..];
         stream_oxide.total_in += in_bytes as c_ulong;
         stream_oxide.total_out += out_bytes as c_ulong;
-        stream_oxide.adler = tdefl_get_adler32_oxide(state) as c_ulong;
+        stream_oxide.adler = tdef::get_adler32(state) as c_ulong;
 
         if defl_status == TDEFLStatus::BadParam || defl_status == TDEFLStatus::PutBufFailed {
             return Err(MZError::Stream);
@@ -483,7 +482,7 @@ pub fn mz_deflate_reset_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) 
     stream_oxide.total_in = 0;
     stream_oxide.total_out = 0;
     unsafe {
-        let flags = tdef::tdefl_get_flags_oxide(compressor_state);
+        let flags = tdef::get_flags(compressor_state);
         tdef::tdefl_init(
             Some(compressor_state),
             None,

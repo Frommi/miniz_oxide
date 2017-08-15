@@ -1,8 +1,6 @@
 #![allow(dead_code)]
 
-extern crate libc;
-
-use self::libc::*;
+use ::libc::*;
 use std::slice;
 use std::mem;
 use std::cmp;
@@ -86,7 +84,6 @@ pub const TDEFL_FILTER_MATCHES: c_uint = 0x20000;
 pub const TDEFL_FORCE_ALL_STATIC_BLOCKS: c_uint = 0x40000;
 pub const TDEFL_FORCE_ALL_RAW_BLOCKS: c_uint = 0x80000;
 
-pub const TDEFL_HUFFMAN_ONLY: c_int = 0;
 pub const TDEFL_DEFAULT_MAX_PROBES: c_int = 128;
 pub const TDEFL_MAX_PROBES_MASK: c_int = 0xFFF;
 
@@ -157,10 +154,9 @@ const TDEFL_NUM_PROBES: [c_uint; 11] = [0, 1, 6, 32, 16, 32, 128, 256, 512, 768,
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-#[allow(bad_style)]
-pub struct tdefl_sym_freq {
-    m_key: u16,
-    m_sym_index: u16,
+pub struct SymFreq {
+    key: u16,
+    sym_index: u16,
 }
 
 #[no_mangle]
@@ -170,18 +166,14 @@ pub unsafe extern "C" fn tdefl_compress(
     in_size: Option<&mut usize>,
     out_buf: *mut c_void,
     out_size: Option<&mut usize>,
-    flush: TDEFLFlush
+    flush: TDEFLFlush,
 ) -> TDEFLStatus {
     let in_buf_size = in_size.as_ref().map_or(0, |size| **size);
     let out_buf_size = out_size.as_ref().map_or(0, |size| **size);
 
-    let write_in_size = |size: usize| {
-        in_size.map(|in_size| *in_size = size)
-    };
-
     let res = d.map_or((TDEFLStatus::BadParam, 0, 0), |compressor| {
         let callback_res = CallbackOxide::new(
-            compressor.callback.clone(),
+            compressor.callback_func.clone(),
             in_buf,
             in_buf_size,
             out_buf,
@@ -189,13 +181,13 @@ pub unsafe extern "C" fn tdefl_compress(
         );
 
         if let Ok(mut callback) = callback_res {
-            tdefl_compress_oxide(compressor, &mut callback, flush)
+            compress(compressor, &mut callback, flush)
         } else {
             (TDEFLStatus::BadParam, 0, 0)
         }
     });
 
-    write_in_size(res.1);
+    in_size.map(|out_size| *out_size = res.1);
     out_size.map(|out_size| *out_size = res.2);
     res.0
 }
@@ -205,7 +197,7 @@ pub unsafe extern "C" fn tdefl_compress_buffer(
     d: Option<&mut CompressorOxide>,
     in_buf: *const c_void,
     mut in_size: usize,
-    flush: TDEFLFlush
+    flush: TDEFLFlush,
 ) -> TDEFLStatus {
     tdefl_compress(d, in_buf, Some(&mut in_size), ptr::null_mut(), None, flush)
 }
@@ -215,14 +207,14 @@ pub unsafe extern "C" fn tdefl_init(
     d: Option<&mut CompressorOxide>,
     put_buf_func: PutBufFuncPtr,
     put_buf_user: *mut c_void,
-    flags: c_int
+    flags: c_int,
 ) -> TDEFLStatus {
     if let Some(d) = d {
         *d = CompressorOxide::new(
             put_buf_func.map(|func|
                 CallbackFunc { put_buf_func: func, put_buf_user: put_buf_user }
             ),
-            flags as c_uint
+            flags as c_uint,
         );
         TDEFLStatus::Okay
     } else {
@@ -248,7 +240,7 @@ pub unsafe extern "C" fn tdefl_compress_mem_to_output(
     buf_len: usize,
     put_buf_func: PutBufFuncPtr,
     put_buf_user: *mut c_void,
-    flags: c_int
+    flags: c_int,
 ) -> bool {
     if let Some(put_buf_func) = put_buf_func {
         let compressor = ::miniz_def_alloc_func(
@@ -321,7 +313,7 @@ pub unsafe extern "C" fn tdefl_compress_mem_to_heap(
     src_buf: *const c_void,
     src_buf_len: usize,
     out_len: *mut usize,
-    flags: c_int
+    flags: c_int,
 ) -> *mut c_void {
     match out_len.as_mut() {
         None => return ptr::null_mut(),
@@ -357,7 +349,7 @@ pub unsafe extern "C" fn tdefl_compress_mem_to_mem(
     out_buf_len: usize,
     src_buf: *const c_void,
     src_buf_len: usize,
-    flags: c_int
+    flags: c_int,
 ) -> usize {
     if out_buf.is_null() { return 0 }
     let mut buffer_user = BufferUser {
@@ -384,7 +376,7 @@ pub unsafe extern "C" fn tdefl_compress_mem_to_mem(
 pub extern "C" fn tdefl_create_comp_flags_from_zip_params(
     level: c_int,
     window_bits: c_int,
-    strategy: c_int
+    strategy: c_int,
 ) -> c_uint {
-    tdefl_create_comp_flags_from_zip_params_oxide(level, window_bits, strategy)
+    create_comp_flags_from_zip_params(level, window_bits, strategy)
 }

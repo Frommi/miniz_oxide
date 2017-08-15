@@ -1,6 +1,6 @@
-extern crate libc;
+#![allow(dead_code)]
 
-use self::libc::*;
+use ::libc::*;
 
 pub const TINFL_LZ_DICT_SIZE: usize = 32768;
 
