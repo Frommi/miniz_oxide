@@ -327,7 +327,7 @@ pub fn mz_inflate_init2_oxide(stream_oxide: &mut StreamOxide<inflate_state>,
 
     stream_oxide.state.alloc_state::<inflate_state>()?;
     let state = stream_oxide.state.as_mut().ok_or(MZError::Mem)?;
-    state.m_decomp.m_state = 0;
+    state.m_decomp.state = 0;
     state.m_dict_ofs = 0;
     state.m_dict_avail = 0;
     state.m_last_status = tinfl::TINFL_STATUS_NEEDS_MORE_INPUT;
@@ -396,7 +396,7 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, flush: c_
         *next_out = &mut mem::replace(next_out, &mut [])[out_bytes..];
         stream_oxide.total_in += in_bytes as c_ulong;
         stream_oxide.total_out += out_bytes as c_ulong;
-        stream_oxide.adler = state.m_decomp.m_check_adler32 as c_ulong;
+        stream_oxide.adler = state.m_decomp.check_adler32 as c_ulong;
 
         if status < 0 {
             return Err(MZError::Data);
@@ -441,7 +441,7 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, flush: c_
 
         state.m_dict_avail = out_bytes as c_uint;
         stream_oxide.total_out += push_dict_out(state, next_out);
-        stream_oxide.adler = state.m_decomp.m_check_adler32 as c_ulong;
+        stream_oxide.adler = state.m_decomp.check_adler32 as c_ulong;
 
         if status < 0 {
             return Err(MZError::Data);

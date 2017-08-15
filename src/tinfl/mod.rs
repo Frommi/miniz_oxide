@@ -7,9 +7,9 @@ pub const TINFL_LZ_DICT_SIZE: usize = 32768;
 #[repr(C)]
 #[allow(bad_style)]
 pub struct tinfl_huff_table {
-    pub m_code_size: [u8; 288usize],
-    pub m_look_up: [i16; 1024usize],
-    pub m_tree: [i16; 576usize],
+    pub code_size: [u8; 288],
+    pub look_up: [i16; 1024],
+    pub tree: [i16; 576],
 }
 
 const TINFL_MAX_HUFF_TABLES: usize = 3;
@@ -42,32 +42,34 @@ pub const TDEFL_FORCE_ALL_RAW_BLOCKS: u32 = 0x80000;
 #[repr(C)]
 #[allow(bad_style)]
 pub struct tinfl_decompressor {
-    pub m_state: u32,
-    pub m_num_bits: u32,
-    pub m_zhdr0: u32,
-    pub m_zhdr1: u32,
-    pub m_z_adler32: u32,
-    pub m_final: u32,
-    pub m_type: u32,
-    pub m_check_adler32: u32,
-    pub m_dist: u32,
-    pub m_counter: u32,
-    pub m_num_extra: u32,
-    pub m_table_sizes: [u32; TINFL_MAX_HUFF_TABLES],
-    pub m_bit_buf: u32,
-    pub m_dist_from_out_buf_start: usize,
-    pub m_tables: [tinfl_huff_table; TINFL_MAX_HUFF_TABLES],
-    pub m_raw_header: [u8; 4],
-    pub m_len_codes: [u8; TINFL_MAX_HUFF_SYMBOLS_0 + TINFL_MAX_HUFF_SYMBOLS_1 + 137],
+    pub state: u32,
+    pub num_bits: u32,
+    pub z_header0: u32,
+    pub z_header1: u32,
+    pub z_adler32: u32,
+    pub finish: u32,
+    pub block_type: u32,
+    pub check_adler32: u32,
+    pub dist: u32,
+    pub counter: u32,
+    pub num_extra: u32,
+    pub table_sizes: [u32; TINFL_MAX_HUFF_TABLES],
+    pub bit_buf: u32,
+    pub dist_from_out_buf_start: usize,
+    pub tables: [tinfl_huff_table; TINFL_MAX_HUFF_TABLES],
+    pub raw_header: [u8; 4],
+    pub len_codes: [u8; TINFL_MAX_HUFF_SYMBOLS_0 + TINFL_MAX_HUFF_SYMBOLS_1 + 137],
 }
 
 #[allow(bad_style)]
 extern {
-    pub fn tinfl_decompress(r: *mut tinfl_decompressor,
-                            pIn_buf_next: *const u8,
-                            pIn_buf_size: *mut size_t,
-                            pOut_buf_start: *mut u8,
-                            pOut_buf_next: *mut u8,
-                            pOut_buf_size: *mut size_t,
-                            decomp_flags: c_uint) -> c_int;
+    pub fn tinfl_decompress(
+        r: *mut tinfl_decompressor,
+        pIn_buf_next: *const u8,
+        pIn_buf_size: *mut size_t,
+        pOut_buf_start: *mut u8,
+        pOut_buf_next: *mut u8,
+        pOut_buf_size: *mut size_t,
+        decomp_flags: c_uint
+    ) -> c_int;
 }
