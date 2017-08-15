@@ -233,7 +233,7 @@ pub fn mz_deflate_oxide(
         return Err(MZError::Buf);
     }
 
-    if tdef::get_prev_return_status(state) == TDEFLStatus::Done {
+    if state.get_prev_return_status() == TDEFLStatus::Done {
         return if flush == MZFlush::Finish {
             Ok(MZStatus::StreamEnd)
         } else {
@@ -260,7 +260,7 @@ pub fn mz_deflate_oxide(
         *next_out = &mut mem::replace(next_out, &mut [])[out_bytes..];
         stream_oxide.total_in += in_bytes as c_ulong;
         stream_oxide.total_out += out_bytes as c_ulong;
-        stream_oxide.adler = tdef::get_adler32(state) as c_ulong;
+        stream_oxide.adler = state.get_adler32() as c_ulong;
 
         if defl_status == TDEFLStatus::BadParam || defl_status == TDEFLStatus::PutBufFailed {
             return Err(MZError::Stream);
@@ -482,7 +482,7 @@ pub fn mz_deflate_reset_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) 
     stream_oxide.total_in = 0;
     stream_oxide.total_out = 0;
     unsafe {
-        let flags = tdef::get_flags(compressor_state);
+        let flags = compressor_state.get_flags();
         tdef::tdefl_init(
             Some(compressor_state),
             None,

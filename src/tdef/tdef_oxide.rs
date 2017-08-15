@@ -109,6 +109,18 @@ impl CompressorOxide {
             dict: DictOxide::new(flags),
         }
     }
+
+    pub fn get_adler32(&self) -> c_uint {
+        self.params.adler32
+    }
+
+    pub fn get_prev_return_status(&self) -> TDEFLStatus {
+        self.params.prev_return_status
+    }
+
+    pub fn get_flags(&self) -> c_int {
+        self.params.flags as c_int
+    }
 }
 
 /// A struct containing data about huffman codes and symbol frequencies.
@@ -125,6 +137,63 @@ pub struct HuffmanOxide {
     pub code_sizes: [[u8; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
 }
 
+
+/// Status of RLE encoding of huffman code lengths.
+struct RLE {
+    pub z_count: u32,
+    pub repeat_count: u32,
+    pub prev_code_size: u8,
+}
+
+impl RLE {
+    fn prev_code_size(
+        &mut self,
+        packed_code_sizes: &mut Cursor<&mut [u8]>,
+        h: &mut HuffmanOxide,
+    ) -> io::Result<()> {
+        let counts = &mut h.count[HUFF_CODES_TABLE];
+        if self.repeat_count != 0 {
+            if self.repeat_count < 3 {
+                counts[self.prev_code_size as usize] = counts[self.prev_code_size as usize].wrapping_add(self.repeat_count as u16);
+                let code = self.prev_code_size;
+                packed_code_sizes.write(&[code, code, code][..self.repeat_count as usize])?;
+            } else {
+                counts[16] = counts[16].wrapping_add(1);
+                packed_code_sizes.write(&[16, (self.repeat_count - 3) as u8][..])?;
+            }
+            self.repeat_count = 0;
+        }
+
+        Ok(())
+    }
+
+    fn zero_code_size(
+        &mut self,
+        packed_code_sizes: &mut Cursor<&mut [u8]>,
+        h: &mut HuffmanOxide,
+    ) -> io::Result<()> {
+        let counts = &mut h.count[HUFF_CODES_TABLE];
+        if self.z_count != 0 {
+            if self.z_count < 3 {
+                counts[0] = counts[0].wrapping_add(self.z_count as u16);
+                packed_code_sizes.write(&[0, 0, 0][..self.z_count as usize])?;
+            } else if self.z_count <= 10 {
+                counts[17] = counts[17].wrapping_add(1);
+                packed_code_sizes.write(&[17, (self.z_count - 3) as u8][..])?;
+            } else {
+                counts[18] = counts[18].wrapping_add(1);
+                packed_code_sizes.write(&[18, (self.z_count - 11) as u8][..])?;
+            }
+            self.z_count = 0;
+        }
+
+        Ok(())
+    }
+}
+
+const TDEFL_PACKED_CODE_SIZE_SYMS_SWIZZLE: [u8; 19] =
+    [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+
 impl HuffmanOxide {
     pub fn new() -> Self {
         HuffmanOxide {
@@ -132,6 +201,194 @@ impl HuffmanOxide {
             codes: [[0; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
             code_sizes: [[0; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
         }
+    }
+
+    pub fn optimize_huffman_table(
+        &mut self,
+        table_num: usize,
+        table_len: usize,
+        code_size_limit: usize,
+        static_table: bool,
+    ) {
+        let mut num_codes = [0 as c_int; TDEFL_MAX_SUPPORTED_HUFF_CODESIZE + 1];
+        let mut next_code = [0 as c_uint; TDEFL_MAX_SUPPORTED_HUFF_CODESIZE + 1];
+
+        if static_table {
+            for &code_size in &self.code_sizes[table_num][..table_len] {
+                num_codes[code_size as usize] += 1;
+            }
+        } else {
+            let mut symbols0 = [SymFreq { key: 0, sym_index: 0 }; TDEFL_MAX_HUFF_SYMBOLS];
+            let mut symbols1 = [SymFreq { key: 0, sym_index: 0 }; TDEFL_MAX_HUFF_SYMBOLS];
+
+            let mut num_used_symbols = 0;
+            for i in 0..table_len {
+                if self.count[table_num][i] != 0 {
+                    symbols0[num_used_symbols] = SymFreq {
+                        key: self.count[table_num][i],
+                        sym_index: i as u16
+                    };
+                    num_used_symbols += 1;
+                }
+            }
+
+            let mut symbols = radix_sort_syms(
+                &mut symbols0[..num_used_symbols],
+                &mut symbols1[..num_used_symbols],
+            );
+            calculate_minimum_redundancy(symbols);
+
+            for symbol in symbols.iter() {
+                num_codes[symbol.key as usize] += 1;
+            }
+
+            huffman_enforce_max_code_size(&mut num_codes, num_used_symbols, code_size_limit);
+
+            memset(&mut self.code_sizes[table_num][..], 0);
+            memset(&mut self.codes[table_num][..], 0);
+
+            let mut last = num_used_symbols;
+            for i in 1..code_size_limit + 1 {
+                let first = last - num_codes[i] as usize;
+                for symbol in &symbols[first..last] {
+                    self.code_sizes[table_num][symbol.sym_index as usize] = i as u8;
+                }
+                last = first;
+            }
+        }
+
+        let mut j = 0;
+        next_code[1] = 0;
+        for i in 2..code_size_limit + 1 {
+            j = (j + num_codes[i - 1]) << 1;
+            next_code[i] = j as c_uint;
+        }
+
+        for (&code_size, huff_code) in self.code_sizes[table_num].iter().take(table_len)
+            .zip(self.codes[table_num].iter_mut().take(table_len))
+            {
+                if code_size == 0 { continue }
+
+                let mut code = next_code[code_size as usize];
+                next_code[code_size as usize] += 1;
+
+                let mut rev_code = 0;
+                for _ in 0..code_size {
+                    rev_code = (rev_code << 1) | (code & 1);
+                    code >>= 1;
+                }
+                *huff_code = rev_code as u16;
+            }
+    }
+
+    pub fn start_static_block(&mut self, output: &mut OutputBufferOxide) -> io::Result<()> {
+        memset(&mut self.code_sizes[0][0..144], 8);
+        memset(&mut self.code_sizes[0][144..256], 9);
+        memset(&mut self.code_sizes[0][256..280], 7);
+        memset(&mut self.code_sizes[0][280..288], 8);
+
+        memset(&mut self.code_sizes[1][..32], 5);
+
+        self.optimize_huffman_table(0, 288, 15, true);
+        self.optimize_huffman_table(1, 32, 15, true);
+
+        output.put_bits(1, 2)
+    }
+
+    pub fn start_dynamic_block(&mut self, output: &mut OutputBufferOxide) -> io::Result<()> {
+        self.count[0][256] = 1;
+
+        self.optimize_huffman_table(0, TDEFL_MAX_HUFF_SYMBOLS_0, 15, false);
+        self.optimize_huffman_table(1, TDEFL_MAX_HUFF_SYMBOLS_1, 15, false);
+
+        let num_lit_codes = 286 - &self.code_sizes[0][257..286]
+            .iter().rev().take_while(|&x| *x == 0).count();
+
+        let num_dist_codes = 30 - &self.code_sizes[1][1..30]
+            .iter().rev().take_while(|&x| *x == 0).count();
+
+        let mut code_sizes_to_pack = [0u8; TDEFL_MAX_HUFF_SYMBOLS_0 + TDEFL_MAX_HUFF_SYMBOLS_1];
+        let mut packed_code_sizes = [0u8; TDEFL_MAX_HUFF_SYMBOLS_0 + TDEFL_MAX_HUFF_SYMBOLS_1];
+
+        let total_code_sizes_to_pack = num_lit_codes + num_dist_codes;
+
+        &code_sizes_to_pack[..num_lit_codes]
+            .copy_from_slice(&self.code_sizes[0][..num_lit_codes]);
+
+        &code_sizes_to_pack[num_lit_codes..total_code_sizes_to_pack]
+            .copy_from_slice(&self.code_sizes[1][..num_dist_codes]);
+
+        let mut rle = RLE {
+            z_count: 0,
+            repeat_count: 0,
+            prev_code_size: 0xFF,
+        };
+
+        memset(&mut self.count[HUFF_CODES_TABLE][..TDEFL_MAX_HUFF_SYMBOLS_2], 0);
+
+        let mut packed_code_sizes_cursor = Cursor::new(&mut packed_code_sizes[..]);
+        for &code_size in &code_sizes_to_pack[..total_code_sizes_to_pack] {
+            if code_size == 0 {
+                rle.prev_code_size(&mut packed_code_sizes_cursor, self)?;
+                rle.z_count += 1;
+                if rle.z_count == 138 {
+                    rle.zero_code_size(&mut packed_code_sizes_cursor, self)?;
+                }
+            } else {
+                rle.zero_code_size(&mut packed_code_sizes_cursor, self)?;
+                if code_size != rle.prev_code_size {
+                    rle.prev_code_size(&mut packed_code_sizes_cursor, self)?;
+                    self.count[HUFF_CODES_TABLE][code_size as usize] =
+                        self.count[HUFF_CODES_TABLE][code_size as usize].wrapping_add(1);
+                    packed_code_sizes_cursor.write(&[code_size][..])?;
+                } else {
+                    rle.repeat_count += 1;
+                    if rle.repeat_count == 6 {
+                        rle.prev_code_size(&mut packed_code_sizes_cursor, self)?;
+                    }
+                }
+            }
+            rle.prev_code_size = code_size;
+        }
+
+        if rle.repeat_count != 0 {
+            rle.prev_code_size(&mut packed_code_sizes_cursor, self)?;
+        } else {
+            rle.zero_code_size(&mut packed_code_sizes_cursor, self)?;
+        }
+
+        self.optimize_huffman_table(2, TDEFL_MAX_HUFF_SYMBOLS_2, 7, false);
+
+        output.put_bits(2, 2)?;
+
+        output.put_bits((num_lit_codes - 257) as u32, 5)?;
+        output.put_bits((num_dist_codes - 1) as u32, 5)?;
+
+        let mut num_bit_lengths = 18 - TDEFL_PACKED_CODE_SIZE_SYMS_SWIZZLE
+            .iter().rev().take_while(|&swizzle| self.code_sizes[HUFF_CODES_TABLE][*swizzle as usize] == 0).count();
+
+        num_bit_lengths = cmp::max(4, num_bit_lengths + 1);
+        output.put_bits(num_bit_lengths as u32 - 4, 4)?;
+        for &swizzle in &TDEFL_PACKED_CODE_SIZE_SYMS_SWIZZLE[..num_bit_lengths] {
+            output.put_bits(self.code_sizes[HUFF_CODES_TABLE][swizzle as usize] as u32, 3)?;
+        }
+
+        let mut packed_code_size_index = 0 as usize;
+        let packed_code_sizes = packed_code_sizes_cursor.get_ref();
+        while packed_code_size_index < packed_code_sizes_cursor.position() as usize {
+            let code = packed_code_sizes[packed_code_size_index] as usize;
+            packed_code_size_index += 1;
+            assert!(code < TDEFL_MAX_HUFF_SYMBOLS_2);
+            output.put_bits(self.codes[HUFF_CODES_TABLE][code] as u32,
+                            self.code_sizes[HUFF_CODES_TABLE][code] as u32)?;
+            if code >= 16 {
+                output.put_bits(packed_code_sizes[packed_code_size_index] as u32,
+                                [2, 3, 7][code - 16])?;
+                packed_code_size_index += 1;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -203,6 +460,102 @@ impl DictOxide {
             size: 0,
         }
     }
+
+    fn read_unaligned<T>(&self, pos: isize) -> T {
+        unsafe {
+            ptr::read_unaligned((&self.dict as *const [u8] as *const u8).offset(pos) as *const T)
+        }
+    }
+
+    pub fn find_match(
+        &self,
+        lookahead_pos: c_uint,
+        max_dist: c_uint,
+        max_match_len: c_uint,
+        mut match_dist: c_uint,
+        mut match_len: c_uint,
+    ) -> (c_uint, c_uint) {
+        assert!(max_match_len as usize <= TDEFL_MAX_MATCH_LEN);
+
+        let pos = lookahead_pos & TDEFL_LZ_DICT_SIZE_MASK;
+        let mut probe_pos = pos;
+        let mut num_probes_left = self.max_probes[(match_len >= 32) as usize];
+
+        let mut c01: u16 = self.read_unaligned((pos + match_len - 1) as isize);
+        let s01: u16 = self.read_unaligned(pos as isize);
+
+        if max_match_len <= match_len { return (match_dist, match_len) }
+
+        loop {
+            let mut dist = 0;
+            'found: loop {
+                num_probes_left -= 1;
+                if num_probes_left == 0 { return (match_dist, match_len) }
+
+                pub enum ProbeResult {
+                    OutOfBounds,
+                    Found,
+                    NotFound
+                }
+
+                let mut probe = || -> ProbeResult {
+                    let next_probe_pos = self.next[probe_pos as usize] as c_uint;
+
+                    dist = ((lookahead_pos - next_probe_pos) & 0xFFFF) as c_uint;
+                    if next_probe_pos == 0 || dist > max_dist {
+                        return ProbeResult::OutOfBounds
+                    }
+
+                    probe_pos = next_probe_pos & TDEFL_LZ_DICT_SIZE_MASK;
+                    if self.read_unaligned::<u16>((probe_pos + match_len - 1) as isize) == c01 {
+                        ProbeResult::Found
+                    } else {
+                        ProbeResult::NotFound
+                    }
+                };
+
+                for _ in 0..3 {
+                    match probe() {
+                        ProbeResult::OutOfBounds => return (match_dist, match_len),
+                        ProbeResult::Found => break 'found,
+                        ProbeResult::NotFound => (),
+                    }
+                }
+            }
+
+            if dist == 0 { return (match_dist, match_len) }
+            if self.read_unaligned::<u16>(probe_pos as isize) != s01 { continue }
+
+            let mut probe_len = 32;
+            let mut p = pos;
+            let mut q = probe_pos;
+            'probe: loop {
+                for _ in 0..4 {
+                    p += 2;
+                    q += 2;
+                    let p_data: u16 = self.read_unaligned(p as isize);
+                    let q_data: u16 = self.read_unaligned(q as isize);
+                    if p_data != q_data {
+                        break 'probe;
+                    }
+                }
+                probe_len -= 1;
+                if probe_len == 0 {
+                    return (dist, cmp::min(max_match_len, TDEFL_MAX_MATCH_LEN as c_uint))
+                }
+            }
+
+            probe_len = p - pos + (self.dict[p as usize] == self.dict[q as usize]) as c_uint;
+            if probe_len > match_len {
+                match_dist = dist;
+                match_len = cmp::min(max_match_len, probe_len);
+                if match_len == max_match_len {
+                    return (match_dist, match_len);
+                }
+                c01 = self.read_unaligned((pos + match_len - 1) as isize);
+            }
+        }
+    }
 }
 
 pub struct LZOxide {
@@ -231,7 +584,6 @@ pub struct ParamsOxide {
     pub adler32: c_uint,
 
     pub src_pos: usize,
-    pub src_buf_left: usize,
 
     pub out_buf_ofs: usize,
     pub prev_return_status: TDEFLStatus,
@@ -255,7 +607,6 @@ impl ParamsOxide {
             finished: false,
             adler32: ::MZ_ADLER32_INIT as c_uint,
             src_pos: 0,
-            src_buf_left: 0,
             out_buf_ofs: 0,
             prev_return_status: TDEFLStatus::Okay,
             saved_bit_buffer: 0,
@@ -476,268 +827,18 @@ pub fn huffman_enforce_max_code_size(
     }
 }
 
-pub fn optimize_huffman_table(
-    h: &mut HuffmanOxide,
-    table_num: usize,
-    table_len: usize,
-    code_size_limit: usize,
-    static_table: bool,
-) {
-    let mut num_codes = [0 as c_int; TDEFL_MAX_SUPPORTED_HUFF_CODESIZE + 1];
-    let mut next_code = [0 as c_uint; TDEFL_MAX_SUPPORTED_HUFF_CODESIZE + 1];
-
-    if static_table {
-        for &code_size in &h.code_sizes[table_num][..table_len] {
-            num_codes[code_size as usize] += 1;
-        }
-    } else {
-        let mut symbols0 = [SymFreq { key: 0, sym_index: 0 }; TDEFL_MAX_HUFF_SYMBOLS];
-        let mut symbols1 = [SymFreq { key: 0, sym_index: 0 }; TDEFL_MAX_HUFF_SYMBOLS];
-
-        let mut num_used_symbols = 0;
-        for i in 0..table_len {
-            if h.count[table_num][i] != 0 {
-                symbols0[num_used_symbols] = SymFreq {
-                    key: h.count[table_num][i],
-                    sym_index: i as u16
-                };
-                num_used_symbols += 1;
-            }
-        }
-
-        let mut symbols = radix_sort_syms(
-            &mut symbols0[..num_used_symbols],
-            &mut symbols1[..num_used_symbols],
-        );
-        calculate_minimum_redundancy(symbols);
-
-        for symbol in symbols.iter() {
-            num_codes[symbol.key as usize] += 1;
-        }
-
-        huffman_enforce_max_code_size(&mut num_codes, num_used_symbols, code_size_limit);
-
-        memset(&mut h.code_sizes[table_num][..], 0);
-        memset(&mut h.codes[table_num][..], 0);
-
-        let mut last = num_used_symbols;
-        for i in 1..code_size_limit + 1 {
-            let first = last - num_codes[i] as usize;
-            for symbol in &symbols[first..last] {
-                h.code_sizes[table_num][symbol.sym_index as usize] = i as u8;
-            }
-            last = first;
-        }
-    }
-
-    let mut j = 0;
-    next_code[1] = 0;
-    for i in 2..code_size_limit + 1 {
-        j = (j + num_codes[i - 1]) << 1;
-        next_code[i] = j as c_uint;
-    }
-
-    for (&code_size, huff_code) in h.code_sizes[table_num].iter().take(table_len)
-                                    .zip(h.codes[table_num].iter_mut().take(table_len))
-    {
-        if code_size == 0 { continue }
-
-        let mut code = next_code[code_size as usize];
-        next_code[code_size as usize] += 1;
-
-        let mut rev_code = 0;
-        for _ in 0..code_size {
-            rev_code = (rev_code << 1) | (code & 1);
-            code >>= 1;
-        }
-        *huff_code = rev_code as u16;
-    }
-}
-
-const TDEFL_PACKED_CODE_SIZE_SYMS_SWIZZLE: [u8; 19] =
-    [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
-
-/// Status of RLE encoding of huffman code lengths.
-struct RLE {
-    pub z_count: u32,
-    pub repeat_count: u32,
-    pub prev_code_size: u8,
-}
-
-#[inline]
-fn rle_prev_code_size(
-    rle: &mut RLE,
-    packed_code_sizes: &mut Cursor<&mut [u8]>,
-    h: &mut HuffmanOxide,
-) -> io::Result<()> {
-    let counts = &mut h.count[HUFF_CODES_TABLE];
-    if rle.repeat_count != 0 {
-        if rle.repeat_count < 3 {
-            counts[rle.prev_code_size as usize] = counts[rle.prev_code_size as usize].wrapping_add(rle.repeat_count as u16);
-            let code = rle.prev_code_size;
-            packed_code_sizes.write(&[code, code, code][..rle.repeat_count as usize])?;
-        } else {
-            counts[16] = counts[16].wrapping_add(1);
-            packed_code_sizes.write(&[16, (rle.repeat_count - 3) as u8][..])?;
-        }
-        rle.repeat_count = 0;
-    }
-
-    Ok(())
-}
-
-#[inline]
-fn rle_zero_code_size(
-    rle: &mut RLE,
-    packed_code_sizes: &mut Cursor<&mut [u8]>,
-    h: &mut HuffmanOxide,
-) -> io::Result<()> {
-    let counts = &mut h.count[HUFF_CODES_TABLE];
-    if rle.z_count != 0 {
-        if rle.z_count < 3 {
-            counts[0] = counts[0].wrapping_add(rle.z_count as u16);
-            packed_code_sizes.write(&[0, 0, 0][..rle.z_count as usize])?;
-        } else if rle.z_count <= 10 {
-            counts[17] = counts[17].wrapping_add(1);
-            packed_code_sizes.write(&[17, (rle.z_count - 3) as u8][..])?;
-        } else {
-            counts[18] = counts[18].wrapping_add(1);
-            packed_code_sizes.write(&[18, (rle.z_count - 11) as u8][..])?;
-        }
-        rle.z_count = 0;
-    }
-
-    Ok(())
-}
-
-pub fn start_dynamic_block(
-    h: &mut HuffmanOxide,
-    output: &mut OutputBufferOxide,
-) -> io::Result<()> {
-    h.count[0][256] = 1;
-
-    optimize_huffman_table(h, 0, TDEFL_MAX_HUFF_SYMBOLS_0, 15, false);
-    optimize_huffman_table(h, 1, TDEFL_MAX_HUFF_SYMBOLS_1, 15, false);
-
-    let num_lit_codes = 286 - &h.code_sizes[0][257..286]
-        .iter().rev().take_while(|&x| *x == 0).count();
-
-    let num_dist_codes = 30 - &h.code_sizes[1][1..30]
-        .iter().rev().take_while(|&x| *x == 0).count();
-
-    let mut code_sizes_to_pack = [0u8; TDEFL_MAX_HUFF_SYMBOLS_0 + TDEFL_MAX_HUFF_SYMBOLS_1];
-    let mut packed_code_sizes = [0u8; TDEFL_MAX_HUFF_SYMBOLS_0 + TDEFL_MAX_HUFF_SYMBOLS_1];
-
-    let total_code_sizes_to_pack = num_lit_codes + num_dist_codes;
-
-    &code_sizes_to_pack[..num_lit_codes]
-        .copy_from_slice(&h.code_sizes[0][..num_lit_codes]);
-
-    &code_sizes_to_pack[num_lit_codes..total_code_sizes_to_pack]
-        .copy_from_slice(&h.code_sizes[1][..num_dist_codes]);
-
-    let mut rle = RLE {
-        z_count: 0,
-        repeat_count: 0,
-        prev_code_size: 0xFF,
-    };
-
-    memset(&mut h.count[HUFF_CODES_TABLE][..TDEFL_MAX_HUFF_SYMBOLS_2], 0);
-
-    let mut packed_code_sizes_cursor = Cursor::new(&mut packed_code_sizes[..]);
-    for &code_size in &code_sizes_to_pack[..total_code_sizes_to_pack] {
-        if code_size == 0 {
-            rle_prev_code_size(&mut rle, &mut packed_code_sizes_cursor, h)?;
-            rle.z_count += 1;
-            if rle.z_count == 138 {
-                rle_zero_code_size(&mut rle, &mut packed_code_sizes_cursor, h)?;
-            }
-        } else {
-            rle_zero_code_size(&mut rle, &mut packed_code_sizes_cursor, h)?;
-            if code_size != rle.prev_code_size {
-                rle_prev_code_size(&mut rle, &mut packed_code_sizes_cursor, h)?;
-                h.count[HUFF_CODES_TABLE][code_size as usize] =
-                    h.count[HUFF_CODES_TABLE][code_size as usize].wrapping_add(1);
-                packed_code_sizes_cursor.write(&[code_size][..])?;
-            } else {
-                rle.repeat_count += 1;
-                if rle.repeat_count == 6 {
-                    rle_prev_code_size(&mut rle, &mut packed_code_sizes_cursor, h)?;
-                }
-            }
-        }
-        rle.prev_code_size = code_size;
-    }
-
-    if rle.repeat_count != 0 {
-        rle_prev_code_size(&mut rle, &mut packed_code_sizes_cursor, h)?;
-    } else {
-        rle_zero_code_size(&mut rle, &mut packed_code_sizes_cursor, h)?;
-    }
-
-    optimize_huffman_table(h, 2, TDEFL_MAX_HUFF_SYMBOLS_2, 7, false);
-
-    output.put_bits(2, 2)?;
-
-    output.put_bits((num_lit_codes - 257) as u32, 5)?;
-    output.put_bits((num_dist_codes - 1) as u32, 5)?;
-
-    let mut num_bit_lengths = 18 - TDEFL_PACKED_CODE_SIZE_SYMS_SWIZZLE
-        .iter().rev().take_while(|&swizzle| h.code_sizes[HUFF_CODES_TABLE][*swizzle as usize] == 0).count();
-
-    num_bit_lengths = cmp::max(4, num_bit_lengths + 1);
-    output.put_bits(num_bit_lengths as u32 - 4, 4)?;
-    for &swizzle in &TDEFL_PACKED_CODE_SIZE_SYMS_SWIZZLE[..num_bit_lengths] {
-        output.put_bits(h.code_sizes[HUFF_CODES_TABLE][swizzle as usize] as u32, 3)?;
-    }
-
-    let mut packed_code_size_index = 0 as usize;
-    let packed_code_sizes = packed_code_sizes_cursor.get_ref();
-    while packed_code_size_index < packed_code_sizes_cursor.position() as usize {
-        let code = packed_code_sizes[packed_code_size_index] as usize;
-        packed_code_size_index += 1;
-        assert!(code < TDEFL_MAX_HUFF_SYMBOLS_2);
-        output.put_bits(h.codes[HUFF_CODES_TABLE][code] as u32,
-                        h.code_sizes[HUFF_CODES_TABLE][code] as u32)?;
-        if code >= 16 {
-            output.put_bits(packed_code_sizes[packed_code_size_index] as u32,
-                            [2, 3, 7][code - 16])?;
-            packed_code_size_index += 1;
-        }
-    }
-
-    Ok(())
-}
-
-pub fn start_static_block(
-    h: &mut HuffmanOxide,
-    output: &mut OutputBufferOxide,
-) -> io::Result<()> {
-    memset(&mut h.code_sizes[0][0..144], 8);
-    memset(&mut h.code_sizes[0][144..256], 9);
-    memset(&mut h.code_sizes[0][256..280], 7);
-    memset(&mut h.code_sizes[0][280..288], 8);
-
-    memset(&mut h.code_sizes[1][..32], 5);
-
-    optimize_huffman_table(h, 0, 288, 15, true);
-    optimize_huffman_table(h, 1, 32, 15, true);
-
-    output.put_bits(1, 2)
-}
-
 pub fn compress_lz_codes(
-    h: &mut HuffmanOxide,
+    huff: &mut HuffmanOxide,
     output: &mut OutputBufferOxide,
     lz_code_buf: &[u8],
 ) -> io::Result<bool> {
     let mut flags = 1;
     let mut bb = BitBuffer {
         bit_buffer: output.bit_buffer as u64,
-        bits_in: output.bits_in
+        bits_in: output.bits_in,
     };
 
-    let mut i = 0;
+    let mut i: usize = 0;
     while i < lz_code_buf.len() {
         if flags == 1 {
             flags = lz_code_buf[i] as u32 | 0x100;
@@ -751,12 +852,14 @@ pub fn compress_lz_codes(
             let num_extra_bits;
 
             let match_len = lz_code_buf[i] as usize;
-            let match_dist = read_unaligned_dict::<u16>(lz_code_buf, i as isize + 1);
+            let match_dist = unsafe {
+                ptr::read_unaligned::<u16>(lz_code_buf.get_unchecked(i + 1) as *const u8 as *const u16)
+            };
             i += 3;
 
-            assert!(h.code_sizes[0][TDEFL_LEN_SYM[match_len] as usize] != 0);
-            bb.put_fast(h.codes[0][TDEFL_LEN_SYM[match_len] as usize] as u64,
-                        h.code_sizes[0][TDEFL_LEN_SYM[match_len] as usize] as u32);
+            assert!(huff.code_sizes[0][TDEFL_LEN_SYM[match_len] as usize] != 0);
+            bb.put_fast(huff.codes[0][TDEFL_LEN_SYM[match_len] as usize] as u64,
+                        huff.code_sizes[0][TDEFL_LEN_SYM[match_len] as usize] as u32);
             bb.put_fast(match_len as u64 & MZ_BITMASKS[TDEFL_LEN_EXTRA[match_len] as usize] as u64,
                         TDEFL_LEN_EXTRA[match_len] as u32);
 
@@ -768,8 +871,8 @@ pub fn compress_lz_codes(
                 num_extra_bits = TDEFL_LARGE_DIST_EXTRA[(match_dist >> 8) as usize] as usize;
             }
 
-            assert!(h.code_sizes[1][sym] != 0);
-            bb.put_fast(h.codes[1][sym] as u64, h.code_sizes[1][sym] as u32);
+            assert!(huff.code_sizes[1][sym] != 0);
+            bb.put_fast(huff.codes[1][sym] as u64, huff.code_sizes[1][sym] as u32);
             bb.put_fast(match_dist as u64 & MZ_BITMASKS[num_extra_bits as usize] as u64, num_extra_bits as u32);
         } else {
             for _ in 0..3 {
@@ -777,8 +880,8 @@ pub fn compress_lz_codes(
                 let lit = lz_code_buf[i];
                 i += 1;
 
-                assert!(h.code_sizes[0][lit as usize] != 0);
-                bb.put_fast(h.codes[0][lit as usize] as u64, h.code_sizes[0][lit as usize] as u32);
+                assert!(huff.code_sizes[0][lit as usize] != 0);
+                bb.put_fast(huff.codes[0][lit as usize] as u64, huff.code_sizes[0][lit as usize] as u32);
 
                 if flags & 1 == 1 || i >= lz_code_buf.len() {
                     break;
@@ -798,51 +901,47 @@ pub fn compress_lz_codes(
         bb.bits_in -= n;
     }
 
-    output.put_bits(h.codes[0][256] as u32, h.code_sizes[0][256] as u32)?;
+    output.put_bits(huff.codes[0][256] as u32, huff.code_sizes[0][256] as u32)?;
 
     Ok(true)
 }
 
 pub fn compress_block(
-    h: &mut HuffmanOxide,
+    huff: &mut HuffmanOxide,
     output: &mut OutputBufferOxide,
     lz: &LZOxide,
     static_block: bool,
 ) -> io::Result<bool> {
     if static_block {
-        start_static_block(h, output)?;
+        huff.start_static_block(output)?;
     } else {
-        start_dynamic_block(h, output)?;
+        huff.start_dynamic_block(output)?;
     }
 
-    compress_lz_codes(h, output, &lz.codes[..lz.code_position])
+    compress_lz_codes(huff, output, &lz.codes[..lz.code_position])
 }
 
 pub fn flush_block(
-    huff: &mut HuffmanOxide,
-    lz: &mut LZOxide,
-    dict: &mut DictOxide,
-    params: &mut ParamsOxide,
+    d: &mut CompressorOxide,
     callback: &mut CallbackOxide,
-    local_buf: &mut [u8],
     flush: TDEFLFlush,
 ) -> io::Result<c_int> {
     let saved_bits;
     {
-        let mut output = callback.out.new_output_buffer(local_buf, params.out_buf_ofs);
-        output.bit_buffer = params.saved_bit_buffer;
-        output.bits_in = params.saved_bits_in;
+        let mut output = callback.out.new_output_buffer(&mut d.local_buf, d.params.out_buf_ofs);
+        output.bit_buffer = d.params.saved_bit_buffer;
+        output.bits_in = d.params.saved_bits_in;
 
-        let use_raw_block = (params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0) &&
-            (dict.lookahead_pos - dict.code_buf_dict_pos) <= dict.size;
+        let use_raw_block = (d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0) &&
+            (d.dict.lookahead_pos - d.dict.code_buf_dict_pos) <= d.dict.size;
 
-        assert!(params.flush_remaining == 0);
-        params.flush_ofs = 0;
-        params.flush_remaining = 0;
+        assert!(d.params.flush_remaining == 0);
+        d.params.flush_ofs = 0;
+        d.params.flush_remaining = 0;
 
-        lz.init_flag();
+        d.lz.init_flag();
 
-        if params.flags & TDEFL_WRITE_ZLIB_HEADER != 0 && params.block_index == 0 {
+        if d.params.flags & TDEFL_WRITE_ZLIB_HEADER != 0 && d.params.block_index == 0 {
             output.put_bits(0x78, 8)?;
             output.put_bits(0x01, 8)?;
         }
@@ -853,13 +952,13 @@ pub fn flush_block(
 
         let mut comp_success = false;
         if !use_raw_block {
-            let use_static = (params.flags & TDEFL_FORCE_ALL_STATIC_BLOCKS != 0) || (lz.total_bytes < 48);
-            comp_success = compress_block(huff, &mut output, lz, use_static)?;
+            let use_static = (d.params.flags & TDEFL_FORCE_ALL_STATIC_BLOCKS != 0) || (d.lz.total_bytes < 48);
+            comp_success = compress_block(&mut d.huff, &mut output, &mut d.lz, use_static)?;
         }
 
-        let expanded = (lz.total_bytes != 0) &&
-            (output.inner.position() - saved_buffer.pos + 1 >= lz.total_bytes as u64) &&
-            (dict.lookahead_pos - dict.code_buf_dict_pos <= dict.size);
+        let expanded = (d.lz.total_bytes != 0) &&
+            (output.inner.position() - saved_buffer.pos + 1 >= d.lz.total_bytes as u64) &&
+            (d.dict.lookahead_pos - d.dict.code_buf_dict_pos <= d.dict.size);
 
         if use_raw_block || expanded {
             output.load(saved_buffer);
@@ -868,24 +967,24 @@ pub fn flush_block(
             output.pad_to_bytes()?;
 
             for _ in 0..2 {
-                output.put_bits(lz.total_bytes & 0xFFFF, 16)?;
-                lz.total_bytes ^= 0xFFFF;
+                output.put_bits(d.lz.total_bytes & 0xFFFF, 16)?;
+                d.lz.total_bytes ^= 0xFFFF;
             }
 
-            for i in 0..lz.total_bytes {
-                let pos = (dict.code_buf_dict_pos + i) & TDEFL_LZ_DICT_SIZE_MASK;
-                output.put_bits(dict.dict[pos as usize] as u32, 8)?;
+            for i in 0..d.lz.total_bytes {
+                let pos = (d.dict.code_buf_dict_pos + i) & TDEFL_LZ_DICT_SIZE_MASK;
+                output.put_bits(d.dict.dict[pos as usize] as u32, 8)?;
             }
         } else if !comp_success {
             output.load(saved_buffer);
-            compress_block(huff, &mut output, lz, true)?;
+            compress_block(&mut d.huff, &mut output, &mut d.lz, true)?;
         }
 
         if flush != TDEFLFlush::None {
             if flush == TDEFLFlush::Finish {
                 output.pad_to_bytes()?;
-                if params.flags & TDEFL_WRITE_ZLIB_HEADER != 0 {
-                    let mut adler = params.adler32;
+                if d.params.flags & TDEFL_WRITE_ZLIB_HEADER != 0 {
+                    let mut adler = d.params.adler32;
                     for _ in 0..4 {
                         output.put_bits((adler >> 24) & 0xFF, 8)?;
                         adler <<= 8;
@@ -899,23 +998,23 @@ pub fn flush_block(
             }
         }
 
-        memset(&mut huff.count[0][..TDEFL_MAX_HUFF_SYMBOLS_0], 0);
-        memset(&mut huff.count[1][..TDEFL_MAX_HUFF_SYMBOLS_1], 0);
+        memset(&mut d.huff.count[0][..TDEFL_MAX_HUFF_SYMBOLS_0], 0);
+        memset(&mut d.huff.count[1][..TDEFL_MAX_HUFF_SYMBOLS_1], 0);
 
-        lz.code_position = 1;
-        lz.flag_position = 0;
-        lz.num_flags_left = 8;
-        dict.code_buf_dict_pos += lz.total_bytes;
-        lz.total_bytes = 0;
-        params.block_index += 1;
+        d.lz.code_position = 1;
+        d.lz.flag_position = 0;
+        d.lz.num_flags_left = 8;
+        d.dict.code_buf_dict_pos += d.lz.total_bytes;
+        d.lz.total_bytes = 0;
+        d.params.block_index += 1;
 
         saved_bits = output.save();
     }
 
     let mut pos = saved_bits.pos;
     let local = saved_bits.local;
-    params.saved_bit_buffer = saved_bits.bit_buffer;
-    params.saved_bits_in = saved_bits.bits_in;
+    d.params.saved_bit_buffer = saved_bits.bit_buffer;
+    d.params.saved_bits_in = saved_bits.bits_in;
 
     if pos != 0 {
         match callback.out {
@@ -923,134 +1022,38 @@ pub fn flush_block(
                 // TODO: callback about buf_in_size before put_buf_func
                 let call_success = unsafe {
                     (cf.put_buf_func)(
-                        &local_buf[0] as *const u8 as *const c_void,
+                        &d.local_buf[0] as *const u8 as *const c_void,
                         pos as c_int,
                         cf.put_buf_user,
                     )
                 };
 
                 if !call_success {
-                    params.prev_return_status = TDEFLStatus::PutBufFailed;
-                    return Ok(params.prev_return_status as c_int);
+                    d.params.prev_return_status = TDEFLStatus::PutBufFailed;
+                    return Ok(d.params.prev_return_status as c_int);
                 }
             },
             CallbackOut::Buf(ref mut cb) => {
                 if local {
-                    let n = cmp::min(pos as usize, cb.out_buf.len() - params.out_buf_ofs);
-                    (&mut cb.out_buf[params.out_buf_ofs..params.out_buf_ofs + n]).copy_from_slice(
-                        &local_buf[..n]
+                    let n = cmp::min(pos as usize, cb.out_buf.len() - d.params.out_buf_ofs);
+                    (&mut cb.out_buf[d.params.out_buf_ofs..d.params.out_buf_ofs + n]).copy_from_slice(
+                        &d.local_buf[..n]
                     );
 
-                    params.out_buf_ofs += n;
+                    d.params.out_buf_ofs += n;
                     pos -= n as u64;
                     if pos != 0 {
-                        params.flush_ofs = n as c_uint;
-                        params.flush_remaining = pos as c_uint;
+                        d.params.flush_ofs = n as c_uint;
+                        d.params.flush_remaining = pos as c_uint;
                     }
                 } else {
-                    params.out_buf_ofs += pos as usize;
+                    d.params.out_buf_ofs += pos as usize;
                 }
             },
         }
     }
 
-    Ok(params.flush_remaining as c_int)
-}
-
-fn read_unaligned_dict<T>(dict: &[u8], pos: isize) -> T {
-    unsafe {
-        ptr::read_unaligned((dict as *const [u8] as *const u8).offset(pos) as *const T)
-    }
-}
-
-pub fn find_match(
-    dict: &DictOxide,
-    lookahead_pos: c_uint,
-    max_dist: c_uint,
-    max_match_len: c_uint,
-    mut match_dist: c_uint,
-    mut match_len: c_uint,
-) -> (c_uint, c_uint) {
-    assert!(max_match_len as usize <= TDEFL_MAX_MATCH_LEN);
-
-    let pos = lookahead_pos & TDEFL_LZ_DICT_SIZE_MASK;
-    let mut probe_pos = pos;
-    let mut num_probes_left = dict.max_probes[(match_len >= 32) as usize];
-
-    let mut c01: u16 = read_unaligned_dict(&dict.dict[..], (pos + match_len - 1) as isize);
-    let s01: u16 = read_unaligned_dict(&dict.dict[..], pos as isize);
-
-    if max_match_len <= match_len { return (match_dist, match_len) }
-
-    loop {
-        let mut dist = 0;
-        'found: loop {
-            num_probes_left -= 1;
-            if num_probes_left == 0 { return (match_dist, match_len) }
-
-            pub enum ProbeResult {
-                OutOfBounds,
-                Found,
-                NotFound
-            }
-
-            let mut probe = || -> ProbeResult {
-                let next_probe_pos = dict.next[probe_pos as usize] as c_uint;
-
-                dist = ((lookahead_pos - next_probe_pos) & 0xFFFF) as c_uint;
-                if next_probe_pos == 0 || dist > max_dist {
-                    return ProbeResult::OutOfBounds
-                }
-
-                probe_pos = next_probe_pos & TDEFL_LZ_DICT_SIZE_MASK;
-                if read_unaligned_dict::<u16>(&dict.dict[..], (probe_pos + match_len - 1) as isize) == c01 {
-                    ProbeResult::Found
-                } else {
-                    ProbeResult::NotFound
-                }
-            };
-
-            for _ in 0..3 {
-                match probe() {
-                    ProbeResult::OutOfBounds => return (match_dist, match_len),
-                    ProbeResult::Found => break 'found,
-                    ProbeResult::NotFound => (),
-                }
-            }
-        }
-
-        if dist == 0 { return (match_dist, match_len) }
-        if read_unaligned_dict::<u16>(&dict.dict[..], probe_pos as isize) != s01 { continue }
-
-        let mut probe_len = 32;
-        let mut p = pos;
-        let mut q = probe_pos;
-        'probe: loop {
-            for _ in 0..4 {
-                p += 2;
-                q += 2;
-                let p_data: u16 = read_unaligned_dict(&dict.dict[..], p as isize);
-                let q_data: u16 = read_unaligned_dict(&dict.dict[..], q as isize);
-                if p_data != q_data {
-                    break 'probe;
-                }
-            }
-            probe_len -= 1;
-            if probe_len == 0 {
-                return (dist, cmp::min(max_match_len, TDEFL_MAX_MATCH_LEN as c_uint))
-            }
-        }
-
-        probe_len = p - pos + (dict.dict[p as usize] == dict.dict[q as usize]) as c_uint;
-        if probe_len > match_len {
-            match_dist = dist;
-            match_len = cmp::min(max_match_len, probe_len);
-            if match_len == max_match_len {
-                return (match_dist, match_len);
-            }
-            c01 = read_unaligned_dict(&dict.dict[..], (pos + match_len - 1) as isize);
-        }
-    }
+    Ok(d.params.flush_remaining as c_int)
 }
 
 pub fn record_literal(h: &mut HuffmanOxide, lz: &mut LZOxide, lit: u8) {
@@ -1093,83 +1096,78 @@ pub fn record_match(
     h.count[0][TDEFL_LEN_SYM[match_len as usize] as usize] += 1;
 }
 
-pub fn compress_normal(
-    huff: &mut HuffmanOxide,
-    lz: &mut LZOxide,
-    dict: &mut DictOxide,
-    params: &mut ParamsOxide,
-    callback: &mut CallbackOxide,
-    local_buf: &mut [u8],
-) -> bool {
-    let mut src_pos = params.src_pos;
-    let mut src_buf_left = params.src_buf_left;
-    while src_buf_left != 0 || (params.flush != TDEFLFlush::None && dict.lookahead_size != 0) {
-        let in_buf = callback.in_buf.expect("Unexpected null in_buf"); // TODO: make connection  params.src_buf_left <-> in_buf
-        let num_bytes_to_process = cmp::min(src_buf_left, TDEFL_MAX_MATCH_LEN - dict.lookahead_size as usize);
-        src_buf_left -= num_bytes_to_process;
-        if dict.lookahead_size + dict.size >= TDEFL_MIN_MATCH_LEN - 1 {
-            let mut dst_pos = (dict.lookahead_pos + dict.lookahead_size) & TDEFL_LZ_DICT_SIZE_MASK;
-            let mut ins_pos = dict.lookahead_pos + dict.lookahead_size - 2;
-            let mut hash = ((dict.dict[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] as c_uint) << TDEFL_LZ_HASH_SHIFT) ^
-                (dict.dict[((ins_pos + 1) & TDEFL_LZ_DICT_SIZE_MASK) as usize] as c_uint);
+pub fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool {
+    let mut src_pos = d.params.src_pos;
+    let in_buf = match callback.in_buf {
+        None => return true,
+        Some(in_buf) => in_buf,
+    };
 
-            dict.lookahead_size += num_bytes_to_process as c_uint;
+    while src_pos < in_buf.len() || (d.params.flush != TDEFLFlush::None && d.dict.lookahead_size != 0) {
+        let src_buf_left = in_buf.len() - src_pos;
+        let num_bytes_to_process = cmp::min(src_buf_left, TDEFL_MAX_MATCH_LEN - d.dict.lookahead_size as usize);
+        if d.dict.lookahead_size + d.dict.size >= TDEFL_MIN_MATCH_LEN - 1 {
+            let mut dst_pos = (d.dict.lookahead_pos + d.dict.lookahead_size) & TDEFL_LZ_DICT_SIZE_MASK;
+            let mut ins_pos = d.dict.lookahead_pos + d.dict.lookahead_size - 2;
+            let mut hash = ((d.dict.dict[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] as c_uint) << TDEFL_LZ_HASH_SHIFT) ^
+                (d.dict.dict[((ins_pos + 1) & TDEFL_LZ_DICT_SIZE_MASK) as usize] as c_uint);
+
+            d.dict.lookahead_size += num_bytes_to_process as c_uint;
             for &c in &in_buf[src_pos..src_pos + num_bytes_to_process] {
-                dict.dict[dst_pos as usize] = c;
+                d.dict.dict[dst_pos as usize] = c;
                 if (dst_pos as usize) < TDEFL_MAX_MATCH_LEN - 1 {
-                    dict.dict[TDEFL_LZ_DICT_SIZE + dst_pos as usize] = c;
+                    d.dict.dict[TDEFL_LZ_DICT_SIZE + dst_pos as usize] = c;
                 }
 
                 hash = ((hash << TDEFL_LZ_HASH_SHIFT) ^ (c as c_uint)) & (TDEFL_LZ_HASH_SIZE as c_uint - 1);
-                dict.next[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] = dict.hash[hash as usize];
-                dict.hash[hash as usize] = ins_pos as u16;
+                d.dict.next[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] = d.dict.hash[hash as usize];
+                d.dict.hash[hash as usize] = ins_pos as u16;
                 dst_pos = (dst_pos + 1) & TDEFL_LZ_DICT_SIZE_MASK;
                 ins_pos += 1;
             }
             src_pos += num_bytes_to_process;
         } else {
             for &c in &in_buf[src_pos..src_pos + num_bytes_to_process] {
-                let dst_pos = (dict.lookahead_pos + dict.lookahead_size) & TDEFL_LZ_DICT_SIZE_MASK;
-                dict.dict[dst_pos as usize] = c;
+                let dst_pos = (d.dict.lookahead_pos + d.dict.lookahead_size) & TDEFL_LZ_DICT_SIZE_MASK;
+                d.dict.dict[dst_pos as usize] = c;
                 if (dst_pos as usize) < TDEFL_MAX_MATCH_LEN - 1 {
-                    dict.dict[TDEFL_LZ_DICT_SIZE + dst_pos as usize] = c;
+                    d.dict.dict[TDEFL_LZ_DICT_SIZE + dst_pos as usize] = c;
                 }
 
-                dict.lookahead_size += 1;
-                if dict.lookahead_size + dict.size >= TDEFL_MIN_MATCH_LEN {
-                    let ins_pos = dict.lookahead_pos + dict.lookahead_size - 3;
-                    let hash = (((dict.dict[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] as c_uint) << (TDEFL_LZ_HASH_SHIFT * 2)) ^
-                        (((dict.dict[((ins_pos + 1) & TDEFL_LZ_DICT_SIZE_MASK) as usize] as c_uint) << TDEFL_LZ_HASH_SHIFT) ^ (c as c_uint))) &
+                d.dict.lookahead_size += 1;
+                if d.dict.lookahead_size + d.dict.size >= TDEFL_MIN_MATCH_LEN {
+                    let ins_pos = d.dict.lookahead_pos + d.dict.lookahead_size - 3;
+                    let hash = (((d.dict.dict[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] as c_uint) << (TDEFL_LZ_HASH_SHIFT * 2)) ^
+                        (((d.dict.dict[((ins_pos + 1) & TDEFL_LZ_DICT_SIZE_MASK) as usize] as c_uint) << TDEFL_LZ_HASH_SHIFT) ^ (c as c_uint))) &
                         (TDEFL_LZ_HASH_SIZE as c_uint - 1);
 
-                    dict.next[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] = dict.hash[hash as usize];
-                    dict.hash[hash as usize] = ins_pos as u16;
+                    d.dict.next[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] = d.dict.hash[hash as usize];
+                    d.dict.hash[hash as usize] = ins_pos as u16;
                 }
             }
 
             src_pos += num_bytes_to_process;
         }
 
-        dict.size = cmp::min(TDEFL_LZ_DICT_SIZE as c_uint - dict.lookahead_size, dict.size);
-        if params.flush == TDEFLFlush::None && (dict.lookahead_size as usize) < TDEFL_MAX_MATCH_LEN { break }
+        d.dict.size = cmp::min(TDEFL_LZ_DICT_SIZE as c_uint - d.dict.lookahead_size, d.dict.size);
+        if d.params.flush == TDEFLFlush::None && (d.dict.lookahead_size as usize) < TDEFL_MAX_MATCH_LEN { break }
 
         let mut len_to_move = 1;
         let mut cur_match_dist = 0;
-        let mut cur_match_len = if params.saved_match_len != 0 { params.saved_match_len } else { TDEFL_MIN_MATCH_LEN - 1 };
-        let cur_pos = dict.lookahead_pos & TDEFL_LZ_DICT_SIZE_MASK;
-        if params.flags & (TDEFL_RLE_MATCHES | TDEFL_FORCE_ALL_RAW_BLOCKS) != 0 {
-            if dict.size != 0 && params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS == 0 {
-                let c = dict.dict[((cur_pos.wrapping_sub(1)) & TDEFL_LZ_DICT_SIZE_MASK) as usize];
-                cur_match_len = dict.dict[cur_pos as usize..(cur_pos + dict.lookahead_size) as usize]
+        let mut cur_match_len = if d.params.saved_match_len != 0 { d.params.saved_match_len } else { TDEFL_MIN_MATCH_LEN - 1 };
+        let cur_pos = d.dict.lookahead_pos & TDEFL_LZ_DICT_SIZE_MASK;
+        if d.params.flags & (TDEFL_RLE_MATCHES | TDEFL_FORCE_ALL_RAW_BLOCKS) != 0 {
+            if d.dict.size != 0 && d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS == 0 {
+                let c = d.dict.dict[((cur_pos.wrapping_sub(1)) & TDEFL_LZ_DICT_SIZE_MASK) as usize];
+                cur_match_len = d.dict.dict[cur_pos as usize..(cur_pos + d.dict.lookahead_size) as usize]
                     .iter().take_while(|&x| *x == c).count() as c_uint;
                 if cur_match_len < TDEFL_MIN_MATCH_LEN { cur_match_len = 0 } else { cur_match_dist = 1 }
             }
         } else {
-            let dist_len = find_match(
-                dict,
-                dict.lookahead_pos,
-                dict.size,
-                dict.lookahead_size,
+            let dist_len = d.dict.find_match(
+                d.dict.lookahead_pos,
+                d.dict.size,
+                d.dict.lookahead_size,
                 cur_match_dist,
                 cur_match_len,
             );
@@ -1178,122 +1176,109 @@ pub fn compress_normal(
         }
 
         let far_and_small = cur_match_len == TDEFL_MIN_MATCH_LEN && cur_match_dist >= 8 * 1024;
-        let filter_small = params.flags & TDEFL_FILTER_MATCHES != 0 && cur_match_len <= 5;
+        let filter_small = d.params.flags & TDEFL_FILTER_MATCHES != 0 && cur_match_len <= 5;
         if far_and_small || filter_small || cur_pos == cur_match_dist {
             cur_match_dist = 0;
             cur_match_len = 0;
         }
 
-        if params.saved_match_len != 0 {
-            if cur_match_len > params.saved_match_len {
-                record_literal(huff, lz, params.saved_lit);
+        if d.params.saved_match_len != 0 {
+            if cur_match_len > d.params.saved_match_len {
+                record_literal(&mut d.huff, &mut d.lz, d.params.saved_lit);
                 if cur_match_len >= 128 {
-                    record_match(huff, lz, cur_match_len, cur_match_dist);
-                    params.saved_match_len = 0;
+                    record_match(&mut d.huff, &mut d.lz, cur_match_len, cur_match_dist);
+                    d.params.saved_match_len = 0;
                     len_to_move = cur_match_len;
                 } else {
-                    params.saved_lit = dict.dict[cur_pos as usize];
-                    params.saved_match_dist = cur_match_dist;
-                    params.saved_match_len = cur_match_len;
+                    d.params.saved_lit = d.dict.dict[cur_pos as usize];
+                    d.params.saved_match_dist = cur_match_dist;
+                    d.params.saved_match_len = cur_match_len;
                 }
             } else {
-                record_match(huff, lz, params.saved_match_len, params.saved_match_dist);
-                len_to_move = params.saved_match_len - 1;
-                params.saved_match_len = 0;
+                record_match(&mut d.huff, &mut d.lz, d.params.saved_match_len, d.params.saved_match_dist);
+                len_to_move = d.params.saved_match_len - 1;
+                d.params.saved_match_len = 0;
             }
         } else if cur_match_dist == 0 {
-            record_literal(huff, lz, dict.dict[cmp::min(cur_pos as usize, dict.dict.len() - 1)]);
-        } else if params.greedy_parsing || (params.flags & TDEFL_RLE_MATCHES != 0) || cur_match_len >= 128 {
-            record_match(huff, lz, cur_match_len, cur_match_dist);
+            record_literal(&mut d.huff, &mut d.lz, d.dict.dict[cmp::min(cur_pos as usize, d.dict.dict.len() - 1)]);
+        } else if d.params.greedy_parsing || (d.params.flags & TDEFL_RLE_MATCHES != 0) || cur_match_len >= 128 {
+            record_match(&mut d.huff, &mut d.lz, cur_match_len, cur_match_dist);
             len_to_move = cur_match_len;
         } else {
-            params.saved_lit = dict.dict[cmp::min(cur_pos as usize, dict.dict.len() - 1)];
-            params.saved_match_dist = cur_match_dist;
-            params.saved_match_len = cur_match_len;
+            d.params.saved_lit = d.dict.dict[cmp::min(cur_pos as usize, d.dict.dict.len() - 1)];
+            d.params.saved_match_dist = cur_match_dist;
+            d.params.saved_match_len = cur_match_len;
         }
 
-        dict.lookahead_pos += len_to_move;
-        assert!(dict.lookahead_size >= len_to_move);
-        dict.lookahead_size -= len_to_move;
-        dict.size = cmp::min(dict.size + len_to_move, TDEFL_LZ_DICT_SIZE as c_uint);
+        d.dict.lookahead_pos += len_to_move;
+        assert!(d.dict.lookahead_size >= len_to_move);
+        d.dict.lookahead_size -= len_to_move;
+        d.dict.size = cmp::min(d.dict.size + len_to_move, TDEFL_LZ_DICT_SIZE as c_uint);
 
-        let lz_buf_tight = lz.code_position > TDEFL_LZ_CODE_BUF_SIZE - 8;
-        let raw = params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0;
-        let fat = ((lz.code_position * 115) >> 7) >= lz.total_bytes as usize;
-        let fat_or_raw = (lz.total_bytes > 31 * 1024) && (fat || raw);
+        let lz_buf_tight = d.lz.code_position > TDEFL_LZ_CODE_BUF_SIZE - 8;
+        let raw = d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0;
+        let fat = ((d.lz.code_position * 115) >> 7) >= d.lz.total_bytes as usize;
+        let fat_or_raw = (d.lz.total_bytes > 31 * 1024) && (fat || raw);
 
         if lz_buf_tight || fat_or_raw {
-            params.src_pos = src_pos;
-            params.src_buf_left = src_buf_left;
+            d.params.src_pos = src_pos;
 
-            let n = flush_block(
-                huff,
-                lz,
-                dict,
-                params,
-                callback,
-                local_buf,
-                TDEFLFlush::None,
-            ).unwrap_or(TDEFLStatus::PutBufFailed as c_int);
+            let n = flush_block(d, callback, TDEFLFlush::None)
+                .unwrap_or(TDEFLStatus::PutBufFailed as c_int);
             if n != 0 { return n > 0 }
         }
     }
 
-    params.src_pos = src_pos;
-    params.src_buf_left = src_buf_left;
+    d.params.src_pos = src_pos;
     true
 }
 
 const TDEFL_COMP_FAST_LOOKAHEAD_SIZE: c_uint = 4096;
 
-pub fn compress_fast(
-    huff: &mut HuffmanOxide,
-    lz: &mut LZOxide,
-    dict: &mut DictOxide,
-    params: &mut ParamsOxide,
-    callback: &mut CallbackOxide,
-    local_buf: &mut [u8],
-) -> bool {
-    let mut cur_pos = dict.lookahead_pos & TDEFL_LZ_DICT_SIZE_MASK;
-    let in_buf = callback.in_buf.expect("Unexpected null in_buf"); // TODO: make connection  params.src_buf_left <-> in_buf
-    while params.src_buf_left > 0 || (params.flush != TDEFLFlush::None && dict.lookahead_size > 0) {
-        let mut dst_pos = ((dict.lookahead_pos + dict.lookahead_size) & TDEFL_LZ_DICT_SIZE_MASK) as usize;
-        let mut num_bytes_to_process = cmp::min(params.src_buf_left, (TDEFL_COMP_FAST_LOOKAHEAD_SIZE - dict.lookahead_size) as usize);
-        params.src_buf_left -= num_bytes_to_process;
-        dict.lookahead_size += num_bytes_to_process as c_uint;
+pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool {
+    let mut cur_pos = d.dict.lookahead_pos & TDEFL_LZ_DICT_SIZE_MASK;
+    let in_buf = match callback.in_buf {
+        None => return true,
+        Some(in_buf) => in_buf,
+    };
+
+    while d.params.src_pos < in_buf.len() || (d.params.flush != TDEFLFlush::None && d.dict.lookahead_size > 0) {
+        let mut dst_pos = ((d.dict.lookahead_pos + d.dict.lookahead_size) & TDEFL_LZ_DICT_SIZE_MASK) as usize;
+        let mut num_bytes_to_process = cmp::min(in_buf.len() - d.params.src_pos, (TDEFL_COMP_FAST_LOOKAHEAD_SIZE - d.dict.lookahead_size) as usize);
+        d.dict.lookahead_size += num_bytes_to_process as c_uint;
 
         while num_bytes_to_process != 0 {
             let n = cmp::min(TDEFL_LZ_DICT_SIZE - dst_pos , num_bytes_to_process);
-            &mut dict.dict[dst_pos..dst_pos + n]
-                .copy_from_slice(&in_buf[params.src_pos..params.src_pos + n]);
+            &mut d.dict.dict[dst_pos..dst_pos + n]
+                .copy_from_slice(&in_buf[d.params.src_pos..d.params.src_pos + n]);
 
             if dst_pos < TDEFL_MAX_MATCH_LEN - 1 {
                 let m = cmp::min(n, TDEFL_MAX_MATCH_LEN - 1 - dst_pos);
-                &mut dict.dict[dst_pos + TDEFL_LZ_DICT_SIZE..dst_pos + TDEFL_LZ_DICT_SIZE + m]
-                    .copy_from_slice(&in_buf[params.src_pos..params.src_pos + m]);
+                &mut d.dict.dict[dst_pos + TDEFL_LZ_DICT_SIZE..dst_pos + TDEFL_LZ_DICT_SIZE + m]
+                    .copy_from_slice(&in_buf[d.params.src_pos..d.params.src_pos + m]);
             }
 
-            params.src_pos += n;
+            d.params.src_pos += n;
             dst_pos = (dst_pos + n) & TDEFL_LZ_DICT_SIZE_MASK as usize;
             num_bytes_to_process -= n;
         }
 
-        dict.size = cmp::min(TDEFL_LZ_DICT_SIZE as c_uint - dict.lookahead_size, dict.size);
-        if params.flush == TDEFLFlush::None && dict.lookahead_size < TDEFL_COMP_FAST_LOOKAHEAD_SIZE {
+        d.dict.size = cmp::min(TDEFL_LZ_DICT_SIZE as c_uint - d.dict.lookahead_size, d.dict.size);
+        if d.params.flush == TDEFLFlush::None && d.dict.lookahead_size < TDEFL_COMP_FAST_LOOKAHEAD_SIZE {
             break;
         }
 
-        while dict.lookahead_size >= 4 {
+        while d.dict.lookahead_size >= 4 {
             let mut cur_match_len = 1;
-            let first_trigram = read_unaligned_dict::<u32>(&dict.dict[..], cur_pos as isize) & 0xFFFFFF;
+            let first_trigram = d.dict.read_unaligned::<u32>(cur_pos as isize) & 0xFFFFFF;
             let hash = (first_trigram ^ (first_trigram >> (24 - (TDEFL_LZ_HASH_BITS - 8)))) & TDEFL_LEVEL1_HASH_SIZE_MASK;
-            let mut probe_pos = dict.hash[hash as usize] as u32;
-            dict.hash[hash as usize] = dict.lookahead_pos as u16;
+            let mut probe_pos = d.dict.hash[hash as usize] as u32;
+            d.dict.hash[hash as usize] = d.dict.lookahead_pos as u16;
 
-            let mut cur_match_dist = (dict.lookahead_pos - probe_pos) as u16;
-            if cur_match_dist as u32 <= dict.size {
+            let mut cur_match_dist = (d.dict.lookahead_pos - probe_pos) as u16;
+            if cur_match_dist as u32 <= d.dict.size {
                 probe_pos &= TDEFL_LZ_DICT_SIZE_MASK;
-                let trigram = read_unaligned_dict::<u32>(&dict.dict[..], probe_pos as isize) & 0xFFFFFF;
+                let trigram = d.dict.read_unaligned::<u32>(probe_pos as isize) & 0xFFFFFF;
                 if first_trigram == trigram {
                     let mut p = cur_pos as isize;
                     let mut q = probe_pos as isize;
@@ -1303,8 +1288,8 @@ pub fn compress_fast(
                         for _ in 0..4 {
                             p += 2;
                             q += 2;
-                            if read_unaligned_dict::<u16>(&dict.dict[..], p) != read_unaligned_dict(&dict.dict[..], q) {
-                                cur_match_len = (p as u32 - cur_pos) + (dict.dict[p as usize] == dict.dict[q as usize]) as u32;
+                            if d.dict.read_unaligned::<u16>(p) != d.dict.read_unaligned(q) {
+                                cur_match_len = (p as u32 - cur_pos) + (d.dict.dict[p as usize] == d.dict.dict[q as usize]) as u32;
                                 break 'probe;
                             }
                         }
@@ -1321,60 +1306,55 @@ pub fn compress_fast(
 
                     if cur_match_len < TDEFL_MIN_MATCH_LEN || (cur_match_len == TDEFL_MIN_MATCH_LEN && cur_match_dist >= 8 * 1024) {
                         cur_match_len = 1;
-                        lz.write_code(first_trigram as u8);
-                        *lz.get_flag() >>= 1;
-                        huff.count[0][first_trigram as u8 as usize] += 1;
+                        d.lz.write_code(first_trigram as u8);
+                        *d.lz.get_flag() >>= 1;
+                        d.huff.count[0][first_trigram as u8 as usize] += 1;
                     } else {
-                        cur_match_len = cmp::min(cur_match_len, dict.lookahead_size);
+                        cur_match_len = cmp::min(cur_match_len, d.dict.lookahead_size);
                         assert!(cur_match_len >= TDEFL_MIN_MATCH_LEN);
                         assert!(cur_match_dist >= 1);
                         assert!(cur_match_dist as usize <= TDEFL_LZ_DICT_SIZE);
                         cur_match_dist -= 1;
 
-                        lz.write_code((cur_match_len - TDEFL_MIN_MATCH_LEN) as u8);
+                        d.lz.write_code((cur_match_len - TDEFL_MIN_MATCH_LEN) as u8);
                         unsafe {
                             ptr::write_unaligned(
-                                (&mut lz.codes[0] as *mut u8).offset(lz.code_position as isize) as *mut u16,
+                                (&mut d.lz.codes[0] as *mut u8).offset(d.lz.code_position as isize) as *mut u16,
                                 cur_match_dist as u16,
                             );
-                            lz.code_position += 2;
+                            d.lz.code_position += 2;
                         }
 
-                        *lz.get_flag() >>= 1;
-                        *lz.get_flag() |= 0x80;
+                        *d.lz.get_flag() >>= 1;
+                        *d.lz.get_flag() |= 0x80;
                         if cur_match_dist < 512 {
-                            huff.count[1][TDEFL_SMALL_DIST_SYM[cur_match_dist as usize] as usize] += 1;
+                            d.huff.count[1][TDEFL_SMALL_DIST_SYM[cur_match_dist as usize] as usize] += 1;
                         } else {
-                            huff.count[1][TDEFL_LARGE_DIST_SYM[(cur_match_dist >> 8) as usize] as usize] += 1;
+                            d.huff.count[1][TDEFL_LARGE_DIST_SYM[(cur_match_dist >> 8) as usize] as usize] += 1;
                         }
 
-                        huff.count[0][TDEFL_LEN_SYM[(cur_match_len - TDEFL_MIN_MATCH_LEN) as usize] as usize] += 1;
+                        d.huff.count[0][TDEFL_LEN_SYM[(cur_match_len - TDEFL_MIN_MATCH_LEN) as usize] as usize] += 1;
                     }
                 } else {
-                    lz.write_code(first_trigram as u8);
-                    *lz.get_flag() >>= 1;
-                    huff.count[0][first_trigram as u8 as usize] += 1;
+                    d.lz.write_code(first_trigram as u8);
+                    *d.lz.get_flag() >>= 1;
+                    d.huff.count[0][first_trigram as u8 as usize] += 1;
                 }
 
-                lz.consume_flag();
-                lz.total_bytes += cur_match_len;
-                dict.lookahead_pos += cur_match_len;
-                dict.size = cmp::min(dict.size + cur_match_len, TDEFL_LZ_DICT_SIZE as u32);
+                d.lz.consume_flag();
+                d.lz.total_bytes += cur_match_len;
+                d.dict.lookahead_pos += cur_match_len;
+                d.dict.size = cmp::min(d.dict.size + cur_match_len, TDEFL_LZ_DICT_SIZE as u32);
                 cur_pos = (cur_pos + cur_match_len) & TDEFL_LZ_DICT_SIZE_MASK;
-                assert!(dict.lookahead_size >= cur_match_len);
-                dict.lookahead_size -= cur_match_len;
+                assert!(d.dict.lookahead_size >= cur_match_len);
+                d.dict.lookahead_size -= cur_match_len;
 
-                if lz.code_position > TDEFL_LZ_CODE_BUF_SIZE - 8 {
-                    let n = match flush_block(
-                        huff,
-                        lz,
-                        dict,
-                        params,
-                        callback,
-                        local_buf,
-                        TDEFLFlush::None,
-                    ) {
-                        Err(_) => {params.prev_return_status = TDEFLStatus::PutBufFailed; -1},
+                if d.lz.code_position > TDEFL_LZ_CODE_BUF_SIZE - 8 {
+                    let n = match flush_block(d, callback, TDEFLFlush::None) {
+                        Err(_) => {
+                            d.params.prev_return_status = TDEFLStatus::PutBufFailed;
+                            return false;
+                        },
                         Ok(status) => status
                     };
                     if n != 0 { return n > 0 }
@@ -1382,30 +1362,25 @@ pub fn compress_fast(
             }
         }
 
-        while dict.lookahead_size != 0 {
-            let lit = dict.dict[cur_pos as usize];
-            lz.total_bytes += 1;
-            lz.write_code(lit);
-            *lz.get_flag() >>= 1;
-            lz.consume_flag();
+        while d.dict.lookahead_size != 0 {
+            let lit = d.dict.dict[cur_pos as usize];
+            d.lz.total_bytes += 1;
+            d.lz.write_code(lit);
+            *d.lz.get_flag() >>= 1;
+            d.lz.consume_flag();
 
-            huff.count[0][lit as usize] += 1;
-            dict.lookahead_pos += 1;
-            dict.size = cmp::min(dict.size + 1, TDEFL_LZ_DICT_SIZE as u32);
+            d.huff.count[0][lit as usize] += 1;
+            d.dict.lookahead_pos += 1;
+            d.dict.size = cmp::min(d.dict.size + 1, TDEFL_LZ_DICT_SIZE as u32);
             cur_pos = (cur_pos + 1) & TDEFL_LZ_DICT_SIZE_MASK;
-            dict.lookahead_size -= 1;
+            d.dict.lookahead_size -= 1;
 
-            if lz.code_position > TDEFL_LZ_CODE_BUF_SIZE - 8 {
-                let n = match flush_block(
-                    huff,
-                    lz,
-                    dict,
-                    params,
-                    callback,
-                    local_buf,
-                    TDEFLFlush::None,
-                ) {
-                    Err(_) => {params.prev_return_status = TDEFLStatus::PutBufFailed; -1},
+            if d.lz.code_position > TDEFL_LZ_CODE_BUF_SIZE - 8 {
+                let n = match flush_block(d, callback, TDEFLFlush::None) {
+                    Err(_) => {
+                        d.params.prev_return_status = TDEFLStatus::PutBufFailed;
+                        return false;
+                    },
                     Ok(status) => status
                 };
                 if n != 0 { return n > 0 }
@@ -1446,7 +1421,6 @@ pub fn compress(
     callback: &mut CallbackOxide,
     flush: TDEFLFlush,
 ) -> (TDEFLStatus, usize, usize) {
-    d.params.src_buf_left = callback.in_buf.map_or(0, |buf| buf.len());
     d.params.out_buf_ofs = 0;
     d.params.src_pos = 0;
 
@@ -1475,23 +1449,9 @@ pub fn compress(
     let filter_or_rle_or_raw = d.params.flags & (TDEFL_FILTER_MATCHES | TDEFL_FORCE_ALL_RAW_BLOCKS | TDEFL_RLE_MATCHES) != 0;
 
     let compress_success = if one_probe && greedy && !filter_or_rle_or_raw {
-        compress_fast(
-            &mut d.huff,
-            &mut d.lz,
-            &mut d.dict,
-            &mut d.params,
-            callback,
-            &mut d.local_buf[..],
-        )
+        compress_fast(d, callback)
     } else {
-        compress_normal(
-            &mut d.huff,
-            &mut d.lz,
-            &mut d.dict,
-            &mut d.params,
-            callback,
-            &mut d.local_buf[..],
-        )
+        compress_normal(d, callback)
     };
 
     if !compress_success {
@@ -1508,18 +1468,11 @@ pub fn compress(
     }
 
     let flush_none = d.params.flush == TDEFLFlush::None;
-    let remaining = d.params.src_buf_left != 0 || d.params.flush_remaining != 0;
+    let in_left = callback.in_buf.map_or(0, |buf| buf.len()) - d.params.src_pos;
+    let remaining = in_left != 0 || d.params.flush_remaining != 0;
     if !flush_none && d.dict.lookahead_size == 0 && !remaining {
         let flush = d.params.flush;
-        match flush_block(
-            &mut d.huff,
-            &mut d.lz,
-            &mut d.dict,
-            &mut d.params,
-            callback,
-            &mut d.local_buf[..],
-            flush,
-        ) {
+        match flush_block(d, callback, flush) {
             Err(_) => {
                 d.params.prev_return_status = TDEFLStatus::PutBufFailed;
                 return (d.params.prev_return_status, d.params.src_pos, d.params.out_buf_ofs);
@@ -1546,23 +1499,7 @@ pub fn compress(
     res
 }
 
-pub fn get_adler32(d: &CompressorOxide) -> c_uint {
-    d.params.adler32
-}
-
-pub fn get_prev_return_status(d: &CompressorOxide) -> TDEFLStatus {
-    d.params.prev_return_status
-}
-
-pub fn get_flags(d: &CompressorOxide) -> c_int {
-    d.params.flags as c_int
-}
-
-pub fn create_comp_flags_from_zip_params(
-    level: c_int,
-    window_bits: c_int,
-    strategy: c_int,
-) -> c_uint {
+pub fn create_comp_flags_from_zip_params(level: c_int, window_bits: c_int, strategy: c_int) -> c_uint {
     let num_probes = (if level >= 0 {
         cmp::min(10, level)
     } else {

@@ -187,8 +187,8 @@ pub unsafe extern "C" fn tdefl_compress(
         }
     });
 
-    in_size.map(|out_size| *out_size = res.1);
-    out_size.map(|out_size| *out_size = res.2);
+    in_size.map(|size| *size = res.1);
+    out_size.map(|size| *size = res.2);
     res.0
 }
 
