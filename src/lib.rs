@@ -28,7 +28,10 @@ pub use tdef::{
 type tdefl_compressor = tdef::CompressorOxide;
 
 mod tinfl;
-pub use tinfl::tinfl_decompressor;
+pub use tinfl::{
+    tinfl_decompressor,
+    tinfl_decompress_mem_to_mem,
+};
 
 pub const MZ_DEFLATED: c_int = 8;
 pub const MZ_DEFAULT_WINDOW_BITS: c_int = 15;
