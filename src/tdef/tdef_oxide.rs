@@ -535,40 +535,23 @@ impl DictOxide {
         let s01: u16 = self.read_unaligned(pos as isize);
 
         if max_match_len <= match_len { return (match_dist, match_len) }
-
         loop {
-            let mut dist = 0;
+            let mut dist;
             'found: loop {
                 num_probes_left -= 1;
                 if num_probes_left == 0 { return (match_dist, match_len) }
 
-                pub enum ProbeResult {
-                    OutOfBounds,
-                    Found,
-                    NotFound
-                }
-
-                let mut probe = || -> ProbeResult {
+                for _ in 0..3 {
                     let next_probe_pos = self.next[probe_pos as usize] as u32;
 
                     dist = ((lookahead_pos - next_probe_pos) & 0xFFFF) as u32;
                     if next_probe_pos == 0 || dist > max_dist {
-                        return ProbeResult::OutOfBounds
+                        return (match_dist, match_len)
                     }
 
                     probe_pos = next_probe_pos & TDEFL_LZ_DICT_SIZE_MASK;
                     if self.read_unaligned::<u16>((probe_pos + match_len - 1) as isize) == c01 {
-                        ProbeResult::Found
-                    } else {
-                        ProbeResult::NotFound
-                    }
-                };
-
-                for _ in 0..3 {
-                    match probe() {
-                        ProbeResult::OutOfBounds => return (match_dist, match_len),
-                        ProbeResult::Found => break 'found,
-                        ProbeResult::NotFound => (),
+                        break 'found
                     }
                 }
             }
@@ -1287,7 +1270,9 @@ pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> b
                         for _ in 0..4 {
                             p += 2;
                             q += 2;
-                            if d.dict.read_unaligned::<u16>(p) != d.dict.read_unaligned(q) {
+                            let p_data = d.dict.read_unaligned::<u16>(p);
+                            let q_data = d.dict.read_unaligned::<u16>(q);
+                            if p_data != q_data {
                                 cur_match_len = (p as u32 - cur_pos) + (d.dict.dict[p as usize] == d.dict.dict[q as usize]) as u32;
                                 break 'probe;
                             }
