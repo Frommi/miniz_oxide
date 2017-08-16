@@ -137,6 +137,26 @@ pub struct CallbackOxide<'a> {
 }
 
 impl<'a> CallbackOxide<'a> {
+    pub fn new_callback_buf(in_buf: &'a [u8], out_buf: &'a mut [u8]) -> Self {
+        CallbackOxide {
+            in_buf: Some(in_buf),
+            in_buf_size: None,
+            out_buf_size: None,
+            out: CallbackOut::Buf(CallbackBuf { out_buf: out_buf }),
+        }
+    }
+
+    pub fn new_callback_func(in_buf: &'a [u8], d: &mut CompressorOxide) -> Option<Self> {
+        d.callback_func.map(|func|
+            CallbackOxide {
+                in_buf: Some(in_buf),
+                in_buf_size: None,
+                out_buf_size: None,
+                out: CallbackOut::Func(func),
+            }
+        )
+    }
+
     pub unsafe fn new(
         callback_func: Option<CallbackFunc>,
         in_buf: *const c_void,

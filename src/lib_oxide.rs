@@ -207,13 +207,14 @@ pub fn mz_deflate_init2_oxide(
     stream_oxide.total_out = 0;
 
     stream_oxide.state.alloc_state::<tdefl_compressor>()?;
-    let status = unsafe {
-        tdef::tdefl_init(stream_oxide.state.inner.as_mut(), None, ptr::null_mut(), comp_flags as c_int)
-    };
-
-    if status != TDEFLStatus::Okay {
+    if stream_oxide.state.as_mut().is_none() {
         mz_deflate_end_oxide(stream_oxide)?;
         return Err(MZError::Param);
+    }
+
+    match stream_oxide.state.as_mut() {
+        Some(state) => *state = tdefl_compressor::new(None, comp_flags),
+        None => unreachable!(),
     }
 
     Ok(MZStatus::Ok)
@@ -245,16 +246,15 @@ pub fn mz_deflate_oxide(
     let original_total_out = stream_oxide.total_out;
 
     loop {
-        let mut in_bytes = next_in.len();
-        let mut out_bytes = next_out.len();
-        let defl_status = unsafe { tdef::tdefl_compress(
-            Some(state),
-            next_in.as_ptr() as *const c_void,
-            Some(&mut in_bytes),
-            next_out.as_mut_ptr() as *mut c_void,
-            Some(&mut out_bytes),
-            TDEFLFlush::from(flush)
-        ) };
+        let in_bytes;
+        let out_bytes;
+        let defl_status = {
+            let mut callback = tdef::CallbackOxide::new_callback_buf(*next_in, *next_out);
+            let res = tdef::compress(state, &mut callback, TDEFLFlush::from(flush));
+            in_bytes = res.1;
+            out_bytes = res.2;
+            res.0
+        };
 
         *next_in = &next_in[in_bytes..];
         *next_out = &mut mem::replace(next_out, &mut [])[out_bytes..];
@@ -477,18 +477,9 @@ pub fn mz_inflate_end_oxide(stream_oxide: &mut StreamOxide<inflate_state>) -> MZ
 
 // TODO: probably not covered by tests
 pub fn mz_deflate_reset_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) -> MZResult {
-    let mut compressor_state = stream_oxide.state.as_mut().ok_or(MZError::Stream)?;
+    let mut state = stream_oxide.state.as_mut().ok_or(MZError::Stream)?;
     stream_oxide.total_in = 0;
     stream_oxide.total_out = 0;
-    unsafe {
-        let flags = compressor_state.get_flags();
-        tdef::tdefl_init(
-            Some(compressor_state),
-            None,
-            ptr::null_mut(),
-            flags
-        );
-    }
-
+    *state = tdef::CompressorOxide::new(None, state.get_flags() as u32);
     Ok(MZStatus::Ok)
 }

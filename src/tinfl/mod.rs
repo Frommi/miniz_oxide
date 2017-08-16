@@ -16,8 +16,8 @@ pub struct tinfl_huff_table {
 impl tinfl_huff_table {
     fn new() -> tinfl_huff_table {
         tinfl_huff_table {
-            code_size: [0;288],
-            look_up: [0;1024],
+            code_size: [0; 288],
+            look_up: [0; 1024],
             tree: [0; 576],
         }
     }
@@ -140,9 +140,8 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_mem(
     mut out_buf_len: size_t,
     p_src_buf: *mut c_void,
     mut src_buf_len: size_t,
-    flags: c_int
-) -> size_t
-{
+    flags: c_int,
+) -> size_t {
     let mut decomp = tinfl_decompressor::with_init_state_only();
 
     let status = tinfl_decompress(
@@ -154,7 +153,8 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_mem(
         &mut out_buf_len,
         // This function takes an unsigned value for flags, so we need to explicitly cast
         // the flags to u32.
-        ((flags & !TINFL_FLAG_HAS_MORE_INPUT) | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF) as u32);
+        ((flags & !TINFL_FLAG_HAS_MORE_INPUT) | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF) as u32
+    );
 
     if status != TINFL_STATUS_DONE {
         TINFL_DECOMPRESS_MEM_TO_MEM_FAILED as size_t
@@ -173,7 +173,8 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_heap(
     p_src_buf: *const c_void,
     src_buf_len: size_t,
     p_out_len: *mut size_t,
-    flags: c_int) -> *mut c_void {
+    flags: c_int,
+) -> *mut c_void {
     const MIN_BUFFER_CAPACITY: size_t = 128;
 
     // We're not using a Vec for the buffer here to make sure the buffer is allocated and freed by
@@ -231,10 +232,12 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_heap(
             new_out_buf_capacity = MIN_BUFFER_CAPACITY
         }
 
-        let p_new_buf = ::miniz_def_realloc_func(ptr::null_mut(),
-                                                 p_buf,
-                                                 1,
-                                                 new_out_buf_capacity);
+        let p_new_buf = ::miniz_def_realloc_func(
+            ptr::null_mut(),
+            p_buf,
+            1,
+            new_out_buf_capacity
+        );
         // Bail out if growing fails.
         if p_new_buf.is_null() {
             ::miniz_def_free_func(ptr::null_mut(), p_buf);
