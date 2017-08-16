@@ -2,6 +2,10 @@
 
 use ::libc::*;
 use std::{mem, ptr, usize};
+use std::io::{Cursor, Read};
+
+mod tinfl_oxide;
+pub use self::tinfl_oxide::*;
 
 pub const TINFL_LZ_DICT_SIZE: usize = 32768;
 
@@ -28,10 +32,10 @@ const TINFL_MAX_HUFF_SYMBOLS_0: usize = 288;
 const TINFL_MAX_HUFF_SYMBOLS_1: usize = 32;
 const TINFL_MAX_HUFF_SYMBOLS_2: usize = 19;
 
-pub const TINFL_FLAG_PARSE_ZLIB_HEADER: i32 = 1;
-pub const TINFL_FLAG_HAS_MORE_INPUT: i32 = 2;
-pub const TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF: i32 = 4;
-pub const TINFL_FLAG_COMPUTE_ADLER32: i32 = 8;
+pub const TINFL_FLAG_PARSE_ZLIB_HEADER: u32 = 1;
+pub const TINFL_FLAG_HAS_MORE_INPUT: u32 = 2;
+pub const TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF: u32 = 4;
+pub const TINFL_FLAG_COMPUTE_ADLER32: u32 = 8;
 
 pub const TINFL_STATUS_FAILED_CANNOT_MAKE_PROGRESS: i32 = -4;
 pub const TINFL_STATUS_BAD_PARAM: i32 = -3;
@@ -129,7 +133,7 @@ extern {
         pOut_buf_next: *mut u8,
         pOut_buf_size: *mut size_t,
         decomp_flags: c_uint
-    ) -> c_int;
+    ) -> TINFLStatus;
 }
 
 pub const TINFL_DECOMPRESS_MEM_TO_MEM_FAILED: size_t = usize::MAX;
@@ -142,6 +146,7 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_mem(
     mut src_buf_len: size_t,
     flags: c_int,
 ) -> size_t {
+    let flags = flags as u32;
     let mut decomp = tinfl_decompressor::with_init_state_only();
 
     let status = tinfl_decompress(
@@ -156,7 +161,7 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_mem(
         ((flags & !TINFL_FLAG_HAS_MORE_INPUT) | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF) as u32
     );
 
-    if status != TINFL_STATUS_DONE {
+    if status != TINFLStatus::Done {
         TINFL_DECOMPRESS_MEM_TO_MEM_FAILED as size_t
     } else {
         out_buf_len
@@ -175,6 +180,7 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_heap(
     p_out_len: *mut size_t,
     flags: c_int,
 ) -> *mut c_void {
+    let flags = flags as u32;
     const MIN_BUFFER_CAPACITY: size_t = 128;
 
     // We're not using a Vec for the buffer here to make sure the buffer is allocated and freed by
@@ -200,7 +206,7 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_heap(
             p_src_buf.offset(src_buf_ofs as isize) as *const u8,
             &mut src_buf_size,
             p_buf as *mut u8,
-            if !p_buf.is_null() { p_buf.offset(*p_out_len as isize) as *mut u8}
+            if !p_buf.is_null() { p_buf.offset(*p_out_len as isize) as *mut u8 }
             else { ptr::null_mut() },
             &mut dst_buf_size,
              // We don't have any pending input that is not in the source buffer yet.
@@ -210,7 +216,7 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_heap(
         );
 
         // If decompression fails or we don't have any input, bail out.
-        if status < 0 || status == TINFL_STATUS_NEEDS_MORE_INPUT {
+        if (status as i32) < 0 || status == TINFLStatus::NeedsMoreInput {
             ::miniz_def_free_func(ptr::null_mut(), p_buf);
             *p_out_len = 0;
             return ptr::null_mut();
@@ -219,7 +225,7 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_heap(
         src_buf_ofs += src_buf_size;
         *p_out_len += dst_buf_size;
 
-        if status == TINFL_STATUS_DONE {
+        if status == TINFLStatus::Done {
             break;
         }
 

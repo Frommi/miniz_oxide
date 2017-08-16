@@ -4,9 +4,6 @@ use tdef::TDEFL_COMPUTE_ADLER32;
 use tdef::TDEFLStatus;
 use tdef::TDEFLFlush;
 
-use tinfl::TINFL_STATUS_DONE;
-use tinfl::TINFL_STATUS_FAILED;
-
 
 pub fn mz_adler32_oxide(adler: c_uint, data: &[u8]) -> c_uint {
     let mut s1 = adler & 0xffff;
@@ -330,7 +327,7 @@ pub fn mz_inflate_init2_oxide(stream_oxide: &mut StreamOxide<inflate_state>,
     state.m_decomp.state = 0;
     state.m_dict_ofs = 0;
     state.m_dict_avail = 0;
-    state.m_last_status = tinfl::TINFL_STATUS_NEEDS_MORE_INPUT;
+    state.m_last_status = tinfl::TINFLStatus::NeedsMoreInput;
     state.m_first_call = 1;
     state.m_has_flushed = 0;
     state.m_window_bits = window_bits;
@@ -364,7 +361,7 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, flush: c_
 
     let first_call = state.m_first_call;
     state.m_first_call = 0;
-    if state.m_last_status < 0 {
+    if (state.m_last_status as i32) < 0 {
         return Err(MZError::Data);
     }
 
@@ -377,18 +374,15 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, flush: c_
 
     if (flush == MZFlush::Finish) && (first_call != 0) {
         decomp_flags |= tinfl::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
-        let mut in_bytes = next_in.len() as size_t;
-        let mut out_bytes = next_out.len() as size_t;
-
-        let status = unsafe { tinfl::tinfl_decompress(
+        let status = tinfl::decompress_oxide(
             &mut state.m_decomp,
-            next_in.as_ptr(),
-            &mut in_bytes,
-            next_out.as_mut_ptr(),
-            next_out.as_mut_ptr(),
-            &mut out_bytes,
-            decomp_flags as c_uint
-        ) };
+            *next_in,
+            &mut Cursor::new(*next_out),
+            decomp_flags,
+        );
+        let in_bytes = status.1;
+        let out_bytes = status.2;
+        let status = status.0;
 
         state.m_last_status = status;
 
@@ -398,10 +392,10 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, flush: c_
         stream_oxide.total_out += out_bytes as c_ulong;
         stream_oxide.adler = state.m_decomp.check_adler32 as c_ulong;
 
-        if status < 0 {
+        if (status as i32) < 0 {
             return Err(MZError::Data);
-        } else if status != TINFL_STATUS_DONE {
-            state.m_last_status = TINFL_STATUS_FAILED;
+        } else if status != tinfl::TINFLStatus::Done {
+            state.m_last_status = tinfl::TINFLStatus::Failed;
             return Err(MZError::Buf);
         }
         return Ok(MZStatus::StreamEnd);
@@ -413,7 +407,7 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, flush: c_
 
     if state.m_dict_avail != 0 {
         stream_oxide.total_out += push_dict_out(state, next_out);
-        return if (state.m_last_status == TINFL_STATUS_DONE) && (state.m_dict_avail == 0) {
+        return if (state.m_last_status == tinfl::TINFLStatus::Done) && (state.m_dict_avail == 0) {
             Ok(MZStatus::StreamEnd)
         } else {
             Ok(MZStatus::Ok)
@@ -421,18 +415,20 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, flush: c_
     }
 
     loop {
-        let mut in_bytes = next_in.len() as usize;
-        let mut out_bytes = tinfl::TINFL_LZ_DICT_SIZE - state.m_dict_ofs as usize;
+        let status = {
+            let mut out_cursor = Cursor::new(&mut state.m_dict[..]);
+            out_cursor.set_position(state.m_dict_ofs as u64);
+            tinfl::decompress_oxide(
+                &mut state.m_decomp,
+                *next_in,
+                &mut out_cursor,
+                decomp_flags,
+            )
+        };
 
-        let status = unsafe { tinfl::tinfl_decompress(
-            &mut state.m_decomp,
-            next_in.as_ptr(),
-            &mut in_bytes,
-            state.m_dict.as_mut_ptr(),
-            state.m_dict.as_mut_ptr().offset(state.m_dict_ofs as isize),
-            &mut out_bytes,
-            decomp_flags as c_uint
-        ) };
+        let in_bytes = status.1;
+        let out_bytes = status.2;
+        let status = status.0;
 
         state.m_last_status = status;
 
@@ -443,24 +439,24 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, flush: c_
         stream_oxide.total_out += push_dict_out(state, next_out);
         stream_oxide.adler = state.m_decomp.check_adler32 as c_ulong;
 
-        if status < 0 {
+        if (status as i32) < 0 {
             return Err(MZError::Data);
         }
 
-        if (status == tinfl::TINFL_STATUS_NEEDS_MORE_INPUT) && (orig_avail_in == 0) {
+        if (status == tinfl::TINFLStatus::NeedsMoreInput) && (orig_avail_in == 0) {
             return Err(MZError::Buf);
         }
 
         if flush == MZFlush::Finish {
-            if status == TINFL_STATUS_DONE {
+            if status == tinfl::TINFLStatus::Done {
                 return if state.m_dict_avail != 0 { Err(MZError::Buf) } else { Ok(MZStatus::StreamEnd) };
             } else if next_out.is_empty() {
                 return Err(MZError::Buf);
             }
         } else {
             let empty_buf = next_in.is_empty() || next_out.is_empty();
-            if (status == TINFL_STATUS_DONE) || empty_buf || (state.m_dict_avail != 0) {
-                return if (status == TINFL_STATUS_DONE) && (state.m_dict_avail == 0) {
+            if (status == tinfl::TINFLStatus::Done) || empty_buf || (state.m_dict_avail != 0) {
+                return if (status == tinfl::TINFLStatus::Done) && (state.m_dict_avail == 0) {
                     Ok(MZStatus::StreamEnd)
                 } else {
                     Ok(MZStatus::Ok)

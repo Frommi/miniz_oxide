@@ -4,6 +4,7 @@ use std::slice;
 use std::ptr;
 use std::mem;
 use std::cmp;
+use std::io::Cursor;
 
 use libc::*;
 
@@ -164,7 +165,7 @@ pub struct inflate_state {
 
     pub m_window_bits: c_int,
     pub m_dict: [u8; tinfl::TINFL_LZ_DICT_SIZE],
-    pub m_last_status: c_int
+    pub m_last_status: tinfl::TINFLStatus,
 }
 
 #[repr(C)]
