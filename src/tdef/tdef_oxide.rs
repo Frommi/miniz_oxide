@@ -8,7 +8,6 @@ pub struct CompressorOxide {
     pub lz: LZOxide,
     pub params: ParamsOxide,
     pub callback_func: Option<CallbackFunc>,
-    pub local_buf: [u8; TDEFL_OUT_BUF_SIZE],
     pub huff: HuffmanOxide,
     pub dict: DictOxide,
 }
@@ -19,7 +18,6 @@ impl CompressorOxide {
             callback_func: callback_func,
             lz: LZOxide::new(),
             params: ParamsOxide::new(flags),
-            local_buf: [0; TDEFL_OUT_BUF_SIZE],
             huff: HuffmanOxide::new(),
             dict: DictOxide::new(flags),
         }
@@ -44,8 +42,57 @@ pub struct CallbackFunc {
     pub put_buf_user: *mut c_void,
 }
 
+impl CallbackFunc {
+    pub fn flush_output(
+        &mut self,
+        saved_output: SavedOutputBufferOxide,
+        params: &mut ParamsOxide
+    ) -> i32 {
+        let call_success = unsafe {
+            (self.put_buf_func)(
+                &params.local_buf[0] as *const u8 as *const c_void,
+                saved_output.pos as i32,
+                self.put_buf_user,
+            )
+        };
+
+        if !call_success {
+            params.prev_return_status = TDEFLStatus::PutBufFailed;
+            return params.prev_return_status as i32;
+        }
+
+        params.flush_remaining as i32
+    }
+
+}
+
 pub struct CallbackBuf<'a> {
     pub out_buf: &'a mut [u8],
+}
+
+impl<'a> CallbackBuf<'a> {
+    pub fn flush_output(
+        &mut self,
+        saved_output: SavedOutputBufferOxide,
+        params: &mut ParamsOxide
+    ) -> i32 {
+        if saved_output.local {
+            let n = cmp::min(saved_output.pos as usize, self.out_buf.len() - params.out_buf_ofs);
+            (&mut self.out_buf[params.out_buf_ofs..params.out_buf_ofs + n]).copy_from_slice(
+                &params.local_buf[..n]
+            );
+
+            params.out_buf_ofs += n;
+            if saved_output.pos != n as u64 {
+                params.flush_ofs = n as u32;
+                params.flush_remaining = (saved_output.pos - n as u64) as u32;
+            }
+        } else {
+            params.out_buf_ofs += saved_output.pos as usize;
+        }
+
+        params.flush_remaining as i32
+    }
 }
 
 pub enum CallbackOut<'a> {
@@ -84,6 +131,8 @@ impl<'a> CallbackOut<'a> {
 
 pub struct CallbackOxide<'a> {
     pub in_buf: Option<&'a [u8]>,
+    pub in_buf_size: Option<&'a mut usize>,
+    pub out_buf_size: Option<&'a mut usize>,
     pub out: CallbackOut<'a>,
 }
 
@@ -91,35 +140,71 @@ impl<'a> CallbackOxide<'a> {
     pub unsafe fn new(
         callback_func: Option<CallbackFunc>,
         in_buf: *const c_void,
-        in_size: usize,
+        in_size: Option<&'a mut usize>,
         out_buf: *mut c_void,
-        out_size: usize,
+        out_size: Option<&'a mut usize>,
     ) -> Result<Self, TDEFLStatus> {
+        let in_buf_size = in_size.as_ref().map_or(0, |size| **size);
+        let out_buf_size = out_size.as_ref().map_or(0, |size| **size);
         let out = match callback_func {
-            None => CallbackOut::Buf(CallbackBuf {
-                out_buf: slice::from_raw_parts_mut(
-                    (out_buf as *mut u8).as_mut().ok_or(TDEFLStatus::BadParam)?,
-                    out_size
-                ),
-            }),
+            None => match (out_buf as *mut u8).as_mut() {
+                Some(out_buf) => CallbackOut::Buf(CallbackBuf {
+                    out_buf: slice::from_raw_parts_mut(out_buf, out_buf_size),
+                }),
+                None => {
+                    in_size.map(|size| *size = 0);
+                    out_size.map(|size| *size = 0);
+                    return Err(TDEFLStatus::BadParam);
+                }
+            }
             Some(func) => {
-                if out_size > 0 || !out_buf.is_null() {
+                if out_buf_size > 0 || !out_buf.is_null() {
+                    in_size.map(|size| *size = 0);
+                    out_size.map(|size| *size = 0);
                     return Err(TDEFLStatus::BadParam);
                 }
                 CallbackOut::Func(func)
             },
         };
 
-        if in_size > 0 && in_buf.is_null() {
+        if in_buf_size > 0 && in_buf.is_null() {
+            in_size.map(|size| *size = 0);
+            out_size.map(|size| *size = 0);
             return Err(TDEFLStatus::BadParam);
         }
 
         Ok(CallbackOxide {
             in_buf: (in_buf as *const u8).as_ref().map(|in_buf|
-                slice::from_raw_parts(in_buf, in_size)
+                slice::from_raw_parts(in_buf, in_buf_size)
             ),
+            in_buf_size: in_size,
+            out_buf_size: out_size,
             out: out,
         })
+    }
+
+    pub fn update_size(&mut self, in_size: Option<usize>, out_size: Option<usize>) {
+        if let Some(in_size) = in_size {
+            self.in_buf_size.as_mut().map(|size| **size = in_size);
+        }
+
+        if let Some(out_size) = out_size {
+            self.out_buf_size.as_mut().map(|size| **size = out_size);
+        }
+    }
+
+    pub fn flush_output(
+        &mut self,
+        saved_output: SavedOutputBufferOxide,
+        params: &mut ParamsOxide,
+    ) -> i32 {
+        if saved_output.pos == 0 { return params.flush_remaining as i32 }
+
+        self.update_size(Some(params.src_pos), None);
+        match self.out {
+            CallbackOut::Func(ref mut cf) => cf.flush_output(saved_output, params),
+            CallbackOut::Buf(ref mut cb) => cb.flush_output(saved_output, params),
+        }
     }
 }
 
@@ -614,6 +699,8 @@ pub struct ParamsOxide {
 
     pub saved_bit_buffer: u32,
     pub saved_bits_in: u32,
+
+    pub local_buf: [u8; TDEFL_OUT_BUF_SIZE],
 }
 
 impl ParamsOxide {
@@ -635,6 +722,7 @@ impl ParamsOxide {
             prev_return_status: TDEFLStatus::Okay,
             saved_bit_buffer: 0,
             saved_bits_in: 0,
+            local_buf: [0; TDEFL_OUT_BUF_SIZE],
         }
     }
 }
@@ -908,9 +996,9 @@ pub fn flush_block(
     callback: &mut CallbackOxide,
     flush: TDEFLFlush,
 ) -> io::Result<i32> {
-    let saved_bits;
+    let mut saved_buffer;
     {
-        let mut output = callback.out.new_output_buffer(&mut d.local_buf, d.params.out_buf_ofs);
+        let mut output = callback.out.new_output_buffer(&mut d.params.local_buf, d.params.out_buf_ofs);
         output.bit_buffer = d.params.saved_bit_buffer;
         output.bits_in = d.params.saved_bits_in;
 
@@ -930,7 +1018,7 @@ pub fn flush_block(
 
         output.put_bits((flush == TDEFLFlush::Finish) as u32, 1)?;
 
-        let saved_buffer = output.save();
+        saved_buffer = output.save();
 
         let mut comp_success = false;
         if !use_raw_block {
@@ -990,52 +1078,13 @@ pub fn flush_block(
         d.lz.total_bytes = 0;
         d.params.block_index += 1;
 
-        saved_bits = output.save();
+        saved_buffer = output.save();
+
+        d.params.saved_bit_buffer = saved_buffer.bit_buffer;
+        d.params.saved_bits_in = saved_buffer.bits_in;
     }
 
-    let mut pos = saved_bits.pos;
-    let local = saved_bits.local;
-    d.params.saved_bit_buffer = saved_bits.bit_buffer;
-    d.params.saved_bits_in = saved_bits.bits_in;
-
-    if pos != 0 {
-        match callback.out {
-            CallbackOut::Func(ref mut cf) => {
-                // TODO: callback about buf_in_size before put_buf_func
-                let call_success = unsafe {
-                    (cf.put_buf_func)(
-                        &d.local_buf[0] as *const u8 as *const c_void,
-                        pos as i32,
-                        cf.put_buf_user,
-                    )
-                };
-
-                if !call_success {
-                    d.params.prev_return_status = TDEFLStatus::PutBufFailed;
-                    return Ok(d.params.prev_return_status as i32);
-                }
-            },
-            CallbackOut::Buf(ref mut cb) => {
-                if local {
-                    let n = cmp::min(pos as usize, cb.out_buf.len() - d.params.out_buf_ofs);
-                    (&mut cb.out_buf[d.params.out_buf_ofs..d.params.out_buf_ofs + n]).copy_from_slice(
-                        &d.local_buf[..n]
-                    );
-
-                    d.params.out_buf_ofs += n;
-                    pos -= n as u64;
-                    if pos != 0 {
-                        d.params.flush_ofs = n as u32;
-                        d.params.flush_remaining = pos as u32;
-                    }
-                } else {
-                    d.params.out_buf_ofs += pos as usize;
-                }
-            },
-        }
-    }
-
-    Ok(d.params.flush_remaining as i32)
+    Ok(callback.flush_output(saved_buffer, &mut d.params))
 }
 
 pub fn record_literal(h: &mut HuffmanOxide, lz: &mut LZOxide, lit: u8) {
@@ -1375,17 +1424,13 @@ pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> b
     true
 }
 
-pub fn flush_output_buffer(
-    c: &mut CallbackOxide,
-    p: &mut ParamsOxide,
-    local_buf: &[u8],
-) -> (TDEFLStatus, usize, usize) {
+pub fn flush_output_buffer(c: &mut CallbackOxide, p: &mut ParamsOxide) -> (TDEFLStatus, usize, usize) {
     let mut res = (TDEFLStatus::Okay, p.src_pos, 0);
     if let CallbackOut::Buf(ref mut cb) = c.out {
         let n = cmp::min(cb.out_buf.len() - p.out_buf_ofs, p.flush_remaining as usize);
         if n != 0 {
             (&mut cb.out_buf[p.out_buf_ofs..p.out_buf_ofs + n]).copy_from_slice(
-                &local_buf[p.flush_ofs as usize.. p.flush_ofs as usize + n]
+                &p.local_buf[p.flush_ofs as usize.. p.flush_ofs as usize + n]
             );
         }
         p.flush_ofs += n as u32;
@@ -1419,11 +1464,7 @@ pub fn compress(
     }
 
     if d.params.flush_remaining != 0 || d.params.finished {
-        let res = flush_output_buffer(
-            callback,
-            &mut d.params,
-            &d.local_buf[..]
-        );
+        let res = flush_output_buffer(callback, &mut d.params);
         d.params.prev_return_status = res.0;
         return res;
     }
@@ -1473,11 +1514,7 @@ pub fn compress(
         }
     }
 
-    let res = flush_output_buffer(
-        callback,
-        &mut d.params,
-        &d.local_buf[..],
-    );
+    let res = flush_output_buffer(callback, &mut d.params);
     d.params.prev_return_status = res.0;
 
     res

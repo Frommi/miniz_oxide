@@ -168,27 +168,30 @@ pub unsafe extern "C" fn tdefl_compress(
     out_size: Option<&mut usize>,
     flush: TDEFLFlush,
 ) -> TDEFLStatus {
-    let in_buf_size = in_size.as_ref().map_or(0, |size| **size);
-    let out_buf_size = out_size.as_ref().map_or(0, |size| **size);
-
-    let res = d.map_or((TDEFLStatus::BadParam, 0, 0), |compressor| {
-        let callback_res = CallbackOxide::new(
-            compressor.callback_func.clone(),
-            in_buf,
-            in_buf_size,
-            out_buf,
-            out_buf_size,
-        );
-
-        if let Ok(mut callback) = callback_res {
-            compress(compressor, &mut callback, flush)
-        } else {
+    let res = match d {
+        None => {
+            in_size.map(|size| *size = 0);
+            out_size.map(|size| *size = 0);
             (TDEFLStatus::BadParam, 0, 0)
-        }
-    });
+        },
+        Some(compressor) => {
+            let callback_res = CallbackOxide::new(
+                compressor.callback_func.clone(),
+                in_buf,
+                in_size,
+                out_buf,
+                out_size,
+            );
 
-    in_size.map(|size| *size = res.1);
-    out_size.map(|size| *size = res.2);
+            if let Ok(mut callback) = callback_res {
+                let res = compress(compressor, &mut callback, flush);
+                callback.update_size(Some(res.1), Some(res.2));
+                res
+            } else {
+                (TDEFLStatus::BadParam, 0, 0)
+            }
+        }
+    };
     res.0
 }
 
