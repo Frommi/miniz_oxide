@@ -5,7 +5,7 @@ use std::slice;
 use std::mem;
 use std::cmp;
 use std::io;
-use std::io::{Cursor, Seek, SeekFrom, Write};
+use std::io::{Cursor, SeekFrom};
 use std::ptr;
 
 use MZError;

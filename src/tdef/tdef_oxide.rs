@@ -1,4 +1,5 @@
 use super::*;
+use std::io::{Write, Seek};
 
 pub fn memset<T : Clone>(slice: &mut [T], val: T) {
     for x in slice { *x = val.clone() }
@@ -544,7 +545,7 @@ impl HuffmanOxide {
                 }
             }
 
-            let mut symbols = Self::radix_sort_symbols(
+            let symbols = Self::radix_sort_symbols(
                 &mut symbols0[..num_used_symbols],
                 &mut symbols1[..num_used_symbols],
             );

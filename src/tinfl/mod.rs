@@ -2,7 +2,7 @@
 
 use ::libc::*;
 use std::{mem, ptr, usize};
-use std::io::{Cursor, Read};
+use std::io::Cursor;
 
 mod tinfl_oxide;
 pub use self::tinfl_oxide::*;
@@ -342,7 +342,7 @@ mod test {
         let size = tinfl_decompress_mem_to_mem_wrapper(
             &mut encoded[..],
             out_buf.as_mut_slice(),
-            flags,
+            flags as i32,
         ).unwrap();
         assert_eq!(&out_buf[..size], &b"Hello, zlib!"[..]);
     }
@@ -355,7 +355,7 @@ mod test {
         let flags = TINFL_FLAG_COMPUTE_ADLER32 | TINFL_FLAG_PARSE_ZLIB_HEADER;
         let out_buf = tinfl_decompress_mem_to_heap_wrapper(
             &mut encoded[..],
-            flags,
+            flags as i32,
         ).unwrap();
         assert_eq!(out_buf.as_slice(), &b"Hello, zlib!"[..]);
     }
