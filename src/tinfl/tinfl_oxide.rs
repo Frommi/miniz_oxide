@@ -23,7 +23,7 @@ pub fn decompress_oxide(
 
     let mut in_buf = Cursor::new(in_buf);
     let status = loop {
-        match match r.state {
+        let action = match r.state {
             0 => {
                 r.bit_buf = 0;
                 r.num_bits = 0;
@@ -74,7 +74,9 @@ pub fn decompress_oxide(
                 );
                 return (status, in_pos + in_len, out_pos + out_len);
             },
-        } {
+        };
+
+        match action {
             Action::Next => r.state += 1,
             Action::End(status) => break status,
         }
