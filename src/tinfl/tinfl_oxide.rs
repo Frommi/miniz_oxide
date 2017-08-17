@@ -54,8 +54,9 @@ enum Action {
 }
 
 #[inline]
-fn read_byte<'a, Iter, F: FnOnce(u8) -> Action>(in_iter: &mut Iter, flags: u32, f: F) -> Action
-    where Iter: Iterator<Item=&'a u8>
+fn read_byte<'a, Iter, F>(in_iter: &mut Iter, flags: u32, f: F) -> Action
+    where Iter: Iterator<Item=&'a u8>,
+          F: FnOnce(u8) -> Action,
 {
     match in_iter.next() {
         None => end_of_input(flags),
@@ -66,14 +67,15 @@ fn read_byte<'a, Iter, F: FnOnce(u8) -> Action>(in_iter: &mut Iter, flags: u32, 
 }
 
 #[inline]
-fn read_bits<'a, Iter, T, F: FnOnce(BitBuffer) -> Action>(
+fn read_bits<'a, Iter, F>(
     r: &mut tinfl_decompressor,
     amount: u32,
     in_iter: &mut Iter,
     flags: u32,
     f: F,
 ) -> Action
-    where Iter: Iterator<Item=&'a u8>
+    where Iter: Iterator<Item=&'a u8>,
+          F: FnOnce(&mut tinfl_decompressor, BitBuffer) -> Action,
 {
     while r.num_bits < amount {
         match read_byte(in_iter, flags, |byte| {
@@ -89,7 +91,7 @@ fn read_bits<'a, Iter, T, F: FnOnce(BitBuffer) -> Action>(
     let bits = r.bit_buf & ((1 << amount) - 1);
     r.bit_buf >>= amount;
     r.num_bits -= amount;
-    f(bits)
+    f(r, bits)
 }
 
 #[inline]
@@ -104,26 +106,24 @@ fn end_of_input(flags: u32) -> Action {
 fn start_static_table(r: &mut tinfl_decompressor) {
     r.table_sizes[0] = 288;
     r.table_sizes[1] = 32;
-    let mut sizes = r.tables[0].code_size;
-    memset(&mut sizes[0..144], 8);
-    memset(&mut sizes[144..256], 9);
-    memset(&mut sizes[256..280], 7);
-    memset(&mut sizes[280..288], 8);
-
     memset(&mut r.tables[1].code_size[..32], 5);
+    memset(&mut r.tables[0].code_size[0..144], 8);
+    memset(&mut r.tables[0].code_size[144..256], 9);
+    memset(&mut r.tables[0].code_size[256..280], 7);
+    memset(&mut r.tables[0].code_size[280..288], 8);
 }
 
 fn init_tree(r: &mut tinfl_decompressor) -> Action {
     for table_num in (0..r.block_type + 1).rev() {
-        let table = &mut r.tables[table_num];
-        let table_size = r.table_sizes[table_num];
+        let table = &mut r.tables[table_num as usize];
+        let table_size = r.table_sizes[table_num as usize] as usize;
         let mut total_symbols = [0u32; 16];
         let mut next_code = [0u32; 17];
         memset(&mut table.look_up[..], 0);
         memset(&mut table.tree[..], 0);
 
-        for &code_size in &table.code_sizes[0..table_size] {
-            total_symbols[code_size] += 1;
+        for &code_size in &table.code_size[..table_size] {
+            total_symbols[code_size as usize] += 1;
         }
         let mut used_symbols = 0;
         let mut total = 0;
@@ -138,56 +138,62 @@ fn init_tree(r: &mut tinfl_decompressor) -> Action {
             return Action::Jump(BAD_TOTAL_SYMBOLS);
         }
 
-        let tree_next = -1;
+        let mut tree_next = -1;
         for symbol_index in 0..table_size {
             let mut rev_code = 0;
             let code_size = table.code_size[symbol_index];
             if code_size == 0 { continue }
 
-            let cur_code = next_code[code_size];
-            next_code[code_size] += 1;
+            let mut cur_code = next_code[code_size as usize];
+            next_code[code_size as usize] += 1;
 
             for _ in 0..code_size {
                 rev_code = (rev_code << 1) | (cur_code & 1);
                 cur_code >>= 1;
             }
 
-            if code_size < TINFL_FAST_LOOKUP_BITS {
-                let k = ((code_size << 9) | symbol_index) as i16;
+            if code_size <= TINFL_FAST_LOOKUP_BITS {
+                let k = ((code_size as i16) << 9) | symbol_index as i16;
                 while rev_code < TINFL_FAST_LOOKUP_SIZE {
-                    table.look_up[rev_code] = k;
-                    rev_code += (1 << code_size);
+                    table.look_up[rev_code as usize] = k;
+                    rev_code += 1 << code_size;
                 }
                 continue;
             }
 
-            let tree_cur = table.look_up[rev_code & (TINFL_FAST_LOOKUP_SIZE - 1)];
+            let mut tree_cur = table.look_up[(rev_code & (TINFL_FAST_LOOKUP_SIZE - 1)) as usize];
             if tree_cur == 0 {
-                table.look_up[rev_code & (TINFL_FAST_LOOKUP_SIZE - 1)] = tree_next as i16;
+                table.look_up[(rev_code & (TINFL_FAST_LOOKUP_SIZE - 1)) as usize] = tree_next as i16;
                 tree_cur = tree_next;
                 tree_next -= 2;
             }
 
             rev_code >>= TINFL_FAST_LOOKUP_BITS - 1;
-            for j in (TINFL_FAST_LOOKUP_BITS + 2..code_size + 1).rev() {
+            for _ in TINFL_FAST_LOOKUP_BITS + 1..code_size {
                 rev_code >>= 1;
-                tree_cur -= rev_code & 1;
-                if table.tree[-tree_cur - 1] == 0 {
-                    table.tree[-tree_cur - 1] = tree_next as i16;
+                tree_cur -= (rev_code & 1) as i16;
+                if table.tree[(-tree_cur - 1) as usize] == 0 {
+                    table.tree[(-tree_cur - 1) as usize] = tree_next as i16;
                     tree_cur = tree_next;
                     tree_next -= 2;
                 } else {
-                    tree_cur = table.tree[-tree_cur - 1];
+                    tree_cur = table.tree[(-tree_cur - 1) as usize];
                 }
             }
 
             rev_code >>= 1;
-            tree_cur -= rec_code & 1;
-            table.tree[-tree_cur - 1] = symbol_index as i16;
+            tree_cur -= (rev_code & 1) as i16;
+            table.tree[(-tree_cur - 1) as usize] = symbol_index as i16;
+        }
+
+        if table_num == 2 {
+            r.counter = 0;
+            return Action::Jump(16);
         }
     }
 
-    Action::Next
+    r.counter = 0;
+    Action::Jump(23)
 }
 
 pub fn decompress_oxide(
@@ -241,21 +247,18 @@ pub fn decompress_oxide(
             }),
 
             READ_BLOCK_HEADER => {
-                read_bits(r, 3, &mut in_iter, flags, |bits| {
+                read_bits(r, 3, &mut in_iter, flags, |r, bits| {
                     r.finish = (bits & 1) as u32;
                     r.block_type = (bits >> 1) as u32;
                     match r.block_type {
                         0 => Action::Jump(BLOCK_TYPE_NO_COMPRESSION),
                         1 => {
                             start_static_table(r);
-                            match init_tree(r) {
-                                Action::Next => (),
-                                action => action
-                            }
+                            init_tree(r)
                         },
                         2 => {
                             r.counter = 0;
-                            Jump(READ_TABLE_SIZES)
+                            Action::Jump(READ_TABLE_SIZES)
                         },
                         3 => Action::Jump(BLOCK_TYPE_UNEXPECTED),
                         _ => panic!("Value greater than 3 stored in 2 bits"),
