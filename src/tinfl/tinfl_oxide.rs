@@ -6,11 +6,11 @@ const READ_ZLIB_FLG: u32 = 2;
 const READ_BLOCK_HEADER: u32 = 3;
 const BAD_ZLIB_HEADER: u32 = 36;
 
-#[inline]
 /// Check that the zlib header is correct and that there is enough space in the buffer
 /// for the window size specified in the header.
 ///
 /// See https://tools.ietf.org/html/rfc1950
+#[inline]
 fn validate_zlib_header(cmf: u32, flg: u32, flags: u32, mask: usize) -> bool {
     assert!(0b000100000 == 32);
     let mut failed =
@@ -36,21 +36,17 @@ fn validate_zlib_header(cmf: u32, flg: u32, flags: u32, mask: usize) -> bool {
 
 enum Action {
     Next,
-    // Temporary until we have ported everything.
-    RunMiniz(TINFLStatus, u32),
+    Jump(u32),
     End(TINFLStatus),
 }
 
 #[inline]
 fn end_of_input(flags: u32) -> Action {
-    // We haven't implemented an analogue to common_exit yet,
-    // so crash here for now.
     Action::End(if flags & TINFL_FLAG_HAS_MORE_INPUT != 0 {
         TINFLStatus::NeedsMoreInput
     } else {
         TINFLStatus::FailedCannotMakeProgress
-    });
-    unimplemented!();
+    })
 }
 
 pub fn decompress_oxide(
@@ -59,10 +55,11 @@ pub fn decompress_oxide(
     out_buf: &mut Cursor<&mut [u8]>,
     flags: u32,
 ) -> (TINFLStatus, usize, usize) {
+    let out_buf_start_pos = out_buf.position() as usize;
     let out_buf_size_mask = if flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0 {
         usize::max_value()
     } else {
-        out_buf.position() as usize + out_buf.get_ref().len() - 1
+        out_buf.get_ref().len() - 1
     };
 
     // Ensure the output buffer's size is a power of 2, unless the output buffer
@@ -73,7 +70,7 @@ pub fn decompress_oxide(
     }
 
     let mut in_iter = in_buf.iter();
-    let status = loop {
+    let mut status = loop {
         let action = match r.state {
             START => {
                 r.bit_buf = 0;
@@ -85,14 +82,16 @@ pub fn decompress_oxide(
                 r.z_header1 = 0;
                 r.z_adler32 = 1;
                 r.check_adler32 = 1;
-                Action::Next
+                if flags & TINFL_FLAG_PARSE_ZLIB_HEADER != 0 {
+                    Action::Next
+                } else {
+                    Action::Jump(READ_BLOCK_HEADER)
+                }
             },
 
             READ_ZLIB_CMF => {
                 match in_iter.next() {
-                    None => {
-                        end_of_input(flags)
-                    },
+                    None => end_of_input(flags),
                     Some(&cmf) => {
                         r.z_header0 = cmf as u32;
                         Action::Next
@@ -102,9 +101,7 @@ pub fn decompress_oxide(
 
             READ_ZLIB_FLG => {
                 match in_iter.next() {
-                    None => {
-                        end_of_input(flags)
-                    },
+                    None => end_of_input(flags),
                     Some(&flg) => {
                         r.z_header1 = flg as u32;
                         if validate_zlib_header(r.z_header0, r.z_header1, flags, out_buf_size_mask) {
@@ -112,18 +109,14 @@ pub fn decompress_oxide(
                             r.counter = 0;
                             Action::Next
                         } else {
-                            //r.state = BAD_ZLIB_HEADER;
                             r.counter = 1;
-                            Action::RunMiniz(TINFLStatus::Failed, BAD_ZLIB_HEADER)
+                            Action::Jump(BAD_ZLIB_HEADER)
                         }
                     }
                 }
-            }
+            },
 
-            // Let miniz deal with these until we have ported over the common_exit part.
-            /*BAD_ZLIB_HEADER => {
-                Action::End(TINFLStatus::Failed)
-            }*/
+            BAD_ZLIB_HEADER => Action::End(TINFLStatus::Failed),
 
             _ => unsafe {
                 let mut in_len = in_iter.len();
@@ -134,8 +127,9 @@ pub fn decompress_oxide(
                     r,
                     in_iter.as_slice().as_ptr(),
                     &mut in_len,
-                    &mut out_buf[0],
-                    &mut out_buf[out_pos],
+                    // as_mut_ptr to process zero sized slices
+                    (*out_buf).as_mut_ptr(),
+                    (*out_buf).as_mut_ptr().offset(out_pos as isize),
                     &mut out_len,
                     flags,
                 );
@@ -143,27 +137,39 @@ pub fn decompress_oxide(
                     status,
                     // Bytes read in this function + bytes read in tinfl_decompress
                     (in_buf.len() - in_iter.len()) + in_len,
-                    out_pos + out_len);
+                    out_pos + out_len - out_buf_start_pos
+                );
             },
         };
 
         match action {
             Action::Next => r.state += 1,
-            Action::RunMiniz(_, state) => r.state = state,
+            Action::Jump(state) => r.state = state,
             Action::End(status) => break status,
         }
     };
 
+    let mut undo_bytes = 0;
     if status != TINFLStatus::NeedsMoreInput && status != TINFLStatus::FailedCannotMakeProgress {
-        // TODO: give back full unprocessed bytes from bit_buffer
+        undo_bytes = cmp::min((r.num_bits >> 3) as usize, in_buf.len() - in_iter.len());
+        r.num_bits -= (undo_bytes << 3) as u32;
     }
+
+    r.bit_buf &= ((1u64 << r.num_bits) - 1) as BitBuffer;
 
     let need_adler = flags & (TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_COMPUTE_ADLER32) != 0;
     if need_adler && status as i32 >= 0 {
-        // TODO: check adler
+        r.check_adler32 = ::mz_adler32_oxide(
+            r.check_adler32,
+            &out_buf.get_ref()[out_buf_start_pos..out_buf_start_pos + out_buf.position() as usize]
+        );
+
+        if status == TINFLStatus::Done && flags & TINFL_FLAG_PARSE_ZLIB_HEADER != 0 && r.check_adler32 != r.z_adler32 {
+            status = TINFLStatus::Adler32Mismatch;
+        }
     }
 
-    (status, in_buf.len() - in_iter.len(), out_buf.position() as usize)
+    (status, in_buf.len() - in_iter.len() - undo_bytes, out_buf.position() as usize)
 }
 
 
@@ -176,8 +182,8 @@ mod test {
         r: &mut tinfl_decompressor,
         input_buffer: &'i [u8],
         output_buffer: &mut [u8],
-        flags: u32) ->
-        (TINFLStatus, &'i [u8], usize) {
+        flags: u32,
+    ) -> (TINFLStatus, &'i [u8], usize) {
         unsafe {
             let r = r as *mut tinfl_decompressor;
             let mut in_buf_size = input_buffer.len();
@@ -209,7 +215,8 @@ mod test {
         r: &mut tinfl_decompressor,
         input_buffer: &'i [u8],
         output_buffer: &mut [u8],
-        flags: u32) -> (TINFLStatus, &'i [u8], usize) {
+        flags: u32,
+    ) -> (TINFLStatus, &'i [u8], usize) {
         let (status, in_pos, out_pos) = decompress_oxide(r, input_buffer, &mut Cursor::new(output_buffer), flags);
         (status, &input_buffer[in_pos..], out_pos)
     }
@@ -224,8 +231,8 @@ mod test {
         let mut a = tinfl_decompressor::new();
         let mut b = tinfl_decompressor::new();
         const LEN: usize = 32;
-        let mut a_buf = vec![0;LEN];
-        let mut b_buf = vec![0;LEN];
+        let mut a_buf = vec![0; LEN];
+        let mut b_buf = vec![0; LEN];
 
         // These should fail with the out buffer being to small.
         let a_status = tinfl_decompress_miniz(&mut a, &encoded[..], a_buf.as_mut_slice(), flags);

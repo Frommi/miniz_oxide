@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use ::libc::*;
+use std::cmp;
 use std::{mem, ptr, usize};
 use std::io::Cursor;
 
@@ -66,6 +67,8 @@ pub const TDEFL_FILTER_MATCHES: u32 = 0x20000;
 pub const TDEFL_FORCE_ALL_STATIC_BLOCKS: u32 = 0x40000;
 pub const TDEFL_FORCE_ALL_RAW_BLOCKS: u32 = 0x80000;
 
+type BitBuffer = u32;
+
 #[repr(C)]
 #[allow(bad_style)]
 pub struct tinfl_decompressor {
@@ -81,7 +84,7 @@ pub struct tinfl_decompressor {
     pub counter: u32,
     pub num_extra: u32,
     pub table_sizes: [u32; TINFL_MAX_HUFF_TABLES],
-    pub bit_buf: u32,
+    pub bit_buf: BitBuffer,
     pub dist_from_out_buf_start: usize,
     pub tables: [tinfl_huff_table; TINFL_MAX_HUFF_TABLES],
     pub raw_header: [u8; 4],
