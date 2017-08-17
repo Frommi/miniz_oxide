@@ -1,9 +1,17 @@
 use super::*;
 
+pub fn memset<T : Clone>(slice: &mut [T], val: T) {
+    for x in slice { *x = val.clone() }
+}
+
 const START: u32 = 0;
 const READ_ZLIB_CMF: u32 = 1;
 const READ_ZLIB_FLG: u32 = 2;
 const READ_BLOCK_HEADER: u32 = 3;
+const BLOCK_TYPE_NO_COMPRESSION: u32 = 5;
+const BLOCK_TYPE_UNEXPECTED: u32 = 10;
+const READ_TABLE_SIZES: u32 = 11;
+const BAD_TOTAL_SYMBOLS: u32 = 35;
 const BAD_ZLIB_HEADER: u32 = 36;
 
 /// Check that the zlib header is correct and that there is enough space in the buffer
@@ -11,7 +19,7 @@ const BAD_ZLIB_HEADER: u32 = 36;
 ///
 /// See https://tools.ietf.org/html/rfc1950
 #[inline]
-fn validate_zlib_header(cmf: u32, flg: u32, flags: u32, mask: usize) -> bool {
+fn validate_zlib_header(cmf: u32, flg: u32, flags: u32, mask: usize) -> Action {
     assert!(0b000100000 == 32);
     let mut failed =
     // cmf + flg should be divisible by 31.
@@ -30,7 +38,12 @@ fn validate_zlib_header(cmf: u32, flg: u32, flags: u32, mask: usize) -> bool {
             window_size > 32768) ||
             ((mask + 1) < window_size);
     }
-    !failed
+
+    if failed {
+        Action::Jump(BAD_ZLIB_HEADER)
+    } else {
+        Action::Next
+    }
 }
 
 
@@ -41,12 +54,140 @@ enum Action {
 }
 
 #[inline]
+fn read_byte<'a, Iter, F: FnOnce(u8) -> Action>(in_iter: &mut Iter, flags: u32, f: F) -> Action
+    where Iter: Iterator<Item=&'a u8>
+{
+    match in_iter.next() {
+        None => end_of_input(flags),
+        Some(&byte) => {
+            f(byte)
+        }
+    }
+}
+
+#[inline]
+fn read_bits<'a, Iter, T, F: FnOnce(BitBuffer) -> Action>(
+    r: &mut tinfl_decompressor,
+    amount: u32,
+    in_iter: &mut Iter,
+    flags: u32,
+    f: F,
+) -> Action
+    where Iter: Iterator<Item=&'a u8>
+{
+    while r.num_bits < amount {
+        match read_byte(in_iter, flags, |byte| {
+            r.bit_buf |= (byte as BitBuffer) << r.num_bits;
+            r.num_bits += 8;
+            Action::Next
+        }) {
+            Action::Next => (),
+            action => return action,
+        }
+    }
+
+    let bits = r.bit_buf & ((1 << amount) - 1);
+    r.bit_buf >>= amount;
+    r.num_bits -= amount;
+    f(bits)
+}
+
+#[inline]
 fn end_of_input(flags: u32) -> Action {
     Action::End(if flags & TINFL_FLAG_HAS_MORE_INPUT != 0 {
         TINFLStatus::NeedsMoreInput
     } else {
         TINFLStatus::FailedCannotMakeProgress
     })
+}
+
+fn start_static_table(r: &mut tinfl_decompressor) {
+    r.table_sizes[0] = 288;
+    r.table_sizes[1] = 32;
+    let mut sizes = r.tables[0].code_size;
+    memset(&mut sizes[0..144], 8);
+    memset(&mut sizes[144..256], 9);
+    memset(&mut sizes[256..280], 7);
+    memset(&mut sizes[280..288], 8);
+
+    memset(&mut r.tables[1].code_size[..32], 5);
+}
+
+fn init_tree(r: &mut tinfl_decompressor) -> Action {
+    for table_num in (0..r.block_type + 1).rev() {
+        let table = &mut r.tables[table_num];
+        let table_size = r.table_sizes[table_num];
+        let mut total_symbols = [0u32; 16];
+        let mut next_code = [0u32; 17];
+        memset(&mut table.look_up[..], 0);
+        memset(&mut table.tree[..], 0);
+
+        for &code_size in &table.code_sizes[0..table_size] {
+            total_symbols[code_size] += 1;
+        }
+        let mut used_symbols = 0;
+        let mut total = 0;
+        for i in 1..16 {
+            used_symbols += total_symbols[i];
+            total += total_symbols[i];
+            total <<= 1;
+            next_code[i + 1] = total;
+        }
+
+        if total != 65536 && used_symbols > 1 {
+            return Action::Jump(BAD_TOTAL_SYMBOLS);
+        }
+
+        let tree_next = -1;
+        for symbol_index in 0..table_size {
+            let mut rev_code = 0;
+            let code_size = table.code_size[symbol_index];
+            if code_size == 0 { continue }
+
+            let cur_code = next_code[code_size];
+            next_code[code_size] += 1;
+
+            for _ in 0..code_size {
+                rev_code = (rev_code << 1) | (cur_code & 1);
+                cur_code >>= 1;
+            }
+
+            if code_size < TINFL_FAST_LOOKUP_BITS {
+                let k = ((code_size << 9) | symbol_index) as i16;
+                while rev_code < TINFL_FAST_LOOKUP_SIZE {
+                    table.look_up[rev_code] = k;
+                    rev_code += (1 << code_size);
+                }
+                continue;
+            }
+
+            let tree_cur = table.look_up[rev_code & (TINFL_FAST_LOOKUP_SIZE - 1)];
+            if tree_cur == 0 {
+                table.look_up[rev_code & (TINFL_FAST_LOOKUP_SIZE - 1)] = tree_next as i16;
+                tree_cur = tree_next;
+                tree_next -= 2;
+            }
+
+            rev_code >>= TINFL_FAST_LOOKUP_BITS - 1;
+            for j in (TINFL_FAST_LOOKUP_BITS + 2..code_size + 1).rev() {
+                rev_code >>= 1;
+                tree_cur -= rev_code & 1;
+                if table.tree[-tree_cur - 1] == 0 {
+                    table.tree[-tree_cur - 1] = tree_next as i16;
+                    tree_cur = tree_next;
+                    tree_next -= 2;
+                } else {
+                    tree_cur = table.tree[-tree_cur - 1];
+                }
+            }
+
+            rev_code >>= 1;
+            tree_cur -= rec_code & 1;
+            table.tree[-tree_cur - 1] = symbol_index as i16;
+        }
+    }
+
+    Action::Next
 }
 
 pub fn decompress_oxide(
@@ -89,31 +230,37 @@ pub fn decompress_oxide(
                 }
             },
 
-            READ_ZLIB_CMF => {
-                match in_iter.next() {
-                    None => end_of_input(flags),
-                    Some(&cmf) => {
-                        r.z_header0 = cmf as u32;
-                        Action::Next
-                    },
-                }
-            },
+            READ_ZLIB_CMF => read_byte(&mut in_iter, flags, |cmf| {
+                r.z_header0 = cmf as u32;
+                Action::Next
+            }),
 
-            READ_ZLIB_FLG => {
-                match in_iter.next() {
-                    None => end_of_input(flags),
-                    Some(&flg) => {
-                        r.z_header1 = flg as u32;
-                        if validate_zlib_header(r.z_header0, r.z_header1, flags, out_buf_size_mask) {
-                            // Not sure if setting counter is needed, but do it for now just in case.
+            READ_ZLIB_FLG => read_byte(&mut in_iter, flags, |flg| {
+                r.z_header1 = flg as u32;
+                validate_zlib_header(r.z_header0, r.z_header1, flags, out_buf_size_mask)
+            }),
+
+            READ_BLOCK_HEADER => {
+                read_bits(r, 3, &mut in_iter, flags, |bits| {
+                    r.finish = (bits & 1) as u32;
+                    r.block_type = (bits >> 1) as u32;
+                    match r.block_type {
+                        0 => Action::Jump(BLOCK_TYPE_NO_COMPRESSION),
+                        1 => {
+                            start_static_table(r);
+                            match init_tree(r) {
+                                Action::Next => (),
+                                action => action
+                            }
+                        },
+                        2 => {
                             r.counter = 0;
-                            Action::Next
-                        } else {
-                            r.counter = 1;
-                            Action::Jump(BAD_ZLIB_HEADER)
-                        }
+                            Jump(READ_TABLE_SIZES)
+                        },
+                        3 => Action::Jump(BLOCK_TYPE_UNEXPECTED),
+                        _ => panic!("Value greater than 3 stored in 2 bits"),
                     }
-                }
+                })
             },
 
             BAD_ZLIB_HEADER => Action::End(TINFLStatus::Failed),
