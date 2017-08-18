@@ -17,6 +17,7 @@ const RAW_HEADER2: u32 = 7;
 const RAW_MEMCPY1: u32 = 9;
 const BLOCK_TYPE_UNEXPECTED: u32 = 10;
 const READ_TABLE_SIZES: u32 = 11;
+const READ_TABLE_CODE_SIZE: u32 = 14;
 const DONE_FOREVER: u32 = 34;
 const BAD_TOTAL_SYMBOLS: u32 = 35;
 const BAD_ZLIB_HEADER: u32 = 36;
@@ -394,6 +395,34 @@ pub fn decompress_oxide(
                     end_of_input(flags)
                 }
             }
+
+            READ_TABLE_SIZES => {
+                if r.counter < 3 {
+                    let num_bits = [5, 5, 4][r.counter as usize];
+                    read_bits(r, num_bits, &mut in_iter, flags, |r, bits| {
+                        r.table_sizes[r.counter as usize] = bits + MIN_TABLE_SIZES[r.counter as usize];
+                        r.counter += 1;
+                        Action::None
+                    })
+                } else {
+                    memset(&mut r.tables[2].code_size[..], 0);
+                    r.counter = 0;
+                    Action::Jump(READ_TABLE_CODE_SIZE)
+                }
+            },
+
+            READ_TABLE_CODE_SIZE => {
+                if r.counter < r.table_sizes[2] {
+                    read_bits(r, 3, &mut in_iter, flags, |r, bits| {
+                        r.tables[2].code_size[LENGTH_DEZIGZAG[r.counter as usize] as usize] = bits as u8;
+                        r.counter += 1;
+                        Action::None
+                    })
+                } else {
+                    r.table_sizes[2] = 19;
+                    init_tree(r)
+                }
+            },
 
             BAD_ZLIB_HEADER | BAD_RAW_LENGTH | BLOCK_TYPE_UNEXPECTED
                 => Action::End(TINFLStatus::Failed),

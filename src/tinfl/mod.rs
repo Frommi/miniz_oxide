@@ -68,6 +68,9 @@ pub const TDEFL_FILTER_MATCHES: u32 = 0x20000;
 pub const TDEFL_FORCE_ALL_STATIC_BLOCKS: u32 = 0x40000;
 pub const TDEFL_FORCE_ALL_RAW_BLOCKS: u32 = 0x80000;
 
+const MIN_TABLE_SIZES: [u32; 3] = [257, 1, 4];
+const LENGTH_DEZIGZAG: [u8; 19] = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+
 type BitBuffer = u32;
 
 #[repr(C)]
