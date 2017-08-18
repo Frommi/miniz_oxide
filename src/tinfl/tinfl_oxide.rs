@@ -7,9 +7,7 @@ pub fn memset<T : Clone>(slice: &mut [T], val: T) {
     for x in slice { *x = val.clone() }
 }
 
-// Not in miniz
 const START: u32 = 0;
-
 const READ_ZLIB_CMF: u32 = 1;
 const READ_ZLIB_FLG: u32 = 2;
 const READ_BLOCK_HEADER: u32 = 3;
@@ -19,10 +17,12 @@ const RAW_HEADER2: u32 = 7;
 const RAW_MEMCPY1: u32 = 9;
 const BLOCK_TYPE_UNEXPECTED: u32 = 10;
 const READ_TABLE_SIZES: u32 = 11;
+const DONE_FOREVER: u32 = 34;
 const BAD_TOTAL_SYMBOLS: u32 = 35;
 const BAD_ZLIB_HEADER: u32 = 36;
 const RAW_MEMCPY2: u32 = 38;
 const BAD_RAW_LENGTH: u32 = 39;
+const READ_ADLER32: u32 = 41;
 const RAW_READ_FIRST_BYTE: u32 = 51;
 const RAW_STORE_FIRST_BYTE: u32 = 52;
 
@@ -63,6 +63,7 @@ fn validate_zlib_header(cmf: u32, flg: u32, flags: u32, mask: usize) -> Action {
 
 
 enum Action {
+    None,
     Next,
     Jump(u32),
     End(TINFLStatus),
@@ -110,12 +111,33 @@ fn read_bits<'a, Iter, F>(
 }
 
 #[inline]
+fn pad_to_bytes<'a, Iter, F>(
+    r: &mut tinfl_decompressor,
+    in_iter: &mut Iter,
+    flags: u32,
+    f: F,
+) -> Action
+    where Iter: Iterator<Item=&'a u8>,
+          F: FnOnce(&mut tinfl_decompressor) -> Action,
+{
+    let num_bits = r.num_bits & 7;
+    read_bits(r, num_bits, in_iter, flags, |r, _| f(r))
+}
+
+#[inline]
 fn end_of_input(flags: u32) -> Action {
     Action::End(if flags & TINFL_FLAG_HAS_MORE_INPUT != 0 {
         TINFLStatus::NeedsMoreInput
     } else {
         TINFLStatus::FailedCannotMakeProgress
     })
+}
+
+#[inline]
+fn undo_bytes(r: &mut tinfl_decompressor, max: u32) -> u32 {
+    let res = cmp::min((r.num_bits >> 3), max);
+    r.num_bits -= res >> 3;
+    res
 }
 
 fn start_static_table(r: &mut tinfl_decompressor) {
@@ -281,32 +303,27 @@ pub fn decompress_oxide(
                 })
             },
 
-            BLOCK_TYPE_NO_COMPRESSION => {
-                // Skip the remaining bits up to the byte boundary.
-                let num_bits = r.num_bits & 7;
-                read_bits(r, num_bits, &mut in_iter, flags ,|r,_| {
-                    // Reset counter for the next state.
-                    r.counter = 0;
-                    Action::Next
-                })
-            }
+            BLOCK_TYPE_NO_COMPRESSION => pad_to_bytes(r, &mut in_iter, flags, |r| {
+                r.counter = 0;
+                Action::Next
+            }),
 
             RAW_HEADER1 | RAW_HEADER2 => {
                 if r.counter < 4 {
                     // Read block length and block length check.
-                    let ret = if r.num_bits != 0 {
+                    if r.num_bits != 0 {
                         read_bits(r, 8, &mut in_iter, flags, |r, bits| {
                             r.raw_header[r.counter as usize] = bits as u8;
-                            Action::Jump(RAW_HEADER1)
+                            r.counter += 1;
+                            Action::None
                         })
                     } else {
                         read_byte(&mut in_iter, flags, |byte| {
                             r.raw_header[r.counter as usize] = byte;
-                            Action::Jump(RAW_HEADER2)
+                            r.counter += 1;
+                            Action::None
                         })
-                    };
-                    r.counter += 1;
-                    ret
+                    }
                 } else {
                     // Check if the length value of a raw block is correct.
                     // The 2 first (2-byte) words in a raw header are the length and the
@@ -341,19 +358,17 @@ pub fn decompress_oxide(
                             Action::Jump(RAW_STORE_FIRST_BYTE)
                         }
                     },
-                    Err(_) => {
-                        Action::End(TINFLStatus::HasMoreOutput)
-                    }
+                    Err(_) => Action::End(TINFLStatus::HasMoreOutput),
                 }
             }
 
             RAW_MEMCPY1 => {
-                if out_buf.position() as usize == out_buf.get_ref().len() {
-                    Action::End(TINFLStatus::HasMoreOutput)
-                } else if r.counter > 0 {
-                    Action::Jump(RAW_MEMCPY2)
-                } else {
+                if r.counter == 0 {
                     Action::Jump(BLOCK_DONE)
+                } else if out_buf.position() as usize == out_buf.get_ref().len() {
+                    Action::End(TINFLStatus::HasMoreOutput)
+                } else {
+                    Action::Jump(RAW_MEMCPY2)
                 }
             }
 
@@ -363,11 +378,16 @@ pub fn decompress_oxide(
                     // Raw block lengths are limited to 64 * 1024, so casting through usize and u32
                     // is not an issue.
                     let space_left = out_buf.get_ref().len() - (out_buf.position() as usize);
-                    let bytes_to_copy = cmp::min(cmp::min(in_iter.len(), space_left),
-                                                 r.counter as usize);
+                    let bytes_to_copy = cmp::min(cmp::min(
+                        space_left,
+                        in_iter.len()),
+                        r.counter as usize
+                    );
+
                     out_buf.write(&in_iter.as_slice()[..bytes_to_copy])
                         .expect("Bug! Write fail!");
-                    (&mut in_iter).nth(bytes_to_copy);
+
+                    (&mut in_iter).nth(bytes_to_copy - 1);
                     r.counter -= bytes_to_copy as u32;
                     Action::Jump(RAW_MEMCPY1)
                 } else {
@@ -378,23 +398,67 @@ pub fn decompress_oxide(
             BAD_ZLIB_HEADER | BAD_RAW_LENGTH | BLOCK_TYPE_UNEXPECTED
                 => Action::End(TINFLStatus::Failed),
 
-            BLOCK_DONE =>
+            DONE_FOREVER => Action::End(TINFLStatus::Done),
+
+            BLOCK_DONE => {
                 // End once we've read the last block.
                 if r.finish != 0 {
-                    //TODO: Do the ending bit (after the while loop
-                    // before common_exit l 562)
-                    // which includes reading and storeing adler32 from the end, so
-                    // we don't fail on adler32 mismatch here.)
-                    Action::End(TINFLStatus::Done)
+                    pad_to_bytes(r, &mut in_iter, flags, |_| Action::Next);
+
+                    let in_consumed = in_buf.len() - in_iter.len();
+                    let undo = undo_bytes(r, in_consumed as u32) as usize;
+                    in_iter = in_buf[in_consumed - undo..].iter();
+
+                    r.bit_buf &= ((1u64 << r.num_bits) - 1) as BitBuffer;
+                    assert!(r.num_bits == 0);
+
+                    if flags & TINFL_FLAG_PARSE_ZLIB_HEADER != 0 {
+                        r.counter = 0;
+                        Action::Jump(READ_ADLER32)
+                    } else {
+                        Action::Jump(DONE_FOREVER)
+                    }
                 } else {
                     Action::Jump(READ_BLOCK_HEADER)
-                },
+                }
+            },
+
+            READ_ADLER32 => {
+                if r.counter < 4 {
+                    if r.num_bits != 0 {
+                        read_bits(r, 8, &mut in_iter, flags, |r, bits| {
+                            r.z_adler32 <<= 8;
+                            r.z_adler32 |= bits;
+                            r.counter += 1;
+                            Action::None
+                        })
+                    } else {
+                        read_byte(&mut in_iter, flags, |byte| {
+                            r.z_adler32 <<= 8;
+                            r.z_adler32 |= byte as u32;
+                            r.counter += 1;
+                            Action::None
+                        })
+                    }
+                } else {
+                    Action::Jump(DONE_FOREVER)
+                }
+            }
 
             _ => unsafe {
                 let mut in_len = in_iter.len();
                 let out_pos = out_buf.position() as usize;
                 let mut out_len = out_buf.get_ref().len() - out_pos;
                 let out_buf = out_buf.get_mut();
+
+                let need_adler = flags & (TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_COMPUTE_ADLER32) != 0;
+                if need_adler {
+                    r.check_adler32 = ::mz_adler32_oxide(
+                        r.check_adler32,
+                        &out_buf[out_buf_start_pos..out_pos]
+                    );
+                }
+
                 let status = tinfl_decompress(
                     r,
                     in_iter.as_slice().as_ptr(),
@@ -415,17 +479,16 @@ pub fn decompress_oxide(
         };
 
         match action {
+            Action::None => (),
             Action::Next => r.state += 1,
             Action::Jump(state) => r.state = state,
             Action::End(status) => break status,
         }
     };
 
-    let mut undo_bytes = 0;
-    if status != TINFLStatus::NeedsMoreInput && status != TINFLStatus::FailedCannotMakeProgress {
-        undo_bytes = cmp::min((r.num_bits >> 3) as usize, in_buf.len() - in_iter.len());
-        r.num_bits -= (undo_bytes << 3) as u32;
-    }
+    let in_undo = if status != TINFLStatus::NeedsMoreInput && status != TINFLStatus::FailedCannotMakeProgress {
+        undo_bytes(r, (in_buf.len() - in_iter.len()) as u32) as usize
+    } else { 0 };
 
     r.bit_buf &= ((1u64 << r.num_bits) - 1) as BitBuffer;
 
@@ -433,7 +496,7 @@ pub fn decompress_oxide(
     if need_adler && status as i32 >= 0 {
         r.check_adler32 = ::mz_adler32_oxide(
             r.check_adler32,
-            &out_buf.get_ref()[out_buf_start_pos..out_buf_start_pos + out_buf.position() as usize]
+            &out_buf.get_ref()[out_buf_start_pos..out_buf.position() as usize]
         );
 
         if status == TINFLStatus::Done && flags & TINFL_FLAG_PARSE_ZLIB_HEADER != 0 && r.check_adler32 != r.z_adler32 {
@@ -442,7 +505,11 @@ pub fn decompress_oxide(
     }
 
     // NOTE: Status here and in miniz_tester doesn't seem to match.
-    (status, in_buf.len() - in_iter.len() - undo_bytes, out_buf.position() as usize)
+    (
+        status,
+        in_buf.len() - in_iter.len() - in_undo,
+        out_buf.position() as usize - out_buf_start_pos
+    )
 }
 
 
