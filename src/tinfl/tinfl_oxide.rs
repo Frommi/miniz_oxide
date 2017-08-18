@@ -1,18 +1,33 @@
 use super::*;
 
+use std::io::Write;
+use std::cmp;
+
 pub fn memset<T : Clone>(slice: &mut [T], val: T) {
     for x in slice { *x = val.clone() }
 }
 
+// Not in miniz
 const START: u32 = 0;
+
 const READ_ZLIB_CMF: u32 = 1;
 const READ_ZLIB_FLG: u32 = 2;
 const READ_BLOCK_HEADER: u32 = 3;
 const BLOCK_TYPE_NO_COMPRESSION: u32 = 5;
+const RAW_HEADER1: u32 = 6;
+const RAW_HEADER2: u32 = 7;
+const RAW_MEMCPY1: u32 = 9;
 const BLOCK_TYPE_UNEXPECTED: u32 = 10;
 const READ_TABLE_SIZES: u32 = 11;
 const BAD_TOTAL_SYMBOLS: u32 = 35;
 const BAD_ZLIB_HEADER: u32 = 36;
+const RAW_MEMCPY2: u32 = 38;
+const BAD_RAW_LENGTH: u32 = 39;
+const RAW_READ_FIRST_BYTE: u32 = 51;
+const RAW_STORE_FIRST_BYTE: u32 = 52;
+
+// Not in miniz - corresponds to main loop end there.
+const BLOCK_DONE: u32 = 100;
 
 /// Check that the zlib header is correct and that there is enough space in the buffer
 /// for the window size specified in the header.
@@ -266,7 +281,114 @@ pub fn decompress_oxide(
                 })
             },
 
-            BAD_ZLIB_HEADER => Action::End(TINFLStatus::Failed),
+            BLOCK_TYPE_NO_COMPRESSION => {
+                // Skip the remaining bits up to the byte boundary.
+                let num_bits = r.num_bits & 7;
+                read_bits(r, num_bits, &mut in_iter, flags ,|r,_| {
+                    // Reset counter for the next state.
+                    r.counter = 0;
+                    Action::Next
+                })
+            }
+
+            RAW_HEADER1 | RAW_HEADER2 => {
+                if r.counter < 4 {
+                    // Read block length and block length check.
+                    let ret = if r.num_bits != 0 {
+                        read_bits(r, 8, &mut in_iter, flags, |r, bits| {
+                            r.raw_header[r.counter as usize] = bits as u8;
+                            Action::Jump(RAW_HEADER1)
+                        })
+                    } else {
+                        read_byte(&mut in_iter, flags, |byte| {
+                            r.raw_header[r.counter as usize] = byte;
+                            Action::Jump(RAW_HEADER2)
+                        })
+                    };
+                    r.counter += 1;
+                    ret
+                } else {
+                    // Check if the length value of a raw block is correct.
+                    // The 2 first (2-byte) words in a raw header are the length and the
+                    // ones complement of the length.
+                    r.counter = r.raw_header[0] as u32 | ((r.raw_header[1] as u32) << 8);
+                    let check = (r.raw_header[2] as u16) | ((r.raw_header[3] as u16) << 8);
+                    let valid = r.counter == !check as u32;
+                    if !valid {
+                        Action::Jump(BAD_RAW_LENGTH)
+                    } else if r.num_bits != 0 {
+                        Action::Jump(RAW_READ_FIRST_BYTE)
+                    } else {
+                        Action::Jump(RAW_MEMCPY1)
+                    }
+                }
+            }
+
+            RAW_READ_FIRST_BYTE => {
+                read_bits(r, 8, &mut in_iter, flags, |r, bits| {
+                    r.dist = bits;
+                    Action::Jump(RAW_STORE_FIRST_BYTE)
+                })
+            },
+
+            RAW_STORE_FIRST_BYTE => {
+                match out_buf.write_all(&[r.dist as u8]) {
+                    Ok(_) => {
+                        r.counter -= 1;
+                        if r.counter == 0 || r.num_bits == 0 {
+                            Action::Jump(RAW_MEMCPY1)
+                        } else {
+                            Action::Jump(RAW_STORE_FIRST_BYTE)
+                        }
+                    },
+                    Err(_) => {
+                        Action::End(TINFLStatus::HasMoreOutput)
+                    }
+                }
+            }
+
+            RAW_MEMCPY1 => {
+                if out_buf.position() as usize == out_buf.get_ref().len() {
+                    Action::End(TINFLStatus::HasMoreOutput)
+                } else if r.counter > 0 {
+                    Action::Jump(RAW_MEMCPY2)
+                } else {
+                    Action::Jump(BLOCK_DONE)
+                }
+            }
+
+            RAW_MEMCPY2 => {
+                if in_iter.len() > 0 {
+                    // Copy as many raw bytes as possible from the input to the output.
+                    // Raw block lengths are limited to 64 * 1024, so casting through usize and u32
+                    // is not an issue.
+                    let space_left = out_buf.get_ref().len() - (out_buf.position() as usize);
+                    let bytes_to_copy = cmp::min(cmp::min(in_iter.len(), space_left),
+                                                 r.counter as usize);
+                    out_buf.write(&in_iter.as_slice()[..bytes_to_copy])
+                        .expect("Bug! Write fail!");
+                    (&mut in_iter).nth(bytes_to_copy);
+                    r.counter -= bytes_to_copy as u32;
+                    Action::Jump(RAW_MEMCPY1)
+                } else {
+                    end_of_input(flags)
+                }
+            }
+
+            BAD_ZLIB_HEADER | BAD_RAW_LENGTH | BLOCK_TYPE_UNEXPECTED
+                => Action::End(TINFLStatus::Failed),
+
+            BLOCK_DONE =>
+                // End once we've read the last block.
+                if r.finish != 0 {
+                    //TODO: Do the ending bit (after the while loop
+                    // before common_exit l 562)
+                    // which includes reading and storeing adler32 from the end, so
+                    // we don't fail on adler32 mismatch here.)
+                    Action::End(TINFLStatus::Done)
+                } else {
+                    Action::Jump(READ_BLOCK_HEADER)
+                },
 
             _ => unsafe {
                 let mut in_len = in_iter.len();
@@ -319,6 +441,7 @@ pub fn decompress_oxide(
         }
     }
 
+    // NOTE: Status here and in miniz_tester doesn't seem to match.
     (status, in_buf.len() - in_iter.len() - undo_bytes, out_buf.position() as usize)
 }
 
@@ -409,5 +532,37 @@ mod test {
         assert_eq!(a.z_header0, b.z_header0);
         assert_eq!(a.state, b.state);
         // TODO: Fully check that a and b are equal.
+    }
+
+    #[test]
+    fn raw_block() {
+        const LEN: usize = 64;
+
+        let text = b"Hello, zlib!";
+        let encoded = {
+            let len = text.len().to_le();
+            let notlen = !len;
+            let mut encoded =
+                vec![1, len as u8, (len >> 8) as u8, notlen as u8,
+                     (notlen >> 8) as u8];
+            encoded.extend_from_slice(&text[..]);
+            encoded
+        };
+
+        //let flags = TINFL_FLAG_COMPUTE_ADLER32 | TINFL_FLAG_PARSE_ZLIB_HEADER |
+        let flags = TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
+
+        let mut a = tinfl_decompressor::new();
+        let mut b = tinfl_decompressor::new();
+
+        let mut a_buf = vec![0; LEN];
+        let mut b_buf = vec![0; LEN];
+
+        let a_status = tinfl_decompress_miniz(&mut a, &encoded[..], a_buf.as_mut_slice(), flags);
+        let b_status = tinfl_decompress_oxide(&mut b, &encoded[..], b_buf.as_mut_slice(), flags);
+        assert_eq!(a_status, b_status);
+        assert_eq!(b_buf[..b_status.2], text[..]);
+        assert_eq!(a_status.0, TINFLStatus::Done);
+        assert_eq!(b_status.0, TINFLStatus::Done);
     }
 }

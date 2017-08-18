@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 use ::libc::*;
-use std::cmp;
 use std::{mem, ptr, usize};
 use std::io::Cursor;
 
