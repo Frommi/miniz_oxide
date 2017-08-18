@@ -136,7 +136,7 @@ fn end_of_input(flags: u32) -> Action {
 #[inline]
 fn undo_bytes(r: &mut tinfl_decompressor, max: u32) -> u32 {
     let res = cmp::min((r.num_bits >> 3), max);
-    r.num_bits -= res >> 3;
+    r.num_bits -= res << 3;
     res
 }
 
