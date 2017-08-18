@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use ::libc::*;
-use std::{mem, ptr, usize};
+use std::{slice, mem, ptr, usize};
 use std::io::Cursor;
 
 mod tinfl_oxide;
@@ -145,30 +145,28 @@ pub const TINFL_DECOMPRESS_MEM_TO_MEM_FAILED: size_t = usize::MAX;
 #[no_mangle]
 pub unsafe extern "C" fn tinfl_decompress_mem_to_mem(
     p_out_buf: *mut c_void,
-    mut out_buf_len: size_t,
-    p_src_buf: *mut c_void,
-    mut src_buf_len: size_t,
+    out_buf_len: size_t,
+    p_src_buf: *const c_void,
+    src_buf_len: size_t,
     flags: c_int,
 ) -> size_t {
     let flags = flags as u32;
     let mut decomp = tinfl_decompressor::with_init_state_only();
 
-    let status = tinfl_decompress(
+    let (status, _, out_consumed) = decompress_oxide(
         &mut decomp,
-        p_src_buf as *const u8,
-        &mut src_buf_len,
-        p_out_buf as *mut u8,
-        p_out_buf as *mut u8,
-        &mut out_buf_len,
-        // This function takes an unsigned value for flags, so we need to explicitly cast
-        // the flags to u32.
-        ((flags & !TINFL_FLAG_HAS_MORE_INPUT) | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF) as u32
+        slice::from_raw_parts(p_src_buf as *const u8, src_buf_len),
+        &mut Cursor::new(slice::from_raw_parts_mut(
+            p_out_buf as *mut u8,
+            out_buf_len
+        )),
+        ((flags & !TINFL_FLAG_HAS_MORE_INPUT) | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF),
     );
 
     if status != TINFLStatus::Done {
         TINFL_DECOMPRESS_MEM_TO_MEM_FAILED as size_t
     } else {
-        out_buf_len
+        out_consumed
     }
 }
 
@@ -200,23 +198,19 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_heap(
     // How far into the source buffer we have read.
     let mut src_buf_ofs = 0;
     loop {
-        // The amount of remaining data to decompress.
-        let mut src_buf_size = src_buf_len - src_buf_ofs;
-        // The space left in the output buffer.
-        let mut dst_buf_size = out_buf_capacity - *p_out_len;
-
-        let status = tinfl_decompress(
-            &mut decomp,
-            p_src_buf.offset(src_buf_ofs as isize) as *const u8,
-            &mut src_buf_size,
+        let mut out_cur = Cursor::new(slice::from_raw_parts_mut(
             p_buf as *mut u8,
-            if !p_buf.is_null() { p_buf.offset(*p_out_len as isize) as *mut u8 }
-            else { ptr::null_mut() },
-            &mut dst_buf_size,
-             // We don't have any pending input that is not in the source buffer yet.
-            ((flags & !TINFL_FLAG_HAS_MORE_INPUT)
-             // We make sure the decompression routine doesn't think we are using a wrapping buffer.
-             | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF) as u32,
+            out_buf_capacity
+        ));
+        out_cur.set_position(*p_out_len as u64);
+        let (status, in_consumed, out_consumed) = decompress_oxide(
+            &mut decomp,
+            slice::from_raw_parts(
+                p_src_buf.offset(src_buf_ofs as isize) as *const u8,
+                src_buf_len - src_buf_ofs,
+            ),
+            &mut out_cur,
+            ((flags & !TINFL_FLAG_HAS_MORE_INPUT) | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF),
         );
 
         // If decompression fails or we don't have any input, bail out.
@@ -226,8 +220,8 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_heap(
             return ptr::null_mut();
         }
 
-        src_buf_ofs += src_buf_size;
-        *p_out_len += dst_buf_size;
+        src_buf_ofs += in_consumed;
+        *p_out_len += out_consumed;
 
         if status == TINFLStatus::Done {
             break;
