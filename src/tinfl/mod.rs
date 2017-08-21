@@ -25,6 +25,45 @@ impl tinfl_huff_table {
             tree: [0; 576],
         }
     }
+
+    /// Look for a huffman code in the fast lookup table.
+    /// The code is stored in the lower 9 bits, the length in the next 6.
+    /// If the returned value is negative, the code wasn't found in the
+    /// fast lookup table and the tree has to be traversed to find the code.
+    #[inline]
+    fn fast_lookup(&self, bit_buf: BitBuffer) -> i16 {
+        self.look_up[(bit_buf & (TINFL_FAST_LOOKUP_SIZE - 1) as BitBuffer) as usize]
+    }
+
+    /// Get the huffman code and the length from the huffman tree.
+    #[inline]
+    fn tree_lookup(&self,
+                   fast_symbol: i32,
+                   bit_buf: BitBuffer,
+                   mut code_len: u32,
+    ) -> (i32, u32) {
+        let mut symbol = fast_symbol;
+        loop {
+            symbol = self.tree[(!symbol + ((bit_buf >> code_len) & 1) as i32) as usize] as i32;
+            code_len += 1;
+            if symbol >= 0 {
+                break;
+            }
+        }
+        (symbol, code_len)
+    }
+
+    #[inline]
+    /// Look up a huffman code from the bits in the provided bit buffer.
+    fn lookup(&self, bit_buf: BitBuffer) -> (i32, u32) {
+        let symbol = self.fast_lookup(bit_buf).into();
+        if symbol >= 0 {
+            (symbol, (symbol >> 9) as u32)
+        } else {
+            // We didn't get a code from the fast lookup table, so check the tree instead.
+            self.tree_lookup(symbol.into(), bit_buf, TINFL_FAST_LOOKUP_BITS.into())
+        }
+    }
 }
 
 const TINFL_MAX_HUFF_TABLES: usize = 3;
@@ -33,6 +72,9 @@ const TINFL_MAX_HUFF_SYMBOLS_1: usize = 32;
 const TINFL_MAX_HUFF_SYMBOLS_2: usize = 19;
 const TINFL_FAST_LOOKUP_BITS: u8 = 10;
 const TINFL_FAST_LOOKUP_SIZE: u32 = 1 << TINFL_FAST_LOOKUP_BITS;
+const LITLEN_TABLE: usize = 0;
+const DIST_TABLE: usize = 1;
+const HUFFLEN_TABLE: usize = 2;
 
 pub const TINFL_FLAG_PARSE_ZLIB_HEADER: u32 = 1;
 pub const TINFL_FLAG_HAS_MORE_INPUT: u32 = 2;
@@ -71,6 +113,10 @@ pub const TDEFL_FORCE_ALL_RAW_BLOCKS: u32 = 0x80000;
 const MIN_TABLE_SIZES: [u32; 3] = [257, 1, 4];
 const LENGTH_DEZIGZAG: [u8; 19] = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
 
+#[cfg(target_pointer_width = "64")]
+type BitBuffer = u64;
+
+#[cfg(not(target_pointer_width = "64"))]
 type BitBuffer = u32;
 
 #[repr(C)]

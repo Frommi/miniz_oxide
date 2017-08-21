@@ -1,7 +1,7 @@
 use super::*;
 
 use std::io::Write;
-use std::cmp;
+use std::{cmp, slice, ptr};
 
 pub fn memset<T : Clone>(slice: &mut [T], val: T) {
     for x in slice { *x = val.clone() }
@@ -18,17 +18,89 @@ const RAW_MEMCPY1: u32 = 9;
 const BLOCK_TYPE_UNEXPECTED: u32 = 10;
 const READ_TABLE_SIZES: u32 = 11;
 const READ_TABLE_CODE_SIZE: u32 = 14;
+const DECODE_LITLEN: u32 = 23;
+const WRITE_SYMBOL: u32 = 24;
+const READ_EXTRA_BITS_LITLEN: u32 = 25;
+const DECODE_DISTANCE: u32 = 26;
+const READ_EXTRA_BITS_DISTANCE: u32 = 27;
 const DONE_FOREVER: u32 = 34;
 const BAD_TOTAL_SYMBOLS: u32 = 35;
 const BAD_ZLIB_HEADER: u32 = 36;
+const DISTANCE_OUT_OF_BOUNDS: u32 = 37;
 const RAW_MEMCPY2: u32 = 38;
 const BAD_RAW_LENGTH: u32 = 39;
 const READ_ADLER32: u32 = 41;
 const RAW_READ_FIRST_BYTE: u32 = 51;
 const RAW_STORE_FIRST_BYTE: u32 = 52;
+const WRITE_LEN_BYTES_TO_END: u32 = 53;
 
 // Not in miniz - corresponds to main loop end there.
 const BLOCK_DONE: u32 = 100;
+
+const HUFF_DECODE_LOOP_START: u32 = 105;
+const HUFF_DECODE_OUTER_LOOP1: u32 = 101;
+const HUFF_DECODE_OUTER_LOOP2: u32 = 102;
+
+// Not sure why miniz uses 32-bit values for these, maybe alignment/cache again?
+const LENGTH_BASE: [i32; 31] = [
+    3,  4,  5,  6,  7,  8,  9,  10,  11,  13,  15,  17,  19,  23, 27, 31,
+    35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258, 0,  0
+];
+
+const LENGTH_EXTRA: [i32; 31] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1,
+    1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4,
+    4, 4, 5, 5, 5, 5, 0, 0, 0
+];
+
+const DIST_BASE: [i32; 32] = [
+    1,    2,    3,    4,    5,    7,     9,     13,    17,  25,   33,
+    49,   65,   97,   129,  193,  257,   385,   513,   769, 1025, 1537,
+    2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577, 0,   0
+];
+
+const DIST_EXTRA: [i32; 32] = [
+    0, 0, 0,  0,  1,  1,  2,  2,  3,  3,
+    4, 4, 5,  5,  6,  6,  7,  7,  8,  8,
+    9, 9, 10, 10, 11, 11, 12, 12, 13, 13,
+    13, 13
+];
+
+/// Read an le u16 value from the slice iterator.
+///
+/// # Panics
+/// Panics if there are less than two bytes left.
+fn read_u16_le(iter: &mut slice::Iter<u8>) -> u16 {
+    let ret = {
+        let two_bytes = &iter.as_ref()[0..2];
+        // # Unsafe
+        //
+        // The slice was just bounds checked to be 2 bytes long.
+        unsafe {
+            ptr::read_unaligned(two_bytes.as_ptr() as *const u16)
+        }
+    };
+    iter.nth(1);
+    u16::from_le(ret)
+}
+
+/// Read an le u32 value from the slice iterator.
+///
+/// # Panics
+/// Panics if there are less than four bytes left.
+fn read_u32_le(iter: &mut slice::Iter<u8>) -> u32 {
+    let ret = {
+        let four_bytes = &iter.as_ref()[..4];
+        // # Unsafe
+        //
+        // The slice was just bounds checked to be 4 bytes long.
+        unsafe {
+            ptr::read_unaligned(four_bytes.as_ptr() as *const u32)
+        }
+    };
+    iter.nth(3);
+    u32::from_le(ret)
+}
 
 /// Check that the zlib header is correct and that there is enough space in the buffer
 /// for the window size specified in the header.
@@ -70,6 +142,119 @@ enum Action {
     End(TINFLStatus),
 }
 
+/// Try to decode the next huffman code, and puts it in the counter field of the decompressor
+/// if successful.
+///
+/// # Returns
+/// Action::Next on success, Action::End if there are not enough data left to decode a symbol.
+fn decode_huffman_code<F>(r: &mut tinfl_decompressor, table: usize, flags: u32, in_iter: &mut slice::Iter<u8>, f: F) -> Action
+    where F: FnOnce(&mut tinfl_decompressor, i32) -> Action
+{
+    // As the huffman codes can be up to 15 bits long we need at least 15 bits
+    // ready in the bit buffer to start decoding the next huffman code.
+    if r.num_bits < 15 {
+        // First, make sure there is enough data in the bit buffer to decode a huffman code.
+        if in_iter.len() < 2 {
+            // If there is less than 2 bytes left in the input buffer, we try to look up
+            // the huffman code with what's available, and return if that doesn't succeed.
+            // Original explanation in miniz:
+            // /* TINFL_HUFF_BITBUF_FILL() is only used rarely, when the number of bytes
+            //  * remaining in the input buffer falls below 2. */
+            // /* It reads just enough bytes from the input stream that are needed to decode
+            //  * the next Huffman code (and absolutely no more). It works by trying to fully
+            //  * decode a */
+            // /* Huffman code by using whatever bits are currently present in the bit buffer.
+            //  * If this fails, it reads another byte, and tries again until it succeeds or
+            //  * until the */
+            // /* bit buffer contains >=15 bits (deflate's max. Huffman code size). */
+            loop {
+                let mut temp = r.tables[table].fast_lookup(r.bit_buf) as i32;
+
+                if temp >= 0 {
+                    let code_len = (temp >> 9) as u32;
+                    if (code_len != 0) && (r.num_bits >= code_len) {
+                        break;
+                    }
+                } else if r.num_bits > TINFL_FAST_LOOKUP_BITS.into() {
+                    let mut code_len = TINFL_FAST_LOOKUP_BITS as u32;
+                    loop {
+                        temp = r.tables[table].tree[
+                            (!temp + (r.bit_buf >> code_len) as i32 & 1) as usize] as i32;
+                        code_len += 1;
+                        if temp > 0 || r.num_bits < code_len + 1 {
+                            break;
+                        }
+                    }
+                    if temp >= 0 {
+                        break;
+                    }
+                }
+
+                // TODO: miniz jumps straight to here after getting here again after failing to read
+                // a byte.
+                // Doing that lets miniz avoid re-doing the lookup that that was done in the
+                // previous call.
+                let mut byte = 0;
+                match read_byte(in_iter, flags, |b| {
+                    byte = b;
+                    Action::None
+                }) {
+                    a @ Action::End(_) => return a,
+                    _ => (),
+                };
+
+                // Do this outside closure for now to avoid borrowing r.
+                r.bit_buf |= (byte as BitBuffer) << r.num_bits;
+                r.num_bits += 8;
+
+                if r.num_bits >= 15 {
+                    break;
+                }
+            }
+        } else {
+            // There is enough data in the input buffer, so read the next two bytes
+            // and add them to the bit buffer.
+            // Unwrapping here is fine since we just checked that there are at least two
+            // bytes left.
+            let b0 = *in_iter.next().unwrap() as BitBuffer;
+            let b1 = *in_iter.next().unwrap() as BitBuffer;
+
+            r.bit_buf |= (b0 << r.num_bits) | (b1 << r.num_bits + 8);
+            r.num_bits += 16;
+        }
+    }
+
+    // We now have at least 15 bits in the input buffer.
+    let mut symbol = r.tables[table].fast_lookup(r.bit_buf) as i32;
+    let code_len;
+    // If the symbol was found in the fast lookup table.
+    if symbol >= 0 {
+        // Get the length value from the top bits.
+        // As we shift down the sign bit, converting to an unsigned value
+        // shouldn't overflow.
+        code_len = (symbol >> 9) as u32;
+        // Mask out the length value.
+        symbol &= 511;
+    } else {
+        let res = r.tables[table].tree_lookup(symbol, r.bit_buf, TINFL_FAST_LOOKUP_BITS as u32);
+        symbol = res.0;
+        code_len = res.1 as u32;
+    };
+
+
+
+    debug_assert!(code_len < 16, "code_len too long! {}", code_len);
+
+    r.bit_buf >>= code_len as u32;
+    r.num_bits -= code_len;
+    f(r, symbol)
+}
+
+#[inline]
+fn bytes_left(out_buf: &Cursor<&mut [u8]>) -> usize {
+    out_buf.get_ref().len() - out_buf.position() as usize
+}
+
 #[inline]
 fn read_byte<'a, Iter, F>(in_iter: &mut Iter, flags: u32, f: F) -> Action
     where Iter: Iterator<Item=&'a u8>,
@@ -81,6 +266,17 @@ fn read_byte<'a, Iter, F>(in_iter: &mut Iter, flags: u32, f: F) -> Action
             f(byte)
         }
     }
+}
+
+/// Write one byte to the cursor.
+///
+/// This is intended for cases where we've already checked that there is space left.
+///
+/// # Panics
+/// Panics if the cursor is full.
+#[inline]
+fn write_byte(out_buf: &mut Cursor<&mut [u8]>, byte: u8) {
+    out_buf.write_all(&[byte]).expect("Bug! Out buffer unexpectedly full!");
 }
 
 #[inline]
@@ -344,7 +540,7 @@ pub fn decompress_oxide(
 
             RAW_READ_FIRST_BYTE => {
                 read_bits(r, 8, &mut in_iter, flags, |r, bits| {
-                    r.dist = bits;
+                    r.dist = bits as u32;
                     Action::Jump(RAW_STORE_FIRST_BYTE)
                 })
             },
@@ -378,7 +574,7 @@ pub fn decompress_oxide(
                     // Copy as many raw bytes as possible from the input to the output.
                     // Raw block lengths are limited to 64 * 1024, so casting through usize and u32
                     // is not an issue.
-                    let space_left = out_buf.get_ref().len() - (out_buf.position() as usize);
+                    let space_left = bytes_left(out_buf);
                     let bytes_to_copy = cmp::min(cmp::min(
                         space_left,
                         in_iter.len()),
@@ -400,7 +596,7 @@ pub fn decompress_oxide(
                 if r.counter < 3 {
                     let num_bits = [5, 5, 4][r.counter as usize];
                     read_bits(r, num_bits, &mut in_iter, flags, |r, bits| {
-                        r.table_sizes[r.counter as usize] = bits + MIN_TABLE_SIZES[r.counter as usize];
+                        r.table_sizes[r.counter as usize] = bits as u32 + MIN_TABLE_SIZES[r.counter as usize];
                         r.counter += 1;
                         Action::None
                     })
@@ -414,7 +610,8 @@ pub fn decompress_oxide(
             READ_TABLE_CODE_SIZE => {
                 if r.counter < r.table_sizes[2] {
                     read_bits(r, 3, &mut in_iter, flags, |r, bits| {
-                        r.tables[2].code_size[LENGTH_DEZIGZAG[r.counter as usize] as usize] = bits as u8;
+                        r.tables[2].code_size[LENGTH_DEZIGZAG[r.counter as usize] as usize]
+                            = bits as u8;
                         r.counter += 1;
                         Action::None
                     })
@@ -424,7 +621,205 @@ pub fn decompress_oxide(
                 }
             },
 
-            BAD_ZLIB_HEADER | BAD_RAW_LENGTH | BLOCK_TYPE_UNEXPECTED
+            DECODE_LITLEN => {
+                if in_iter.len() < 4 || bytes_left(out_buf) < 2 {
+                    // See if we can decode a literal with the data we have left.
+                    // Jumps to next state (WRITE_SYMBOL) if successful.
+                    decode_huffman_code(r, LITLEN_TABLE, flags, &mut in_iter, |r, symbol| {
+                        r.counter = symbol as u32;
+                        Action::Next
+                    })
+                } else {
+                    if cfg!(target_pointer_width = "64") {
+                        // Read four bytes into the buffer at once.
+                        if r.num_bits < 30 {
+                            r.bit_buf |= (read_u32_le(&mut in_iter) as BitBuffer) << r.num_bits;
+                            r.num_bits += 32;
+                        }
+                    } else {
+                        // If the buffer is 32-bit wide, read 2 bytes instead.
+                        if r.num_bits < 15 {
+                            r.bit_buf |= (read_u16_le(&mut in_iter) as BitBuffer) << r.num_bits;
+                            r.num_bits += 16;
+                        }
+                    }
+
+                    let (symbol, code_len) = r.tables[LITLEN_TABLE].lookup(r.bit_buf);
+
+                    r.counter = symbol as u32;
+                    r.bit_buf >>= code_len as u32;
+                    r.num_bits -= code_len as u32;
+
+                    if (r.counter & 256) != 0 {
+                        // The symbol is not a literal.
+                        Action::Jump(HUFF_DECODE_OUTER_LOOP1)
+                    } else {
+                        // If we have a 32-bit buffer we need to read another two bytes now
+                        // to have enough bits to keep going.
+                        if cfg!(not(target_pointer_width = "64")) {
+                            if r.num_bits < 15 {
+                                r.bit_buf |= (read_u16_le(&mut in_iter) as BitBuffer) << r.num_bits;
+                                r.num_bits += 16;
+                            }
+                        }
+
+                        let (symbol, code_len) = r.tables[LITLEN_TABLE].lookup(r.bit_buf);
+
+                        r.bit_buf >>= code_len;
+                        r.num_bits -= code_len;
+                        // The previous symbol was a literal, so write it directly and check
+                        // the next one.
+                        write_byte(out_buf, r.counter as u8);
+                        if (symbol & 256) != 0 {
+                            r.counter = symbol as u32;
+                            // The symbol is a length value.
+                            Action::Jump(HUFF_DECODE_OUTER_LOOP1)
+                        } else {
+                            // The symbol is a literal, so write it directly and continue.
+                            write_byte(out_buf, symbol as u8);
+                            Action::None
+                        }
+                    }
+                }
+            }
+
+            WRITE_SYMBOL => {
+                if r.counter >= 256 {
+                    Action::Jump(HUFF_DECODE_OUTER_LOOP1)
+                } else {
+                    if bytes_left(out_buf) > 0 {
+                        write_byte(out_buf, r.counter as u8);
+                        Action::Jump(DECODE_LITLEN)
+                    } else {
+                        Action::End(TINFLStatus::HasMoreOutput)
+                    }
+                }
+            }
+
+
+            HUFF_DECODE_OUTER_LOOP1 => {
+                // Mask the top bits since they may contain length info.
+                r.counter &= 511;
+
+                if r.counter == 256 {
+                    // We hit the end of block symbol.
+                    Action::Jump(BLOCK_DONE)
+                } else {
+                    r.num_extra = LENGTH_EXTRA[(r.counter - 257) as usize] as u32;
+                    r.counter = LENGTH_BASE[(r.counter - 257) as usize] as u32;
+                    // Length and distance codes have a number of extra bits depending on
+                    // the base, which together with the base gives us the exact value.
+                    if r.num_extra != 0 {
+                        Action::Jump(READ_EXTRA_BITS_LITLEN)
+                    } else {
+                        Action::Jump(DECODE_DISTANCE)
+                    }
+                }
+            }
+
+            READ_EXTRA_BITS_LITLEN => {
+                let num_extra = r.num_extra;
+                read_bits(r, num_extra, &mut in_iter, flags, |r, extra_bits| {
+                    r.counter += extra_bits as u32;
+                    Action::Jump(HUFF_DECODE_OUTER_LOOP2)
+                })
+            }
+
+            DECODE_DISTANCE => {
+                decode_huffman_code(r, DIST_TABLE, flags, &mut in_iter, |r, symbol| {
+                    r.dist = symbol as u32;
+                    r.num_extra = LENGTH_EXTRA[r.dist as usize] as u32;
+                    r.dist = DIST_EXTRA[r.dist as usize] as u32;
+                    if r.num_extra != 0 {
+                        // READ_EXTRA_BITS_DISTACNE
+                        Action::Next
+                    } else {
+                        Action::Jump(HUFF_DECODE_OUTER_LOOP2)
+                    }
+                })
+            }
+
+
+            READ_EXTRA_BITS_DISTANCE => {
+                let num_extra = r.num_extra;
+                read_bits(r, num_extra, &mut in_iter, flags, |r, extra_bits| {
+                    r.dist += extra_bits as u32;
+                    Action::Jump(HUFF_DECODE_OUTER_LOOP2)
+                })
+            }
+
+            HUFF_DECODE_OUTER_LOOP2 => {
+                // A cursor wrapping a slice can't be larger than usize::max.
+                r.dist_from_out_buf_start = out_buf.position() as usize;
+                if r.dist as usize > out_buf.position() as usize &&
+                    (flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0) {
+                        // We encountered a distance that refers a position before
+                        // the start of the decoded data, so we can't continue.
+                        Action::Jump(DISTANCE_OUT_OF_BOUNDS)
+                } else {
+
+                        let mut source_pos = (r.dist_from_out_buf_start - r.dist as usize)
+                            & out_buf_size_mask;
+
+                        let out_len = out_buf.get_ref().len();
+                        let match_end_pos = cmp::max(source_pos, out_buf.position() as usize)
+                            + r.counter as usize;
+                        // Dist can't be more than u16::MAX so casting it to usize is safe.
+                        let dist = r.dist as usize;
+
+                        if match_end_pos > out_len {
+                            // Not enough space for all of the data in the output buffer,
+                            // so copy what we have space for.
+                            Action::Jump(WRITE_LEN_BYTES_TO_END)
+                        } else if r.counter as usize <= dist {
+                            // The length doesn't extend past the current position, so
+                            // we can copy directly.
+
+                            // NOTE(oyvindln): Used the standard memcpy for now instead of
+                            // copying with unaligned loads/stores manually like miniz for
+                            // simplicity.
+                            // We can bench if doing it like in miniz is quicker at a later time.
+                            let match_len = r.counter as usize;
+                            let out_pos = out_buf.position() as usize;
+                            {
+                                let (from_slice, to_slice) =
+                                    out_buf.get_mut().split_at_mut(out_pos);
+
+                                to_slice[..match_len].copy_from_slice(
+                                    &from_slice[source_pos..source_pos + match_len]);
+                            }
+                            out_buf.set_position((out_pos + match_len) as u64);
+                            Action::Jump(DECODE_LITLEN)
+                        } else {
+                            let mut out_pos = out_buf.position() as usize;
+                            {
+                                let out_slice = out_buf.get_mut();
+                                loop {
+                                    out_slice[out_pos] = out_slice[source_pos];
+                                    out_slice[out_pos + 1] = out_slice[source_pos];
+                                    out_slice[out_pos + 2] = out_slice[source_pos];
+                                    source_pos += 3;
+                                    out_pos += 3;
+                                    r.counter -= 3;
+                                    if r.counter < 3 {
+                                        break;
+                                    }
+                                }
+                                if r.counter > 0 {
+                                    out_slice[out_pos] = out_slice[source_pos];
+                                    if r.counter > 1 {
+                                        out_slice[out_pos + 1] = out_slice[source_pos + 1];
+                                    }
+                                    out_pos += r.counter as usize;
+                                }
+                            }
+                            out_buf.set_position(out_pos as u64);
+                            Action::Jump(DECODE_LITLEN)
+                        }
+                    }
+            }
+
+            BAD_ZLIB_HEADER | BAD_RAW_LENGTH | BLOCK_TYPE_UNEXPECTED | DISTANCE_OUT_OF_BOUNDS
                 => Action::End(TINFLStatus::Failed),
 
             DONE_FOREVER => Action::End(TINFLStatus::Done),
@@ -457,7 +852,7 @@ pub fn decompress_oxide(
                     if r.num_bits != 0 {
                         read_bits(r, 8, &mut in_iter, flags, |r, bits| {
                             r.z_adler32 <<= 8;
-                            r.z_adler32 |= bits;
+                            r.z_adler32 |= bits as u32;
                             r.counter += 1;
                             Action::None
                         })
@@ -621,9 +1016,9 @@ mod test {
         let a_status = tinfl_decompress_miniz(&mut a, &encoded[..], a_buf.as_mut_slice(), flags);
         let b_status = tinfl_decompress_oxide(&mut b, &encoded[..], b_buf.as_mut_slice(), flags);
 
-        assert_eq!(a_status, b_status);
         assert_eq!(a_buf[..a_status.2], b"Hello, zlib!"[..]);
         assert_eq!(b_buf[..b_status.2], b"Hello, zlib!"[..]);
+        assert_eq!(a_status, b_status);
         assert_eq!(a_buf.as_slice(), b_buf.as_slice());
         assert_eq!(a.z_header0, b.z_header0);
         assert_eq!(a.state, b.state);
@@ -660,5 +1055,33 @@ mod test {
         assert_eq!(b_buf[..b_status.2], text[..]);
         assert_eq!(a_status.0, TINFLStatus::Done);
         assert_eq!(b_status.0, TINFLStatus::Done);
+    }
+
+    fn masked_lookup(table: &tinfl_huff_table, bit_buf: BitBuffer) -> (i32, u32) {
+        let ret = table.lookup(bit_buf);
+        (ret.0 & 511, ret.1)
+    }
+
+    #[test]
+    fn fixed_table_lookup() {
+        let mut d = tinfl_decompressor::new();
+        d.block_type = 1;
+        start_static_table(&mut d);
+        init_tree(&mut d);
+        let llt = &d.tables[LITLEN_TABLE];
+        let dt = &d.tables[DIST_TABLE];
+        assert_eq!(masked_lookup(llt, 0b00001100), (0, 8));
+        assert_eq!(masked_lookup(llt, 0b00011110), (72, 8));
+        assert_eq!(masked_lookup(llt, 0b01011110), (74, 8));
+        assert_eq!(masked_lookup(llt, 0b11111101), (143, 8));
+        assert_eq!(masked_lookup(llt, 0b000010011), (144, 9));
+        assert_eq!(masked_lookup(llt, 0b111111111), (255, 9));
+        assert_eq!(masked_lookup(llt, 0b00000000), (256, 7));
+        assert_eq!(masked_lookup(llt, 0b1110100), (279, 7));
+        assert_eq!(masked_lookup(llt, 0b00000011), (280, 8));
+        assert_eq!(masked_lookup(llt, 0b11100011), (287, 8));
+
+        assert_eq!(masked_lookup(dt, 0), (0, 5));
+        assert_eq!(masked_lookup(dt, 20), (5, 5));
     }
 }
