@@ -189,7 +189,7 @@ fn decode_huffman_code<F>(
                     let mut code_len = TINFL_FAST_LOOKUP_BITS as u32;
                     loop {
                         temp = r.tables[table].tree[
-                            (!temp + (r.bit_buf >> code_len) as i32 & 1) as usize] as i32;
+                            (!temp + ((r.bit_buf >> code_len) & 1) as i32) as usize] as i32;
                         code_len += 1;
                         if temp >= 0 || r.num_bits < code_len + 1 {
                             break;
@@ -250,8 +250,6 @@ fn decode_huffman_code<F>(
         symbol = res.0;
         code_len = res.1 as u32;
     };
-
-    debug_assert!(code_len < 16, "code_len too long! {}", code_len);
 
     r.bit_buf >>= code_len as u32;
     r.num_bits -= code_len;
@@ -820,8 +818,6 @@ pub fn decompress_oxide(
                     let out_len = out_buf.get_ref().len();
                     let match_end_pos = cmp::max(source_pos, out_buf.position() as usize)
                         + r.counter as usize;
-                    // Dist can't be more than u16::MAX so casting it to usize is safe.
-                    let dist = r.dist as usize;
 
                     if match_end_pos > out_len {
                         // Not enough space for all of the data in the output buffer,
