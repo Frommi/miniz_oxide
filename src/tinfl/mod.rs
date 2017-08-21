@@ -37,10 +37,11 @@ impl tinfl_huff_table {
 
     /// Get the huffman code and the length from the huffman tree.
     #[inline]
-    fn tree_lookup(&self,
-                   fast_symbol: i32,
-                   bit_buf: BitBuffer,
-                   mut code_len: u32,
+    fn tree_lookup(
+        &self,
+        fast_symbol: i32,
+        bit_buf: BitBuffer,
+        mut code_len: u32,
     ) -> (i32, u32) {
         let mut symbol = fast_symbol;
         loop {
