@@ -2,7 +2,7 @@
 
 set -e
 
-./build.sh --debug
+./build.sh --release
 
 mkdir -p bin
 g++ tests/miniz_tester.cpp tests/timer.cpp -o bin/miniz_tester -I. -ggdb -O2 -L. -lminiz_oxide -lutil -ldl -lrt -lpthread -lgcc_s -lc -lm -lrt -lpthread -lutil
@@ -17,7 +17,7 @@ if ! test -e "test_scratch/linux-4.8.11"
 then
     cd test_scratch
     wget https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.8.11.tar.xz -O linux-4.8.11.tar.xz
-    tar xf linux-4.8.11.tar.xz
+    tar xfv linux-4.8.11.tar.xz
     cd ..
 fi
 
