@@ -17,11 +17,15 @@ if ! test -e "test_scratch/linux-4.8.11"
 then
     cd test_scratch
     wget https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.8.11.tar.xz -O linux-4.8.11.tar.xz
-    tar xfv linux-4.8.11.tar.xz
+    tar xf linux-4.8.11.tar.xz
     cd ..
 fi
 
 cd test_scratch
+pwd
+ls
+ls ../bin
+ls linux-4.8.11
 ../bin/miniz_tester -v a linux-4.8.11
 ../bin/miniz_tester -v -r a linux-4.8.11
 ../bin/miniz_tester -v -b -r a linux-4.8.11
