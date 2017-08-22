@@ -106,6 +106,17 @@ fn read_u32_le(iter: &mut slice::Iter<u8>) -> u32 {
     u32::from_le(ret)
 }
 
+#[inline]
+fn transfer_unaligned_u64(buf: &mut &mut[u8], from: isize, to: isize) {
+    unsafe {
+        let mut data = ptr::read_unaligned((*buf).as_ptr().offset(from) as *const u32);
+        ptr::write_unaligned((*buf).as_mut_ptr().offset(to) as *mut u32, data);
+
+        data = ptr::read_unaligned((*buf).as_ptr().offset(from + 4) as *const u32);
+        ptr::write_unaligned((*buf).as_mut_ptr().offset(to + 4) as *mut u32, data);
+    };
+}
+
 /// Check that the zlib header is correct and that there is enough space in the buffer
 /// for the window size specified in the header.
 ///
@@ -828,50 +839,44 @@ pub fn decompress_oxide(
                             r.counter -= 1;
                             Action::Jump(WRITE_LEN_BYTES_TO_END)
                         }
-                    } else/* TODO: memcpy won't work because rle supports overlapping matching
-                             TODO: so unaligned load/stores is the way to go
-                        if r.counter >= 9 && r.counter as usize <= dist {
-                        // The length doesn't extend past the current position, so
-                        // we can copy directly.
-
-                        // NOTE(oyvindln): Used the standard memcpy for now instead of
-                        // copying with unaligned loads/stores manually like miniz for
-                        // simplicity.
-                        // We can bench if doing it like in miniz is quicker at a later time.
-                        let match_len = r.counter as usize;
-                        let out_pos = out_buf.position() as usize;
-                        {
-                            let (from_slice, to_slice) =
-                                out_buf.get_mut().split_at_mut(out_pos);
-                            println!("{}..{} to {}..{}", out_pos, out_pos + match_len, source_pos, source_pos + match_len);
-                            to_slice[..match_len].copy_from_slice(
-                                &from_slice[source_pos..source_pos + match_len]
-                            );
-                        }
-                        out_buf.set_position((out_pos + match_len) as u64);
-                        Action::Jump(DECODE_LITLEN)
-                    } else */{
+                    } else {
                         let mut out_pos = out_buf.position() as usize;
                         {
                             let out_slice = out_buf.get_mut();
-                            loop {
-                                out_slice[out_pos] = out_slice[source_pos];
-                                out_slice[out_pos + 1] = out_slice[source_pos + 1];
-                                out_slice[out_pos + 2] = out_slice[source_pos + 2];
-                                source_pos += 3;
-                                out_pos += 3;
-                                r.counter -= 3;
-                                if r.counter < 3 {
-                                    break;
+                            if r.counter <= r.dist {
+                                let match_len = r.counter as usize;
+                                if source_pos < out_pos {
+                                    let (from_slice, to_slice) = out_slice.split_at_mut(out_pos);
+                                    to_slice[..match_len].copy_from_slice(
+                                        &from_slice[source_pos..source_pos + match_len]
+                                    );
+                                } else {
+                                    let (to_slice, from_slice) = out_slice.split_at_mut(source_pos);
+                                    to_slice[out_pos..out_pos + match_len].copy_from_slice(
+                                        &from_slice[..match_len]
+                                    );
                                 }
-                            }
-                            if r.counter > 0 {
-                                out_slice[out_pos] = out_slice[source_pos];
-                                if r.counter > 1 {
+                                out_pos += match_len;
+                            } else {
+                                while r.counter >= 3 {
+                                    out_slice[out_pos] = out_slice[source_pos];
                                     out_slice[out_pos + 1] = out_slice[source_pos + 1];
+                                    out_slice[out_pos + 2] = out_slice[source_pos + 2];
+                                    source_pos += 3;
+                                    out_pos += 3;
+                                    r.counter -= 3;
                                 }
-                                out_pos += r.counter as usize;
+
+                                if r.counter > 0 {
+                                    out_slice[out_pos] = out_slice[source_pos];
+                                    if r.counter > 1 {
+                                        out_slice[out_pos + 1] = out_slice[source_pos + 1];
+                                    }
+                                    out_pos += r.counter as usize;
+                                }
                             }
+
+
                         }
                         out_buf.set_position(out_pos as u64);
                         Action::Jump(DECODE_LITLEN)
