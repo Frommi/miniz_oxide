@@ -22,10 +22,14 @@ then
 fi
 
 cd test_scratch
-../bin/miniz_tester -v a linux-4.8.11
-../bin/miniz_tester -v -r a linux-4.8.11
-../bin/miniz_tester -v -b -r a linux-4.8.11
-../bin/miniz_tester -v -a a linux-4.8.11
+echo "-v a"
+../bin/miniz_tester -v a linux-4.8.11 > /dev/null
+echo "-v -r a"
+../bin/miniz_tester -v -r a linux-4.8.11 > /dev/null
+echo "-v -b -r a"
+../bin/miniz_tester -v -b -r a linux-4.8.11 > /dev/null
+echo "-v -a a"
+../bin/miniz_tester -v -a a linux-4.8.11 > /dev/null
 
 mkdir -p large_file
 truncate -s 5G large_file/lf
