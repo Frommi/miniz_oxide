@@ -2,6 +2,9 @@
 
 set -e
 
+gcc --version
+g++ --version
+
 ./build.sh --release
 
 mkdir -p bin

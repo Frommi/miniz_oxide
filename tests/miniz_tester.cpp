@@ -1114,13 +1114,13 @@ static bool find_files(std::string pathname, const std::string &pattern, string_
 
     if (is_directory)
     {
-      printf("directory: %s\n", filename);
+      printf("directory: %s\n", filename.c_str());
       if (recursive)
         paths.push_back(filename);
     }
     else if (is_file)
     {
-        printf("file: %s\n", filename);
+        printf("file: %s\n", filename.c_str());
       if (0 == fnmatch(pattern.c_str(), filename.c_str(), 0))
          files.push_back(pathname + filename);
     }
