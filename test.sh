@@ -29,7 +29,7 @@ echo "-v -r a"
 echo "-v -b -r a"
 ../bin/miniz_tester -v -b -r a linux-4.8.11 > /dev/null
 echo "-v -a a"
-../bin/miniz_tester -v -a a linux-4.8.11 > /dev/null
+../bin/miniz_tester -v -a a linux-4.8.11/mm > /dev/null
 
 mkdir -p large_file
 truncate -s 5G large_file/lf
