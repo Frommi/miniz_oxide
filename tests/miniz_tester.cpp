@@ -1091,8 +1091,9 @@ static bool find_files(std::string pathname, const std::string &pattern, string_
 
   DIR *dp = opendir(pathname.c_str());
 
-  if (!dp)
+  if (!dp) {
     return depth ? true : false;
+  }
 
   string_array paths;
 

@@ -1,3 +1,8 @@
-language: rust
+sudo: enabled
+language:
+  - rust
+  - cpp
+compiler:
+  - gcc
 rust: nightly
 script: ./test.sh
