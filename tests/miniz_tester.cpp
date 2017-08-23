@@ -1091,8 +1091,10 @@ static bool find_files(std::string pathname, const std::string &pattern, string_
 
   DIR *dp = opendir(pathname.c_str());
 
-  if (!dp)
+  if (!dp) {
+    print_error("opendir fail\n");
     return depth ? true : false;
+  }
 
   string_array paths;
 
@@ -1112,11 +1114,13 @@ static bool find_files(std::string pathname, const std::string &pattern, string_
 
     if (is_directory)
     {
+      printf("directory: %s\n", filename);
       if (recursive)
         paths.push_back(filename);
     }
     else if (is_file)
     {
+        printf("file: %s\n", filename);
       if (0 == fnmatch(pattern.c_str(), filename.c_str(), 0))
          files.push_back(pathname + filename);
     }
