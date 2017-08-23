@@ -1,3 +1,4 @@
+sudo: enabled
 language:
   - rust
   - cpp
