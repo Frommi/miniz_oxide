@@ -2,11 +2,9 @@ extern crate libc;
 extern crate adler32;
 extern crate crc;
 
-use std::slice;
-use std::ptr;
-use std::mem;
-use std::cmp;
+use std::{slice, ptr, mem, cmp};
 use std::io::Cursor;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use libc::*;
 
@@ -227,10 +225,19 @@ macro_rules! oxidize {
             match stream.as_mut() {
                 None => MZError::Stream as c_int,
                 Some(stream) => {
-                    let mut stream_oxide = StreamOxide::new(&mut *stream);
-                    let status = lib_oxide::$mz_func_oxide(&mut stream_oxide, $($arg_name),*);
-                    *stream = stream_oxide.into_mz_stream();
-                    as_c_return_code(status)
+                    // Make sure we catch a potential panic, as
+                    // this is called from C.
+                    match catch_unwind(AssertUnwindSafe(|| {
+                        let mut stream_oxide = StreamOxide::new(&mut *stream);
+                        let status = lib_oxide::$mz_func_oxide(&mut stream_oxide, $($arg_name),*);
+                        *stream = stream_oxide.into_mz_stream();
+                        as_c_return_code(status)
+                    })) {
+                        Ok(res) => res,
+                        Err(_) => {
+                            println!("FATAL ERROR: Caught panic!");
+                            MZError::Stream as c_int},
+                    }
                 }
             }
         }

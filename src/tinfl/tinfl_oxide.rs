@@ -823,16 +823,24 @@ pub fn decompress_oxide(
                         // the start of the decoded data, so we can't continue.
                         Action::Jump(DISTANCE_OUT_OF_BOUNDS)
                 } else {
-                    let mut source_pos = (r.dist_from_out_buf_start.wrapping_sub(r.dist as usize))
-                        & out_buf_size_mask;
+                    let mut source_pos = (r.dist_from_out_buf_start.wrapping_sub(r.dist as usize)) &
+                        out_buf_size_mask;
 
-                    let out_len = out_buf.get_ref().len();
+                    let out_len = out_buf.get_ref().len() as usize;
                     let match_end_pos = cmp::max(source_pos, out_buf.position() as usize)
                         + r.counter as usize;
 
-                    if match_end_pos > out_len {
+
+
+                    let mut out_pos = out_buf.position() as usize;
+
+                    if match_end_pos > out_len ||
+                        // miniz doesn't do this check here. Not sure how it makes sure
+                        // that this case doesn't happen.
+                        (source_pos >= out_pos && (source_pos - out_pos) < r.counter as usize) {
                         // Not enough space for all of the data in the output buffer,
                         // so copy what we have space for.
+
                         if r.counter == 0 {
                             Action::Jump(DECODE_LITLEN)
                         } else {
@@ -840,11 +848,10 @@ pub fn decompress_oxide(
                             Action::Jump(WRITE_LEN_BYTES_TO_END)
                         }
                     } else {
-                        let mut out_pos = out_buf.position() as usize;
                         {
                             let out_slice = out_buf.get_mut();
+                            let match_len = r.counter as usize;
                             if r.counter <= r.dist {
-                                let match_len = r.counter as usize;
                                 if source_pos < out_pos {
                                     let (from_slice, to_slice) = out_slice.split_at_mut(out_pos);
                                     to_slice[..match_len].copy_from_slice(
