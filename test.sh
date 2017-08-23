@@ -2,9 +2,6 @@
 
 set -e
 
-gcc --version
-g++ --version
-
 ./build.sh --release
 
 mkdir -p bin
@@ -25,10 +22,6 @@ then
 fi
 
 cd test_scratch
-pwd
-ls
-ls ../bin
-ls linux-4.8.11
 ../bin/miniz_tester -v a linux-4.8.11
 ../bin/miniz_tester -v -r a linux-4.8.11
 ../bin/miniz_tester -v -b -r a linux-4.8.11
