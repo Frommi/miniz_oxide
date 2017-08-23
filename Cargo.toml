@@ -13,7 +13,9 @@ name = "miniz_oxide"
 crate-type = ['staticlib', 'rlib']
 
 [dependencies]
-libc="0.2.22"
+libc = "0.2.22"
+adler32 = "1.0.2"
+crc = "^1.0.0"
 
 [build-dependencies]
 gcc = "0.3"

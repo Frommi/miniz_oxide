@@ -1,29 +1,23 @@
 use super::*;
 
+use adler32::RollingAdler32;
+use crc::{crc32, Hasher32};
+
 use tdef::TDEFL_COMPUTE_ADLER32;
 use tdef::TDEFLStatus;
 use tdef::TDEFLFlush;
 
 
 pub fn mz_adler32_oxide(adler: c_uint, data: &[u8]) -> c_uint {
-    let mut s1 = adler & 0xffff;
-    let mut s2 = adler >> 16;
-    for &x in data {
-        s1 = (s1 + x as c_uint) % 65521;
-        s2 = (s1 + s2) % 65521;
-    }
-    (s2 << 16) + s1
+    let mut hash = RollingAdler32::from_value(adler);
+    hash.update_buffer(data);
+    hash.hash()
 }
 
-static S_CRC32: [c_uint; 16] = [0, 0x1db71064, 0x3b6e20c8, 0x26d930ac, 0x76dc4190,
-    0x6b6b51f4, 0x4db26158, 0x5005713c, 0xedb88320, 0xf00f9344, 0xd6d6a3e8,
-    0xcb61b38c, 0x9b64c2b0, 0x86d3d2d4, 0xa00ae278, 0xbdbdf21c];
-
 pub fn mz_crc32_oxide(crc32: c_uint, data: &[u8]) -> c_uint {
-    !data.iter().fold(!crc32, |mut crcu32, &b| {
-        crcu32 = (crcu32 >> 4) ^ S_CRC32[(((crcu32 & 0xF) as u8) ^ (b & 0xF)) as usize];
-        (crcu32 >> 4) ^ S_CRC32[(((crcu32 & 0xF) as u8) ^ (b >> 4)) as usize]
-    })
+    let mut digest = crc32::Digest::new_with_initial(crc32::IEEE, crc32);
+    digest.write(data);
+    digest.sum32()
 }
 
 pub trait StateType {}

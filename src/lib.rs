@@ -1,4 +1,6 @@
 extern crate libc;
+extern crate adler32;
+extern crate crc;
 
 use std::slice;
 use std::ptr;
