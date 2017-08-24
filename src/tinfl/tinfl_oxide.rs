@@ -1002,6 +1002,7 @@ mod test {
     use super::*;
     use std::io::Cursor;
 
+    #[cfg(feature = "build_non_rust")]
     fn tinfl_decompress_miniz<'i>(
         r: &mut tinfl_decompressor,
         input_buffer: &'i [u8],
@@ -1044,6 +1045,10 @@ mod test {
         let (status, in_pos, out_pos) = decompress_oxide(r, input_buffer, &mut Cursor::new(output_buffer), flags);
         (status, &input_buffer[in_pos..], out_pos)
     }
+
+    /// Dummy redirect
+    #[cfg(not(feature = "build_non_rust"))]
+    use self::tinfl_decompress_oxide as tinfl_decompress_miniz;
 
     #[test]
     fn decompress_zlib() {

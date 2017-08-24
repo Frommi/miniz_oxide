@@ -1,6 +1,6 @@
 extern crate gcc;
 
-#[cfg(not(feature = "fuzzing"))]
+#[cfg(all(not(feature = "fuzzing"), feature = "build_non_rust"))]
 fn main() {
     gcc::compile_library("libminiz.a",
                          &["miniz_stub/miniz.c",
@@ -17,3 +17,6 @@ fn main() {
     println!("cargo:rustc-link-search=native=bin");
     println!("cargo:rustc-link-lib=static=miniz");
 }
+
+#[cfg(all(not(feature = "fuzzing"), not(feature = "build_non_rust")))]
+fn main() {}

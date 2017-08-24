@@ -6,7 +6,7 @@ use std::{slice, ptr, mem, cmp};
 use std::io::Cursor;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use libc::*;
+use libc::{size_t, c_int, c_uint, c_ulong, c_void, c_char};
 
 mod lib_oxide;
 pub use lib_oxide::*;
@@ -116,6 +116,7 @@ impl MZFlush {
 }
 
 
+#[cfg(feature = "build_non_rust")]
 #[allow(bad_style)]
 extern {
     pub fn miniz_def_alloc_func(opaque: *mut c_void, items: size_t, size: size_t) -> *mut c_void;
@@ -129,6 +130,28 @@ extern {
     ) -> *mut c_void;
 }
 
+#[cfg(not(feature = "build_non_rust"))]
+#[no_mangle]
+pub unsafe extern "C" fn miniz_def_alloc_func(_opaque: *mut c_void, items: size_t, size: size_t) -> *mut c_void {
+    libc::malloc(items * size)
+}
+
+#[cfg(not(feature = "build_non_rust"))]
+#[no_mangle]
+pub unsafe extern "C" fn miniz_def_free_func(_opaque: *mut c_void, address: *mut c_void) {
+    libc::free(address)
+}
+
+#[cfg(not(feature = "build_non_rust"))]
+#[no_mangle]
+pub unsafe extern "C" fn miniz_def_realloc_func(
+    _opaque: *mut c_void,
+    address: *mut c_void,
+    items: size_t, size:
+    size_t
+) -> *mut c_void {
+    libc::realloc(address, items * size)
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn mz_adler32(adler: c_ulong, ptr: *const u8, buf_len: usize) -> c_ulong {

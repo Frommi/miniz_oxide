@@ -2,7 +2,6 @@
 name = "miniz_oxide"
 version = "0.1.0"
 build = "src/build.rs"
-links = "miniz"
 license = "MIT"
 authors = ["Frommi <daniil.liferenko@gmail.com>"]
 
@@ -21,8 +20,9 @@ crc = "^1.0.0"
 gcc = "0.3"
 
 [features]
-default = []
+default = ["build_non_rust"]
 fuzzing = []
+build_non_rust= []
 
 [profile.dev]
 panic = "abort"
