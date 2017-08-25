@@ -383,3 +383,93 @@ pub extern "C" fn tdefl_create_comp_flags_from_zip_params(
 ) -> c_uint {
     create_comp_flags_from_zip_params(level, window_bits, strategy)
 }
+
+
+pub fn compress_to_vec(input: &[u8], level: u8) -> Vec<u8> {
+    compress_to_vec_inner(input, level, false)
+}
+
+pub fn compress_to_vec_zlib(input: &[u8], level: u8) -> Vec<u8> {
+    compress_to_vec_inner(input, level, true)
+}
+
+/// Simple function to compress data to a vec.
+fn compress_to_vec_inner(input: &[u8], level: u8, with_zlib: bool) -> Vec<u8> {
+    // The comp flags function sets the zlib flag if the window_bits parameter is > 0.
+    let flags = create_comp_flags_from_zip_params(level.into(), with_zlib as i32, 0);
+    let mut compressor = CompressorOxide::new(None, flags);
+    let mut output = Vec::with_capacity(input.len() / 2);
+    // # Unsafe
+    // We trust compress to not read the uninitialized bytes.
+    unsafe {
+        let cap = output.capacity();
+        output.set_len(cap);
+    }
+    let mut in_pos = 0;
+    let mut out_pos = 0;
+    loop {
+        let (status, bytes_in, bytes_out) = compress(
+            &mut compressor,
+            &mut CallbackOxide::new_callback_buf(&input[in_pos..], &mut output[out_pos..]),
+            TDEFLFlush::Finish);
+
+        out_pos += bytes_out;
+        in_pos += bytes_in;
+
+        match status {
+            TDEFLStatus::Done => {
+                output.truncate(out_pos);
+                break;
+            },
+            TDEFLStatus::Okay => {
+                // We need more space, so extend the vector.
+                if output.len().saturating_sub(out_pos) < 30 {
+                    let current_len = output.len();
+                    output.reserve(current_len);
+
+                    // # Unsafe
+                    // We trust compress to not read the uninitialized bytes.
+                    unsafe {
+                        let cap = output.capacity();
+                        output.set_len(cap);
+                    }
+                }
+            }
+            // Not supposed to happen unless there is a bug.
+            _ => panic!("Bug! Unexpectedly failed to compress!")
+        }
+    }
+
+    output
+}
+
+
+#[cfg(test)]
+mod test {
+    use super::compress_to_vec;
+
+    /// Test deflate example.
+    ///
+    /// Check if the encoder produces the same code as the example given by Mark Adler here:
+    /// https://stackoverflow.com/questions/17398931/deflate-encoding-with-static-huffman-codes/17415203
+    #[test]
+    fn compress_small() {
+        let test_data = b"Deflate late";
+        let check = [
+            0x73,
+            0x49,
+            0x4d,
+            0xcb,
+            0x49,
+            0x2c,
+            0x49,
+            0x55,
+            0x00,
+            0x11,
+            0x00,
+        ];
+
+        let res = compress_to_vec(test_data, 9);
+        assert_eq!(&check[..], res.as_slice());
+    }
+}

@@ -192,6 +192,76 @@ extern {
 
 pub const TINFL_DECOMPRESS_MEM_TO_MEM_FAILED: size_t = usize::MAX;
 
+/// Decompress the deflate-encoded data in `input` to a vector.
+///
+/// Returns a status and an integer representing where the decompressor failed on failure.
+#[inline]
+pub fn decompress_to_vec(input: &[u8]) -> Result<Vec<u8>, (TINFLStatus, u32)> {
+    decompress_to_vec_inner(input, 0)
+}
+
+/// Decompress the deflate-encoded data (with a zlib wrapper) in `input` to a vector.
+///
+/// Returns a status and an integer representing where the decompressor failed on failure.
+#[inline]
+pub fn decompress_to_vec_zlib(input: &[u8]) -> Result<Vec<u8>, (TINFLStatus, u32)> {
+    decompress_to_vec_inner(input, TINFL_FLAG_PARSE_ZLIB_HEADER)
+}
+
+#[inline]
+fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>,(TINFLStatus, u32)> {
+    let flags = flags | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
+    let mut ret = Vec::with_capacity(input.len() * 2);
+
+    // # Unsafe
+    // We trust decompress_oxide to not read the unitialized bytes as it's wrapped
+    // in a cursor that's position is set to the end of the initialized data.
+    unsafe {
+        let cap = ret.capacity();
+        ret.set_len(cap);
+    };
+    let mut decomp = unsafe {
+        tinfl_decompressor::with_init_state_only()
+    };
+
+    let mut in_pos = 0;
+    let mut out_pos = 0;
+    loop {
+        let (status, in_consumed, out_consumed) = {
+            // Wrap the whole output slice so we know we have enough of the
+            // decompressed data for matches.
+            let mut c = Cursor::new(ret.as_mut_slice());
+            c.set_position(out_pos as u64);
+            decompress_oxide(
+                &mut decomp,
+                &input[in_pos..],
+                &mut c,
+                flags)
+        };
+        in_pos += in_consumed;
+        out_pos += out_consumed;
+
+        match status {
+            TINFLStatus::Done => {
+                ret.truncate(out_pos);
+                return Ok(ret);
+            },
+            TINFLStatus::HasMoreOutput => {
+                // We need more space so extend the buffer.
+                ret.reserve(out_pos);
+                // # Unsafe
+                // We trust decompress_oxide to not read the unitialized bytes as it's wrapped
+                // in a cursor that's position is set to the end of the initialized data.
+                unsafe {
+                    let cap = ret.capacity();
+                    ret.set_len(cap);
+                }
+            },
+            _ => return Err((status, decomp.state))
+        }
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn tinfl_decompress_mem_to_mem(
     p_out_buf: *mut c_void,
@@ -406,5 +476,14 @@ mod test {
             flags as i32,
         ).unwrap();
         assert_eq!(out_buf.as_slice(), &b"Hello, zlib!"[..]);
+    }
+
+    #[test]
+    fn decompress_vec() {
+        let encoded =
+            [120, 156, 243, 72, 205, 201, 201, 215, 81,
+             168, 202, 201, 76, 82, 4, 0, 27, 101, 4, 19];
+        let res = decompress_to_vec_zlib(&encoded[..]).unwrap();
+        assert_eq!(res.as_slice(), &b"Hello, zlib!"[..]);
     }
 }

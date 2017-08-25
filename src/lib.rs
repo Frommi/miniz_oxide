@@ -22,6 +22,8 @@ pub use tdef::{
     tdefl_compress_mem_to_output,
     tdefl_compress_mem_to_heap,
     tdefl_compress_mem_to_mem,
+    compress_to_vec,
+    compress_to_vec_zlib,
     PutBufFuncPtr
 };
 
@@ -33,6 +35,8 @@ pub use tinfl::{
     tinfl_decompressor,
     tinfl_decompress_mem_to_mem,
     tinfl_decompress_mem_to_heap,
+    decompress_to_vec,
+    decompress_to_vec_zlib,
 };
 
 pub const MZ_DEFLATED: c_int = 8;
