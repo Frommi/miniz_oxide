@@ -6,7 +6,7 @@ extern crate test;
 use test::Bencher;
 use std::io::Read;
 
-use miniz_oxide::{decompress_to_vec, compress_to_vec};
+use miniz_oxide::{decompress_to_vec, compress_to_vec, compress_to_vec_zlib, decompress_to_vec_zlib};
 
 fn get_test_file_data(name: &str) -> Vec<u8> {
     use std::fs::File;
@@ -34,11 +34,31 @@ fn decompress(b: &mut Bencher) {
 }
 
 #[bench]
+fn zlib_decompress(b: &mut Bencher) {
+    let input = get_test_data();
+
+    let compressed = compress_to_vec_zlib(input.as_slice(), 6);
+    b.iter(||
+           decompress_to_vec_zlib(&compressed[..])
+    );
+}
+
+
+#[bench]
 fn compress_fast(b: &mut Bencher) {
     let input = get_test_data();
 
     b.iter(||
            compress_to_vec(input.as_slice(), 1)
+    );
+}
+
+#[bench]
+fn zlib_compress_fast(b: &mut Bencher) {
+    let input = get_test_data();
+
+    b.iter(||
+           compress_to_vec_zlib(input.as_slice(), 1)
     );
 }
 

@@ -3,8 +3,9 @@ use super::*;
 use std::io::Write;
 use std::{cmp, slice, ptr};
 
-pub fn memset<T : Clone>(slice: &mut [T], val: T) {
-    for x in slice { *x = val.clone() }
+#[inline]
+pub fn memset<T : Copy>(slice: &mut [T], val: T) {
+    for x in slice { *x = val }
 }
 
 const START: u32 = 0;
@@ -289,10 +290,16 @@ fn read_byte<F>(in_iter:  &mut slice::Iter<u8>, flags: u32, f: F) -> Action
 /// This is intended for cases where we've already checked that there is space left.
 ///
 /// # Panics
-/// Panics if the cursor is full.
+/// Panics if the output buffer is full.
 #[inline]
 fn write_byte(out_buf: &mut Cursor<&mut [u8]>, byte: u8) {
-    out_buf.write_all(&[byte]).expect("Bug! Out buffer unexpectedly full!");
+    // # Optimization
+    //
+    // We avoid using `write` here as it result in a function call to memcpy
+    // rather than a simple write to the current buffer position.
+    let pos = out_buf.position();
+    out_buf.get_mut()[pos as usize] = byte;
+    out_buf.set_position(pos + 1);
 }
 
 #[inline]
