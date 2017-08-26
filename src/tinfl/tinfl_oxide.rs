@@ -47,15 +47,18 @@ const HUFF_DECODE_OUTER_LOOP1: u32 = 101;
 const HUFF_DECODE_OUTER_LOOP2: u32 = 102;
 
 // Not sure why miniz uses 32-bit values for these, maybe alignment/cache again?
-const LENGTH_BASE: [i32; 31] = [
+// # Optimization
+// We add a extra zero value at the end and make the tables 32 elements long
+// so we can use a mask to avoid bounds checks.
+const LENGTH_BASE: [i32; 32] = [
     3,  4,  5,  6,  7,  8,  9,  10,  11,  13,  15,  17,  19,  23, 27, 31,
-    35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258, 0,  0
+    35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258, 0,  0, 0
 ];
 
-const LENGTH_EXTRA: [i32; 31] = [
+const LENGTH_EXTRA: [i32; 32] = [
     0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1,
     1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4,
-    4, 4, 5, 5, 5, 5, 0, 0, 0
+    4, 4, 5, 5, 5, 5, 0, 0, 0, 0
 ];
 
 const DIST_BASE: [i32; 32] = [
@@ -70,6 +73,8 @@ const DIST_EXTRA: [i32; 32] = [
     9, 9, 10, 10, 11, 11, 12, 12, 13, 13,
     13, 13
 ];
+
+const BASE_EXTRA_MASK: usize = 32 - 1;
 
 /// Read an le u16 value from the slice iterator.
 ///
@@ -779,8 +784,12 @@ pub fn decompress_oxide(
                     // We hit the end of block symbol.
                     Action::Jump(BLOCK_DONE)
                 } else {
-                    r.num_extra = LENGTH_EXTRA[(r.counter - 257) as usize] as u32;
-                    r.counter = LENGTH_BASE[(r.counter - 257) as usize] as u32;
+                    // # Optimization
+                    // Mask the value to avoid bounds checks
+                    // We could use get_unchecked later if can statically verify that
+                    // this will never go out of bounds.
+                    r.num_extra = LENGTH_EXTRA[(r.counter - 257) as usize & BASE_EXTRA_MASK] as u32;
+                    r.counter = LENGTH_BASE[(r.counter - 257) as usize & BASE_EXTRA_MASK] as u32;
                     // Length and distance codes have a number of extra bits depending on
                     // the base, which together with the base gives us the exact value.
                     if r.num_extra != 0 {
@@ -800,10 +809,15 @@ pub fn decompress_oxide(
             },
 
             DECODE_DISTANCE => {
+                // Try to read a huffman code from the input buffer and look up what
+                // length code the decoded symbol refers to.
                 decode_huffman_code(r, DIST_TABLE, flags, &mut in_iter, |r, symbol| {
-                    r.dist = symbol as u32;
-                    r.num_extra = DIST_EXTRA[r.dist as usize] as u32;
-                    r.dist = DIST_BASE[r.dist as usize] as u32;
+                    // # Optimization
+                    // Mask the value to avoid bounds checks
+                    // We could use get_unchecked later if can statically verify that
+                    // this will never go out of bounds.
+                    r.num_extra = DIST_EXTRA[symbol as usize & BASE_EXTRA_MASK] as u32;
+                    r.dist = DIST_BASE[symbol as usize & BASE_EXTRA_MASK] as u32;
                     if r.num_extra != 0 {
                         // READ_EXTRA_BITS_DISTACNE
                         Action::Next
