@@ -3,11 +3,6 @@ use super::*;
 use std::io::Write;
 use std::{cmp, slice, ptr};
 
-#[inline]
-pub fn memset<T : Copy>(slice: &mut [T], val: T) {
-    for x in slice { *x = val }
-}
-
 const START: u32 = 0;
 const READ_ZLIB_CMF: u32 = 1;
 const READ_ZLIB_FLG: u32 = 2;
@@ -50,23 +45,30 @@ const HUFF_DECODE_OUTER_LOOP2: u32 = 102;
 // # Optimization
 // We add a extra zero value at the end and make the tables 32 elements long
 // so we can use a mask to avoid bounds checks.
+/// Base length for each length code.
+///
+/// The base is used together with the value of the extra bits to decode the actual
+/// length/distance values in a match.
 const LENGTH_BASE: [i32; 32] = [
     3,  4,  5,  6,  7,  8,  9,  10,  11,  13,  15,  17,  19,  23, 27, 31,
     35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258, 0,  0, 0
 ];
 
+/// Number of extra bits for each length code.
 const LENGTH_EXTRA: [i32; 32] = [
     0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1,
     1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4,
     4, 4, 5, 5, 5, 5, 0, 0, 0, 0
 ];
 
+/// Base length for each distance code.
 const DIST_BASE: [i32; 32] = [
     1,    2,    3,    4,    5,    7,     9,     13,    17,  25,   33,
     49,   65,   97,   129,  193,  257,   385,   513,   769, 1025, 1537,
     2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577, 0,   0
 ];
 
+/// Number of extra bits for each distance code.
 const DIST_EXTRA: [i32; 32] = [
     0, 0, 0,  0,  1,  1,  2,  2,  3,  3,
     4, 4, 5,  5,  6,  6,  7,  7,  8,  8,
@@ -74,7 +76,14 @@ const DIST_EXTRA: [i32; 32] = [
     13, 13
 ];
 
+/// The mask used when indexing the base/extra arrays.
 const BASE_EXTRA_MASK: usize = 32 - 1;
+
+/// Sets the value of all the elements of the slice to `val`.
+#[inline]
+pub fn memset<T : Copy>(slice: &mut [T], val: T) {
+    for x in slice { *x = val }
+}
 
 /// Read an le u16 value from the slice iterator.
 ///
@@ -121,6 +130,24 @@ fn transfer_unaligned_u64(buf: &mut &mut[u8], from: isize, to: isize) {
         data = ptr::read_unaligned((*buf).as_ptr().offset(from + 4) as *const u32);
         ptr::write_unaligned((*buf).as_mut_ptr().offset(to + 4) as *mut u32, data);
     };
+}
+
+/// Copy data from src to dst.
+#[inline]
+fn copy_data(src: &[u8], dst: &mut [u8]) {
+    // Simple copy for small matches.
+    // This seems to make copying slightly faster.
+    // We also don't bother checking if the lengths match
+    // as that should have already been done earlier.
+    if src.len() == 3 {
+        dst[2] = src[2];
+        dst[1] = src[1];
+        dst[0] = src[0];
+    } else {
+        for (d, s) in dst.iter_mut().zip(src.iter()) {
+            *d = *s;
+        }
+    }
 }
 
 /// Check that the zlib header is correct and that there is enough space in the buffer
@@ -875,33 +902,40 @@ pub fn decompress_oxide(
                             if r.counter <= r.dist {
                                 if source_pos < out_pos {
                                     let (from_slice, to_slice) = out_slice.split_at_mut(out_pos);
-                                    to_slice[..match_len].copy_from_slice(
-                                        &from_slice[source_pos..source_pos + match_len]
+                                    copy_data(&from_slice[source_pos..source_pos + match_len],
+                                               &mut to_slice[..match_len]
                                     );
                                 } else {
                                     let (to_slice, from_slice) = out_slice.split_at_mut(source_pos);
-                                    to_slice[out_pos..out_pos + match_len].copy_from_slice(
-                                        &from_slice[..match_len]
+                                    copy_data(&from_slice[..match_len],
+                                              &mut to_slice[out_pos..out_pos + match_len]
                                     );
                                 }
                                 out_pos += match_len;
                             } else {
-                                while r.counter >= 3 {
+                                // # Optimization
+                                //
+                                // Copy out counter to a local variable and write it back
+                                // afterwards, to encourage it to be put in a register for
+                                // fast access.
+                                let mut counter = r.counter;
+                                while counter >= 3 {
                                     out_slice[out_pos] = out_slice[source_pos];
                                     out_slice[out_pos + 1] = out_slice[source_pos + 1];
                                     out_slice[out_pos + 2] = out_slice[source_pos + 2];
                                     source_pos += 3;
                                     out_pos += 3;
-                                    r.counter -= 3;
+                                    counter -= 3;
                                 }
 
-                                if r.counter > 0 {
+                                if counter > 0 {
                                     out_slice[out_pos] = out_slice[source_pos];
-                                    if r.counter > 1 {
+                                    if counter > 1 {
                                         out_slice[out_pos + 1] = out_slice[source_pos + 1];
                                     }
-                                    out_pos += r.counter as usize;
+                                    out_pos += counter as usize;
                                 }
+                                r.counter = counter;
                             }
 
 
