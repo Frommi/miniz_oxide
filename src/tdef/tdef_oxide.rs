@@ -759,7 +759,7 @@ impl DictOxide {
         let s01: u16 = self.read_unaligned(pos as isize);
 
         if max_match_len <= match_len { return (match_dist, match_len) }
-        loop {
+        'outer: loop {
             let mut dist;
             'found: loop {
                 num_probes_left -= 1;
@@ -783,34 +783,32 @@ impl DictOxide {
             if dist == 0 { return (match_dist, match_len) }
             if self.read_unaligned::<u16>(probe_pos as isize) != s01 { continue }
 
-            let mut probe_len = 32;
-            let mut p = pos;
-            let mut q = probe_pos;
-            'probe: loop {
-                for _ in 0..4 {
-                    p += 2;
-                    q += 2;
-                    let p_data: u16 = self.read_unaligned(p as isize);
-                    let q_data: u16 = self.read_unaligned(q as isize);
-                    if p_data != q_data {
-                        break 'probe;
+            let mut p = pos + 2;
+            let mut q = probe_pos + 2;
+            for _ in 0..32 {
+                let p_data: u64 = self.read_unaligned(p as isize);
+                let q_data: u64 = self.read_unaligned(q as isize);
+                let xor_data = p_data ^ q_data;
+                if xor_data == 0 {
+                    p += 8;
+                    q += 8;
+                } else {
+                    let leading = xor_data.trailing_zeros();
+
+                    let probe_len = p - pos + (leading >> 3);
+                    if probe_len > match_len {
+                        match_dist = dist;
+                        match_len = cmp::min(max_match_len, probe_len);
+                        if match_len == max_match_len {
+                            return (match_dist, match_len);
+                        }
+                        c01 = self.read_unaligned((pos + match_len - 1) as isize);
                     }
-                }
-                probe_len -= 1;
-                if probe_len == 0 {
-                    return (dist, cmp::min(max_match_len, TDEFL_MAX_MATCH_LEN as u32))
+                    continue 'outer;
                 }
             }
 
-            probe_len = p - pos + (self.dict[p as usize] == self.dict[q as usize]) as u32;
-            if probe_len > match_len {
-                match_dist = dist;
-                match_len = cmp::min(max_match_len, probe_len);
-                if match_len == max_match_len {
-                    return (match_dist, match_len);
-                }
-                c01 = self.read_unaligned((pos + match_len - 1) as isize);
-            }
+            return (dist, cmp::min(max_match_len, TDEFL_MAX_MATCH_LEN as u32))
         }
     }
 }
