@@ -5,4 +5,6 @@ language:
 compiler:
   - gcc
 rust: nightly
-script: ./test.sh
+script:
+  - cargo test
+  - ./test.sh

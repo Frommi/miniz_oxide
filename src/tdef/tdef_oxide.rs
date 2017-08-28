@@ -238,16 +238,17 @@ pub struct OutputBufferOxide<'a> {
 }
 
 impl<'a> OutputBufferOxide<'a> {
-    fn put_bits(&mut self, bits: u32, len: u32) -> io::Result<()> {
+    fn put_bits(&mut self, bits: u32, len: u32) {
         assert!(bits <= ((1u32 << len) - 1u32));
         self.bit_buffer |= bits << self.bits_in;
         self.bits_in += len;
         while self.bits_in >= 8 {
-            self.inner.write(&[self.bit_buffer as u8][..])?;
+            let pos = self.inner.position();
+            self.inner.get_mut()[pos as usize] = self.bit_buffer as u8;
+            self.inner.set_position(pos + 1);
             self.bit_buffer >>= 8;
             self.bits_in -= 8;
         }
-        Ok(())
     }
 
     fn save(&self) -> SavedOutputBufferOxide {
@@ -271,13 +272,11 @@ impl<'a> OutputBufferOxide<'a> {
         self.bits_in = saved.bits_in;
     }
 
-    fn pad_to_bytes(&mut self) -> io::Result<()> {
+    fn pad_to_bytes(&mut self) {
         if self.bits_in != 0 {
             let len = 8 - self.bits_in;
-            self.put_bits(0, len)?;
+            self.put_bits(0, len);
         }
-
-        Ok(())
     }
 }
 
@@ -594,7 +593,7 @@ impl HuffmanOxide {
             }
     }
 
-    pub fn start_static_block(&mut self, output: &mut OutputBufferOxide) -> io::Result<()> {
+    pub fn start_static_block(&mut self, output: &mut OutputBufferOxide) {
         memset(&mut self.code_sizes[0][0..144], 8);
         memset(&mut self.code_sizes[0][144..256], 9);
         memset(&mut self.code_sizes[0][256..280], 7);
@@ -672,18 +671,18 @@ impl HuffmanOxide {
 
         self.optimize_table(2, TDEFL_MAX_HUFF_SYMBOLS_2, 7, false);
 
-        output.put_bits(2, 2)?;
+        output.put_bits(2, 2);
 
-        output.put_bits((num_lit_codes - 257) as u32, 5)?;
-        output.put_bits((num_dist_codes - 1) as u32, 5)?;
+        output.put_bits((num_lit_codes - 257) as u32, 5);
+        output.put_bits((num_dist_codes - 1) as u32, 5);
 
         let mut num_bit_lengths = 18 - TDEFL_PACKED_CODE_SIZE_SYMS_SWIZZLE
             .iter().rev().take_while(|&swizzle| self.code_sizes[HUFF_CODES_TABLE][*swizzle as usize] == 0).count();
 
         num_bit_lengths = cmp::max(4, num_bit_lengths + 1);
-        output.put_bits(num_bit_lengths as u32 - 4, 4)?;
+        output.put_bits(num_bit_lengths as u32 - 4, 4);
         for &swizzle in &TDEFL_PACKED_CODE_SIZE_SYMS_SWIZZLE[..num_bit_lengths] {
-            output.put_bits(self.code_sizes[HUFF_CODES_TABLE][swizzle as usize] as u32, 3)?;
+            output.put_bits(self.code_sizes[HUFF_CODES_TABLE][swizzle as usize] as u32, 3);
         }
 
         let mut packed_code_size_index = 0 as usize;
@@ -693,10 +692,10 @@ impl HuffmanOxide {
             packed_code_size_index += 1;
             assert!(code < TDEFL_MAX_HUFF_SYMBOLS_2);
             output.put_bits(self.codes[HUFF_CODES_TABLE][code] as u32,
-                            self.code_sizes[HUFF_CODES_TABLE][code] as u32)?;
+                            self.code_sizes[HUFF_CODES_TABLE][code] as u32);
             if code >= 16 {
                 output.put_bits(packed_code_sizes[packed_code_size_index] as u32,
-                                [2, 3, 7][code - 16])?;
+                                [2, 3, 7][code - 16]);
                 packed_code_size_index += 1;
             }
         }
@@ -985,12 +984,12 @@ pub fn compress_lz_codes(
     output.bit_buffer = 0;
     while bb.bits_in != 0 {
         let n = cmp::min(bb.bits_in, 16);
-        output.put_bits(bb.bit_buffer as u32 & MZ_BITMASKS[n as usize], n)?;
+        output.put_bits(bb.bit_buffer as u32 & MZ_BITMASKS[n as usize], n);
         bb.bit_buffer >>= n;
         bb.bits_in -= n;
     }
 
-    output.put_bits(huff.codes[0][256] as u32, huff.code_sizes[0][256] as u32)?;
+    output.put_bits(huff.codes[0][256] as u32, huff.code_sizes[0][256] as u32);
 
     Ok(true)
 }
@@ -1002,7 +1001,7 @@ pub fn compress_block(
     static_block: bool,
 ) -> io::Result<bool> {
     if static_block {
-        huff.start_static_block(output)?;
+        huff.start_static_block(output);
     } else {
         huff.start_dynamic_block(output)?;
     }
@@ -1031,11 +1030,11 @@ pub fn flush_block(
         d.lz.init_flag();
 
         if d.params.flags & TDEFL_WRITE_ZLIB_HEADER != 0 && d.params.block_index == 0 {
-            output.put_bits(0x78, 8)?;
-            output.put_bits(0x01, 8)?;
+            output.put_bits(0x78, 8);
+            output.put_bits(0x01, 8);
         }
 
-        output.put_bits((flush == TDEFLFlush::Finish) as u32, 1)?;
+        output.put_bits((flush == TDEFLFlush::Finish) as u32, 1);
 
         saved_buffer = output.save();
 
@@ -1052,17 +1051,17 @@ pub fn flush_block(
         if use_raw_block || expanded {
             output.load(saved_buffer);
 
-            output.put_bits(0, 2)?;
-            output.pad_to_bytes()?;
+            output.put_bits(0, 2);
+            output.pad_to_bytes();
 
             for _ in 0..2 {
-                output.put_bits(d.lz.total_bytes & 0xFFFF, 16)?;
+                output.put_bits(d.lz.total_bytes & 0xFFFF, 16);
                 d.lz.total_bytes ^= 0xFFFF;
             }
 
             for i in 0..d.lz.total_bytes {
                 let pos = (d.dict.code_buf_dict_pos + i) & TDEFL_LZ_DICT_SIZE_MASK;
-                output.put_bits(d.dict.dict[pos as usize] as u32, 8)?;
+                output.put_bits(d.dict.dict[pos as usize] as u32, 8);
             }
         } else if !comp_success {
             output.load(saved_buffer);
@@ -1071,19 +1070,19 @@ pub fn flush_block(
 
         if flush != TDEFLFlush::None {
             if flush == TDEFLFlush::Finish {
-                output.pad_to_bytes()?;
+                output.pad_to_bytes();
                 if d.params.flags & TDEFL_WRITE_ZLIB_HEADER != 0 {
                     let mut adler = d.params.adler32;
                     for _ in 0..4 {
-                        output.put_bits((adler >> 24) & 0xFF, 8)?;
+                        output.put_bits((adler >> 24) & 0xFF, 8);
                         adler <<= 8;
                     }
                 }
             } else {
-                output.put_bits(0, 3)?;
-                output.pad_to_bytes()?;
-                output.put_bits(0, 16)?;
-                output.put_bits(0xFFFF, 16)?;
+                output.put_bits(0, 3);
+                output.pad_to_bytes();
+                output.put_bits(0, 16);
+                output.put_bits(0xFFFF, 16);
             }
         }
 
