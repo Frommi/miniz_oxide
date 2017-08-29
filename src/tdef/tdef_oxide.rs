@@ -792,9 +792,9 @@ impl DictOxide {
                     p += 8;
                     q += 8;
                 } else {
-                    let leading = xor_data.trailing_zeros();
+                    let trailing = xor_data.trailing_zeros();
 
-                    let probe_len = p - pos + (leading >> 3);
+                    let probe_len = p - pos + (trailing >> 3);
                     if probe_len > match_len {
                         match_dist = dist;
                         match_len = cmp::min(max_match_len, probe_len);
@@ -1152,16 +1152,22 @@ pub fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) ->
         Some(in_buf) => in_buf,
     };
 
-    while src_pos < in_buf.len() || (d.params.flush != TDEFLFlush::None && d.dict.lookahead_size != 0) {
+    let mut lookahead_size = d.dict.lookahead_size;
+    let mut lookahead_pos = d.dict.lookahead_pos;
+    let mut saved_lit = d.params.saved_lit;
+    let mut saved_match_dist = d.params.saved_match_dist;
+    let mut saved_match_len = d.params.saved_match_len;
+
+    while src_pos < in_buf.len() || (d.params.flush != TDEFLFlush::None && lookahead_size != 0) {
         let src_buf_left = in_buf.len() - src_pos;
-        let num_bytes_to_process = cmp::min(src_buf_left, TDEFL_MAX_MATCH_LEN - d.dict.lookahead_size as usize);
-        if d.dict.lookahead_size + d.dict.size >= TDEFL_MIN_MATCH_LEN - 1 {
-            let mut dst_pos = (d.dict.lookahead_pos + d.dict.lookahead_size) & TDEFL_LZ_DICT_SIZE_MASK;
-            let mut ins_pos = d.dict.lookahead_pos + d.dict.lookahead_size - 2;
+        let num_bytes_to_process = cmp::min(src_buf_left, TDEFL_MAX_MATCH_LEN - lookahead_size as usize);
+        if lookahead_size + d.dict.size >= TDEFL_MIN_MATCH_LEN - 1 {
+            let mut dst_pos = (lookahead_pos + lookahead_size) & TDEFL_LZ_DICT_SIZE_MASK;
+            let mut ins_pos = lookahead_pos + lookahead_size - 2;
             let mut hash = ((d.dict.dict[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] as u32) << TDEFL_LZ_HASH_SHIFT) ^
                 (d.dict.dict[((ins_pos + 1) & TDEFL_LZ_DICT_SIZE_MASK) as usize] as u32);
 
-            d.dict.lookahead_size += num_bytes_to_process as u32;
+            lookahead_size += num_bytes_to_process as u32;
             for &c in &in_buf[src_pos..src_pos + num_bytes_to_process] {
                 d.dict.dict[dst_pos as usize] = c;
                 if (dst_pos as usize) < TDEFL_MAX_MATCH_LEN - 1 {
@@ -1177,15 +1183,15 @@ pub fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) ->
             src_pos += num_bytes_to_process;
         } else {
             for &c in &in_buf[src_pos..src_pos + num_bytes_to_process] {
-                let dst_pos = (d.dict.lookahead_pos + d.dict.lookahead_size) & TDEFL_LZ_DICT_SIZE_MASK;
+                let dst_pos = (lookahead_pos + lookahead_size) & TDEFL_LZ_DICT_SIZE_MASK;
                 d.dict.dict[dst_pos as usize] = c;
                 if (dst_pos as usize) < TDEFL_MAX_MATCH_LEN - 1 {
                     d.dict.dict[TDEFL_LZ_DICT_SIZE + dst_pos as usize] = c;
                 }
 
-                d.dict.lookahead_size += 1;
-                if d.dict.lookahead_size + d.dict.size >= TDEFL_MIN_MATCH_LEN {
-                    let ins_pos = d.dict.lookahead_pos + d.dict.lookahead_size - 3;
+                lookahead_size += 1;
+                if lookahead_size + d.dict.size >= TDEFL_MIN_MATCH_LEN {
+                    let ins_pos = lookahead_pos + lookahead_size - 3;
                     let hash = (((d.dict.dict[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] as u32) << (TDEFL_LZ_HASH_SHIFT * 2)) ^
                         (((d.dict.dict[((ins_pos + 1) & TDEFL_LZ_DICT_SIZE_MASK) as usize] as u32) << TDEFL_LZ_HASH_SHIFT) ^ (c as u32))) &
                         (TDEFL_LZ_HASH_SIZE as u32 - 1);
@@ -1198,25 +1204,25 @@ pub fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) ->
             src_pos += num_bytes_to_process;
         }
 
-        d.dict.size = cmp::min(TDEFL_LZ_DICT_SIZE as u32 - d.dict.lookahead_size, d.dict.size);
-        if d.params.flush == TDEFLFlush::None && (d.dict.lookahead_size as usize) < TDEFL_MAX_MATCH_LEN { break }
+        d.dict.size = cmp::min(TDEFL_LZ_DICT_SIZE as u32 - lookahead_size, d.dict.size);
+        if d.params.flush == TDEFLFlush::None && (lookahead_size as usize) < TDEFL_MAX_MATCH_LEN { break }
 
         let mut len_to_move = 1;
         let mut cur_match_dist = 0;
-        let mut cur_match_len = if d.params.saved_match_len != 0 { d.params.saved_match_len } else { TDEFL_MIN_MATCH_LEN - 1 };
-        let cur_pos = d.dict.lookahead_pos & TDEFL_LZ_DICT_SIZE_MASK;
+        let mut cur_match_len = if saved_match_len != 0 { saved_match_len } else { TDEFL_MIN_MATCH_LEN - 1 };
+        let cur_pos = lookahead_pos & TDEFL_LZ_DICT_SIZE_MASK;
         if d.params.flags & (TDEFL_RLE_MATCHES | TDEFL_FORCE_ALL_RAW_BLOCKS) != 0 {
             if d.dict.size != 0 && d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS == 0 {
                 let c = d.dict.dict[((cur_pos.wrapping_sub(1)) & TDEFL_LZ_DICT_SIZE_MASK) as usize];
-                cur_match_len = d.dict.dict[cur_pos as usize..(cur_pos + d.dict.lookahead_size) as usize]
+                cur_match_len = d.dict.dict[cur_pos as usize..(cur_pos + lookahead_size) as usize]
                     .iter().take_while(|&x| *x == c).count() as u32;
                 if cur_match_len < TDEFL_MIN_MATCH_LEN { cur_match_len = 0 } else { cur_match_dist = 1 }
             }
         } else {
             let dist_len = d.dict.find_match(
-                d.dict.lookahead_pos,
+                lookahead_pos,
                 d.dict.size,
-                d.dict.lookahead_size,
+                lookahead_size,
                 cur_match_dist,
                 cur_match_len,
             );
@@ -1231,22 +1237,22 @@ pub fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) ->
             cur_match_len = 0;
         }
 
-        if d.params.saved_match_len != 0 {
-            if cur_match_len > d.params.saved_match_len {
-                record_literal(&mut d.huff, &mut d.lz, d.params.saved_lit);
+        if saved_match_len != 0 {
+            if cur_match_len > saved_match_len {
+                record_literal(&mut d.huff, &mut d.lz, saved_lit);
                 if cur_match_len >= 128 {
                     record_match(&mut d.huff, &mut d.lz, cur_match_len, cur_match_dist);
-                    d.params.saved_match_len = 0;
+                    saved_match_len = 0;
                     len_to_move = cur_match_len;
                 } else {
-                    d.params.saved_lit = d.dict.dict[cur_pos as usize];
-                    d.params.saved_match_dist = cur_match_dist;
-                    d.params.saved_match_len = cur_match_len;
+                    saved_lit = d.dict.dict[cur_pos as usize];
+                    saved_match_dist = cur_match_dist;
+                    saved_match_len = cur_match_len;
                 }
             } else {
-                record_match(&mut d.huff, &mut d.lz, d.params.saved_match_len, d.params.saved_match_dist);
-                len_to_move = d.params.saved_match_len - 1;
-                d.params.saved_match_len = 0;
+                record_match(&mut d.huff, &mut d.lz, saved_match_len, saved_match_dist);
+                len_to_move = saved_match_len - 1;
+                saved_match_len = 0;
             }
         } else if cur_match_dist == 0 {
             record_literal(&mut d.huff, &mut d.lz, d.dict.dict[cmp::min(cur_pos as usize, d.dict.dict.len() - 1)]);
@@ -1254,14 +1260,14 @@ pub fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) ->
             record_match(&mut d.huff, &mut d.lz, cur_match_len, cur_match_dist);
             len_to_move = cur_match_len;
         } else {
-            d.params.saved_lit = d.dict.dict[cmp::min(cur_pos as usize, d.dict.dict.len() - 1)];
-            d.params.saved_match_dist = cur_match_dist;
-            d.params.saved_match_len = cur_match_len;
+            saved_lit = d.dict.dict[cmp::min(cur_pos as usize, d.dict.dict.len() - 1)];
+            saved_match_dist = cur_match_dist;
+            saved_match_len = cur_match_len;
         }
 
-        d.dict.lookahead_pos += len_to_move;
-        assert!(d.dict.lookahead_size >= len_to_move);
-        d.dict.lookahead_size -= len_to_move;
+        lookahead_pos += len_to_move;
+        assert!(lookahead_size >= len_to_move);
+        lookahead_size -= len_to_move;
         d.dict.size = cmp::min(d.dict.size + len_to_move, TDEFL_LZ_DICT_SIZE as u32);
 
         let lz_buf_tight = d.lz.code_position > TDEFL_LZ_CODE_BUF_SIZE - 8;
@@ -1274,57 +1280,73 @@ pub fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) ->
 
             let n = flush_block(d, callback, TDEFLFlush::None)
                 .unwrap_or(TDEFLStatus::PutBufFailed as i32);
-            if n != 0 { return n > 0 }
+            if n != 0 {
+                d.dict.lookahead_size = lookahead_size;
+                d.dict.lookahead_pos = lookahead_pos;
+                d.params.saved_lit = saved_lit;
+                d.params.saved_match_dist = saved_match_dist;
+                d.params.saved_match_len = saved_match_len;
+                return n > 0
+            }
         }
     }
 
     d.params.src_pos = src_pos;
+    d.dict.lookahead_size = lookahead_size;
+    d.dict.lookahead_pos = lookahead_pos;
+    d.params.saved_lit = saved_lit;
+    d.params.saved_match_dist = saved_match_dist;
+    d.params.saved_match_len = saved_match_len;
     true
 }
 
 const TDEFL_COMP_FAST_LOOKAHEAD_SIZE: u32 = 4096;
 
 pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool {
-    let mut cur_pos = d.dict.lookahead_pos & TDEFL_LZ_DICT_SIZE_MASK;
+    let mut src_pos = d.params.src_pos;
+    let mut lookahead_size = d.dict.lookahead_size;
+    let mut lookahead_pos = d.dict.lookahead_pos;
+
+    let mut cur_pos = lookahead_pos & TDEFL_LZ_DICT_SIZE_MASK;
     let in_buf = match callback.in_buf {
         None => return true,
         Some(in_buf) => in_buf,
     };
 
-    while d.params.src_pos < in_buf.len() || (d.params.flush != TDEFLFlush::None && d.dict.lookahead_size > 0) {
-        let mut dst_pos = ((d.dict.lookahead_pos + d.dict.lookahead_size) & TDEFL_LZ_DICT_SIZE_MASK) as usize;
-        let mut num_bytes_to_process = cmp::min(in_buf.len() - d.params.src_pos, (TDEFL_COMP_FAST_LOOKAHEAD_SIZE - d.dict.lookahead_size) as usize);
-        d.dict.lookahead_size += num_bytes_to_process as u32;
+    while src_pos < in_buf.len() || (d.params.flush != TDEFLFlush::None && lookahead_size > 0) {
+        let mut dst_pos = ((lookahead_pos + lookahead_size) & TDEFL_LZ_DICT_SIZE_MASK) as usize;
+        let mut num_bytes_to_process = cmp::min(in_buf.len() - src_pos, (TDEFL_COMP_FAST_LOOKAHEAD_SIZE - lookahead_size) as usize);
+        lookahead_size += num_bytes_to_process as u32;
 
         while num_bytes_to_process != 0 {
             let n = cmp::min(TDEFL_LZ_DICT_SIZE - dst_pos , num_bytes_to_process);
             &mut d.dict.dict[dst_pos..dst_pos + n]
-                .copy_from_slice(&in_buf[d.params.src_pos..d.params.src_pos + n]);
+                .copy_from_slice(&in_buf[src_pos..src_pos + n]);
 
             if dst_pos < TDEFL_MAX_MATCH_LEN - 1 {
                 let m = cmp::min(n, TDEFL_MAX_MATCH_LEN - 1 - dst_pos);
                 &mut d.dict.dict[dst_pos + TDEFL_LZ_DICT_SIZE..dst_pos + TDEFL_LZ_DICT_SIZE + m]
-                    .copy_from_slice(&in_buf[d.params.src_pos..d.params.src_pos + m]);
+                    .copy_from_slice(&in_buf[src_pos..src_pos + m]);
             }
 
-            d.params.src_pos += n;
+            src_pos += n;
             dst_pos = (dst_pos + n) & TDEFL_LZ_DICT_SIZE_MASK as usize;
             num_bytes_to_process -= n;
         }
 
-        d.dict.size = cmp::min(TDEFL_LZ_DICT_SIZE as u32 - d.dict.lookahead_size, d.dict.size);
-        if d.params.flush == TDEFLFlush::None && d.dict.lookahead_size < TDEFL_COMP_FAST_LOOKAHEAD_SIZE {
+        d.dict.size = cmp::min(TDEFL_LZ_DICT_SIZE as u32 - lookahead_size, d.dict.size);
+        if d.params.flush == TDEFLFlush::None && lookahead_size < TDEFL_COMP_FAST_LOOKAHEAD_SIZE {
             break;
         }
 
-        while d.dict.lookahead_size >= 4 {
+        while lookahead_size >= 4 {
             let mut cur_match_len = 1;
             let first_trigram = d.dict.read_unaligned::<u32>(cur_pos as isize) & 0xFFFFFF;
             let hash = (first_trigram ^ (first_trigram >> (24 - (TDEFL_LZ_HASH_BITS - 8)))) & TDEFL_LEVEL1_HASH_SIZE_MASK;
             let mut probe_pos = d.dict.hash[hash as usize] as u32;
-            d.dict.hash[hash as usize] = d.dict.lookahead_pos as u16;
+            d.dict.hash[hash as usize] = lookahead_pos as u16;
 
-            let mut cur_match_dist = (d.dict.lookahead_pos - probe_pos) as u16;
+            let mut cur_match_dist = (lookahead_pos - probe_pos) as u16;
             if cur_match_dist as u32 <= d.dict.size {
                 probe_pos &= TDEFL_LZ_DICT_SIZE_MASK;
                 let trigram = d.dict.read_unaligned::<u32>(probe_pos as isize) & 0xFFFFFF;
@@ -1361,7 +1383,7 @@ pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> b
                         *d.lz.get_flag() >>= 1;
                         d.huff.count[0][first_trigram as u8 as usize] += 1;
                     } else {
-                        cur_match_len = cmp::min(cur_match_len, d.dict.lookahead_size);
+                        cur_match_len = cmp::min(cur_match_len, lookahead_size);
                         assert!(cur_match_len >= TDEFL_MIN_MATCH_LEN);
                         assert!(cur_match_dist >= 1);
                         assert!(cur_match_dist as usize <= TDEFL_LZ_DICT_SIZE);
@@ -1394,26 +1416,34 @@ pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> b
 
                 d.lz.consume_flag();
                 d.lz.total_bytes += cur_match_len;
-                d.dict.lookahead_pos += cur_match_len;
+                lookahead_pos += cur_match_len;
                 d.dict.size = cmp::min(d.dict.size + cur_match_len, TDEFL_LZ_DICT_SIZE as u32);
                 cur_pos = (cur_pos + cur_match_len) & TDEFL_LZ_DICT_SIZE_MASK;
-                assert!(d.dict.lookahead_size >= cur_match_len);
-                d.dict.lookahead_size -= cur_match_len;
+                assert!(lookahead_size >= cur_match_len);
+                lookahead_size -= cur_match_len;
 
                 if d.lz.code_position > TDEFL_LZ_CODE_BUF_SIZE - 8 {
                     let n = match flush_block(d, callback, TDEFLFlush::None) {
                         Err(_) => {
                             d.params.prev_return_status = TDEFLStatus::PutBufFailed;
+                            d.params.src_pos = src_pos;
+                            d.dict.lookahead_size = lookahead_size;
+                            d.dict.lookahead_pos = lookahead_pos;
                             return false;
                         },
                         Ok(status) => status
                     };
-                    if n != 0 { return n > 0 }
+                    if n != 0 {
+                        d.params.src_pos = src_pos;
+                        d.dict.lookahead_size = lookahead_size;
+                        d.dict.lookahead_pos = lookahead_pos;
+                        return n > 0
+                    }
                 }
             }
         }
 
-        while d.dict.lookahead_size != 0 {
+        while lookahead_size != 0 {
             let lit = d.dict.dict[cur_pos as usize];
             d.lz.total_bytes += 1;
             d.lz.write_code(lit);
@@ -1421,24 +1451,35 @@ pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> b
             d.lz.consume_flag();
 
             d.huff.count[0][lit as usize] += 1;
-            d.dict.lookahead_pos += 1;
+            lookahead_pos += 1;
             d.dict.size = cmp::min(d.dict.size + 1, TDEFL_LZ_DICT_SIZE as u32);
             cur_pos = (cur_pos + 1) & TDEFL_LZ_DICT_SIZE_MASK;
-            d.dict.lookahead_size -= 1;
+            lookahead_size -= 1;
 
             if d.lz.code_position > TDEFL_LZ_CODE_BUF_SIZE - 8 {
                 let n = match flush_block(d, callback, TDEFLFlush::None) {
                     Err(_) => {
                         d.params.prev_return_status = TDEFLStatus::PutBufFailed;
+                        d.params.src_pos = src_pos;
+                        d.dict.lookahead_size = lookahead_size;
+                        d.dict.lookahead_pos = lookahead_pos;
                         return false;
                     },
                     Ok(status) => status
                 };
-                if n != 0 { return n > 0 }
+                if n != 0 {
+                    d.params.src_pos = src_pos;
+                    d.dict.lookahead_size = lookahead_size;
+                    d.dict.lookahead_pos = lookahead_pos;
+                    return n > 0
+                }
             }
         }
     }
 
+    d.params.src_pos = src_pos;
+    d.dict.lookahead_size = lookahead_size;
+    d.dict.lookahead_pos = lookahead_pos;
     true
 }
 
