@@ -878,8 +878,6 @@ pub fn decompress_oxide(
                     let match_end_pos = cmp::max(source_pos, out_buf.position() as usize)
                         + r.counter as usize;
 
-
-
                     let mut out_pos = out_buf.position() as usize;
 
                     if match_end_pos > out_len ||
@@ -902,13 +900,15 @@ pub fn decompress_oxide(
                             if r.counter <= r.dist {
                                 if source_pos < out_pos {
                                     let (from_slice, to_slice) = out_slice.split_at_mut(out_pos);
-                                    copy_data(&from_slice[source_pos..source_pos + match_len],
-                                               &mut to_slice[..match_len]
+                                    copy_data(
+                                        &from_slice[source_pos..source_pos + match_len],
+                                        &mut to_slice[..match_len]
                                     );
                                 } else {
                                     let (to_slice, from_slice) = out_slice.split_at_mut(source_pos);
-                                    copy_data(&from_slice[..match_len],
-                                              &mut to_slice[out_pos..out_pos + match_len]
+                                    copy_data(
+                                        &from_slice[..match_len],
+                                        &mut to_slice[out_pos..out_pos + match_len]
                                     );
                                 }
                                 out_pos += match_len;
@@ -947,19 +947,30 @@ pub fn decompress_oxide(
             },
 
             WRITE_LEN_BYTES_TO_END => {
-                if bytes_left(out_buf) > 0 {
-                    let source_pos = r.dist_from_out_buf_start.wrapping_sub(r.dist as usize) & out_buf_size_mask;
-                    let val = out_buf.get_ref()[source_pos];
-                    r.dist_from_out_buf_start += 1;
-                    write_byte(out_buf, val);
-                    if r.counter == 0 {
-                        Action::Jump(DECODE_LITLEN)
+                let mut counter = r.counter;
+                loop {
+                    let action = if bytes_left(out_buf) > 0 {
+                        let source_pos = r.dist_from_out_buf_start.wrapping_sub(r.dist as usize) & out_buf_size_mask;
+                        let val = out_buf.get_ref()[source_pos];
+                        r.dist_from_out_buf_start += 1;
+                        write_byte(out_buf, val);
+                        if counter == 0 {
+                            Action::Jump(DECODE_LITLEN)
+                        } else {
+                            counter -= 1;
+                            Action::None
+                        }
                     } else {
-                        r.counter -= 1;
-                        Action::None
+                        Action::End(TINFLStatus::HasMoreOutput)
+                    };
+
+                    match action {
+                        Action::None => (),
+                        a => {
+                            r.counter = counter;
+                            break a;
+                        },
                     }
-                } else {
-                    Action::End(TINFLStatus::HasMoreOutput)
                 }
             },
 
