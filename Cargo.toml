@@ -22,7 +22,8 @@ gcc = "0.3"
 [features]
 default = ["build_non_rust"]
 fuzzing = []
-build_non_rust= []
+bench = ["build_non_rust"]
+build_non_rust = []
 
 [profile.dev]
 panic = "abort"

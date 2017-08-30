@@ -1,7 +1,7 @@
-#[cfg(any(feature = "fuzzing", feature = "build_non_rust"))]
+#[cfg(all(not(feature = "fuzzing"), not(feature = "bench"), feature = "build_non_rust"))]
 extern crate gcc;
 
-#[cfg(all(not(feature = "fuzzing"), feature = "build_non_rust"))]
+#[cfg(all(not(feature = "fuzzing"), not(feature = "bench"), feature = "build_non_rust"))]
 fn main() {
     gcc::compile_library("libminiz.a",
                          &["miniz_stub/miniz.c",
@@ -10,7 +10,7 @@ fn main() {
                            "miniz_stub/miniz_tdef.c"]);
 }
 
-#[cfg(feature = "fuzzing")]
+#[cfg(any(feature = "fuzzing", feature = "bench"))]
 fn main() {
     use std::process::Command;
 
