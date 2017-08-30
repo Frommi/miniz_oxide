@@ -309,6 +309,19 @@ pub unsafe extern "C" fn mz_compress(
     mz_compress2(dest, dest_len, source, source_len, CompressionLevel::DefaultCompression as c_int)
 }
 
+#[cfg(target_bit_width = "64")]
+#[inline]
+fn buffer_too_large(source_len: c_ulong, dest_len: c_ulong) -> bool {
+    (source_len | dest_len) > 0xFFFFFFFF
+}
+
+#[cfg(not(target_bit_width = "64"))]
+#[inline]
+fn buffer_too_large(_source_len: c_ulong, _dest_len: c_ulong) -> bool {
+    false
+}
+
+
 #[no_mangle]
 pub unsafe extern "C" fn mz_compress2(
     dest: *mut u8,
@@ -318,7 +331,8 @@ pub unsafe extern "C" fn mz_compress2(
     level: c_int
 ) -> c_int {
     dest_len.as_mut().map_or(MZError::Param as c_int, |dest_len| {
-        if (source_len | *dest_len) > 0xFFFFFFFF {
+
+        if buffer_too_large(source_len, *dest_len) {
             return MZError::Param as c_int;
         }
 
@@ -356,7 +370,7 @@ pub unsafe extern "C" fn mz_uncompress(
     source_len: c_ulong
 ) -> c_int {
     dest_len.as_mut().map_or(MZError::Param as c_int, |dest_len| {
-        if (source_len | *dest_len) > 0xFFFFFFFF {
+        if buffer_too_large(source_len, *dest_len) {
             return MZError::Param as c_int;
         }
 

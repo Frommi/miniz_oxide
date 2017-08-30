@@ -507,7 +507,7 @@ macro_rules! generate_state {
 }
 
 pub struct LocalVars {
-    pub bit_buf: u64,
+    pub bit_buf: BitBuffer,
     pub num_bits: u32,
     pub dist: u32,
     pub counter: u32,
@@ -1037,7 +1037,7 @@ pub fn decompress_oxide(
                     let undo = undo_bytes(&mut l, in_consumed as u32) as usize;
                     in_iter = in_buf[in_consumed - undo..].iter();
 
-                    l.bit_buf &= ((1u64 << l.num_bits) - 1) as BitBuffer;
+                    l.bit_buf &= (((1 as BitBuffer) << l.num_bits) - 1) as BitBuffer;
                     assert!(l.num_bits == 0);
 
                     if flags & TINFL_FLAG_PARSE_ZLIB_HEADER != 0 {
@@ -1089,7 +1089,7 @@ pub fn decompress_oxide(
     r.num_extra = l.num_extra;
     r.dist_from_out_buf_start = l.dist_from_out_buf_start;
 
-    r.bit_buf &= ((1u64 << r.num_bits) - 1) as BitBuffer;
+    r.bit_buf &= (((1 as BitBuffer) << r.num_bits) - 1) as BitBuffer;
 
     let need_adler = flags & (TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_COMPUTE_ADLER32) != 0;
     if need_adler && status as i32 >= 0 {
