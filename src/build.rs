@@ -1,3 +1,4 @@
+#[cfg(any(feature = "fuzzing", feature = "build_non_rust"))]
 extern crate gcc;
 
 #[cfg(all(not(feature = "fuzzing"), feature = "build_non_rust"))]
