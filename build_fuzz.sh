@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+mkdir -p bin
+
 rm bin/libminiz.a
 gcc -O2 -c -fPIC miniz/*.c
 for f in *.o ; do mv "$f" "c_$f" ; done

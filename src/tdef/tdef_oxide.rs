@@ -177,7 +177,7 @@ impl<'a> CallbackOxide<'a> {
                     out_size.map(|size| *size = 0);
                     return Err(TDEFLStatus::BadParam);
                 }
-            }
+            },
             Some(func) => {
                 if out_buf_size > 0 || !out_buf.is_null() {
                     in_size.map(|size| *size = 0);
