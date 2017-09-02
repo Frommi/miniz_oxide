@@ -961,32 +961,23 @@ pub fn decompress_oxide(
                                 }
                                 out_pos += match_len;
                             } else {
-                                // # Optimization
-                                //
-                                // Copy out counter to a local variable and write it back
-                                // afterwards, to encourage it to be put in a register for
-                                // fast access.
-                                let mut counter = l.counter;
-                                while counter >= 3 {
+                                while l.counter >= 3 {
                                     out_slice[out_pos] = out_slice[source_pos];
                                     out_slice[out_pos + 1] = out_slice[source_pos + 1];
                                     out_slice[out_pos + 2] = out_slice[source_pos + 2];
                                     source_pos += 3;
                                     out_pos += 3;
-                                    counter -= 3;
+                                    l.counter -= 3;
                                 }
 
-                                if counter > 0 {
+                                if l.counter > 0 {
                                     out_slice[out_pos] = out_slice[source_pos];
-                                    if counter > 1 {
+                                    if l.counter > 1 {
                                         out_slice[out_pos + 1] = out_slice[source_pos + 1];
                                     }
-                                    out_pos += counter as usize;
+                                    out_pos += l.counter as usize;
                                 }
-                                l.counter = counter;
                             }
-
-
                         }
                         out_buf.set_position(out_pos as u64);
                         Action::Jump(DECODE_LITLEN)
@@ -995,30 +986,19 @@ pub fn decompress_oxide(
             }),
 
             WRITE_LEN_BYTES_TO_END => generate_state!(state, 'state_machine, {
-                let mut counter = l.counter;
-                loop {
-                    let action = if bytes_left(out_buf) > 0 {
-                        let source_pos = l.dist_from_out_buf_start.wrapping_sub(l.dist as usize) & out_buf_size_mask;
-                        let val = out_buf.get_ref()[source_pos];
-                        l.dist_from_out_buf_start += 1;
-                        write_byte(out_buf, val);
-                        if counter == 0 {
-                            Action::Jump(DECODE_LITLEN)
-                        } else {
-                            counter -= 1;
-                            Action::None
-                        }
+                if bytes_left(out_buf) > 0 {
+                    let source_pos = l.dist_from_out_buf_start.wrapping_sub(l.dist as usize) & out_buf_size_mask;
+                    let val = out_buf.get_ref()[source_pos];
+                    l.dist_from_out_buf_start += 1;
+                    write_byte(out_buf, val);
+                    if l.counter == 0 {
+                        Action::Jump(DECODE_LITLEN)
                     } else {
-                        Action::End(TINFLStatus::HasMoreOutput)
-                    };
-
-                    match action {
-                        Action::None => (),
-                        a => {
-                            l.counter = counter;
-                            break a;
-                        },
+                        l.counter -= 1;
+                        Action::None
                     }
+                } else {
+                    Action::End(TINFLStatus::HasMoreOutput)
                 }
             }),
 
@@ -1242,26 +1222,34 @@ mod test {
         (ret.0 & 511, ret.1)
     }
 
-//    #[test]
-//    fn fixed_table_lookup() {
-//        let mut d = tinfl_decompressor::new();
-//        d.block_type = 1;
-//        start_static_table(&mut d);
-//        init_tree(&mut d);
-//        let llt = &d.tables[LITLEN_TABLE];
-//        let dt = &d.tables[DIST_TABLE];
-//        assert_eq!(masked_lookup(llt, 0b00001100), (0, 8));
-//        assert_eq!(masked_lookup(llt, 0b00011110), (72, 8));
-//        assert_eq!(masked_lookup(llt, 0b01011110), (74, 8));
-//        assert_eq!(masked_lookup(llt, 0b11111101), (143, 8));
-//        assert_eq!(masked_lookup(llt, 0b000010011), (144, 9));
-//        assert_eq!(masked_lookup(llt, 0b111111111), (255, 9));
-//        assert_eq!(masked_lookup(llt, 0b00000000), (256, 7));
-//        assert_eq!(masked_lookup(llt, 0b1110100), (279, 7));
-//        assert_eq!(masked_lookup(llt, 0b00000011), (280, 8));
-//        assert_eq!(masked_lookup(llt, 0b11100011), (287, 8));
-//
-//        assert_eq!(masked_lookup(dt, 0), (0, 5));
-//        assert_eq!(masked_lookup(dt, 20), (5, 5));
-//    }
+    #[test]
+    fn fixed_table_lookup() {
+        let mut d = tinfl_decompressor::new();
+        d.block_type = 1;
+        start_static_table(&mut d);
+        let mut l = LocalVars {
+            bit_buf: d.bit_buf,
+            num_bits: d.num_bits,
+            dist: d.dist,
+            counter: d.counter,
+            num_extra: d.num_extra,
+            dist_from_out_buf_start: d.dist_from_out_buf_start,
+        };
+        init_tree(&mut d, &mut l);
+        let llt = &d.tables[LITLEN_TABLE];
+        let dt = &d.tables[DIST_TABLE];
+        assert_eq!(masked_lookup(llt, 0b00001100), (0, 8));
+        assert_eq!(masked_lookup(llt, 0b00011110), (72, 8));
+        assert_eq!(masked_lookup(llt, 0b01011110), (74, 8));
+        assert_eq!(masked_lookup(llt, 0b11111101), (143, 8));
+        assert_eq!(masked_lookup(llt, 0b000010011), (144, 9));
+        assert_eq!(masked_lookup(llt, 0b111111111), (255, 9));
+        assert_eq!(masked_lookup(llt, 0b00000000), (256, 7));
+        assert_eq!(masked_lookup(llt, 0b1110100), (279, 7));
+        assert_eq!(masked_lookup(llt, 0b00000011), (280, 8));
+        assert_eq!(masked_lookup(llt, 0b11100011), (287, 8));
+
+        assert_eq!(masked_lookup(dt, 0), (0, 5));
+        assert_eq!(masked_lookup(dt, 20), (5, 5));
+    }
 }
