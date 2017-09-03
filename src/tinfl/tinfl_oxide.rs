@@ -652,16 +652,16 @@ pub fn decompress_oxide(
             }),
 
             RAW_STORE_FIRST_BYTE => generate_state!(state, 'state_machine, {
-                match out_buf.write_all(&[l.dist as u8]) {
-                    Ok(_) => {
-                        l.counter -= 1;
-                        if l.counter == 0 || l.num_bits == 0 {
-                            Action::Jump(RAW_MEMCPY1)
-                        } else {
-                            Action::Jump(RAW_STORE_FIRST_BYTE)
-                        }
-                    },
-                    Err(_) => Action::End(TINFLStatus::HasMoreOutput),
+                if bytes_left(out_buf) == 0 {
+                    Action::End(TINFLStatus::HasMoreOutput)
+                } else {
+                    write_byte(out_buf, l.dist as u8);
+                    l.counter -= 1;
+                    if l.counter == 0 || l.num_bits == 0 {
+                        Action::Jump(RAW_MEMCPY1)
+                    } else {
+                        Action::Jump(RAW_STORE_FIRST_BYTE)
+                    }
                 }
             }),
 

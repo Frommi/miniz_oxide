@@ -102,7 +102,7 @@ fn compress_mem_to_heap_fast_oxide(b: &mut Bencher) {
     let input = get_test_data();
 
     let mut out_len: usize = 0;
-    let flags = tdefl_create_comp_flags_from_zip_params(0, -15, 0) as i32;
+    let flags = tdefl_create_comp_flags_from_zip_params(1, -15, 0) as i32;
     b.iter(||
         unsafe {
             tdefl_compress_mem_to_heap(
@@ -156,7 +156,7 @@ fn compress_mem_to_heap_fast_miniz(b: &mut Bencher) {
     let input = get_test_data();
 
     let mut out_len: usize = 0;
-    let flags = tdefl_create_comp_flags_from_zip_params(0, -15, 0) as i32;
+    let flags = tdefl_create_comp_flags_from_zip_params(1, -15, 0) as i32;
     b.iter(||
         unsafe {
            c_tdefl_compress_mem_to_heap(
