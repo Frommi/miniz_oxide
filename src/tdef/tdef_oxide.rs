@@ -1351,31 +1351,28 @@ pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> b
                 probe_pos &= TDEFL_LZ_DICT_SIZE_MASK;
                 let trigram = d.dict.read_unaligned::<u32>(probe_pos as isize) & 0xFFFFFF;
                 if first_trigram == trigram {
-                    let mut p = cur_pos as isize;
-                    let mut q = probe_pos as isize;
-                    let mut probe_len = 32;
-
-                    'probe: loop {
-                        for _ in 0..4 {
-                            p += 2;
-                            q += 2;
-                            let p_data = d.dict.read_unaligned::<u16>(p);
-                            let q_data = d.dict.read_unaligned::<u16>(q);
-                            if p_data != q_data {
-                                cur_match_len = (p as u32 - cur_pos) + (d.dict.dict[p as usize] == d.dict.dict[q as usize]) as u32;
-                                break 'probe;
+                    let mut p = (cur_pos + 3) as isize;
+                    let mut q = (probe_pos + 3) as isize;
+                    cur_match_len = 'find_match: loop {
+                        for _ in 0..32 {
+                            let p_data: u64 = d.dict.read_unaligned(p as isize);
+                            let q_data: u64 = d.dict.read_unaligned(q as isize);
+                            let xor_data = p_data ^ q_data;
+                            if xor_data == 0 {
+                                p += 8;
+                                q += 8;
+                            } else {
+                                let trailing = xor_data.trailing_zeros();
+                                break 'find_match p as u32 - cur_pos + (trailing >> 3);
                             }
                         }
-                        probe_len -= 1;
-                        if probe_len == 0 {
-                            cur_match_len = if cur_match_dist == 0 {
-                                0
-                            } else {
-                                TDEFL_MAX_MATCH_LEN as u32
-                            };
-                            break 'probe;
-                        }
-                    }
+
+                        break 'find_match if cur_match_dist == 0 {
+                            0
+                        } else {
+                            TDEFL_MAX_MATCH_LEN as u32
+                        };
+                    };
 
                     if cur_match_len < TDEFL_MIN_MATCH_LEN || (cur_match_len == TDEFL_MIN_MATCH_LEN && cur_match_dist >= 8 * 1024) {
                         cur_match_len = 1;
