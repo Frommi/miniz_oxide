@@ -24,11 +24,13 @@ pub use tdef::{
     tdefl_compress_mem_to_mem,
     compress_to_vec,
     compress_to_vec_zlib,
+    create_comp_flags_from_zip_params,
+    CompressorOxide,
     PutBufFuncPtr
 };
 
 #[allow(bad_style)]
-type tdefl_compressor = tdef::CompressorOxide;
+pub type tdefl_compressor = tdef::CompressorOxide;
 
 mod tinfl;
 pub use tinfl::{
