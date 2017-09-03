@@ -27,3 +27,4 @@ build_non_rust = []
 
 [profile.dev]
 panic = "abort"
+
