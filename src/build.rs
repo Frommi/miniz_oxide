@@ -3,11 +3,12 @@ extern crate gcc;
 
 #[cfg(all(not(feature = "fuzzing"), not(feature = "bench"), feature = "build_non_rust"))]
 fn main() {
-    gcc::compile_library("libminiz.a",
-                         &["miniz_stub/miniz.c",
-                           "miniz_stub/miniz_zip.c",
-                           "miniz_stub/miniz_tinfl.c",
-                           "miniz_stub/miniz_tdef.c"]);
+    gcc::Build::new()
+        .files(&["miniz_stub/miniz.c",
+                              "miniz_stub/miniz_zip.c",
+                              "miniz_stub/miniz_tinfl.c",
+                              "miniz_stub/miniz_tdef.c"])
+        .compile("libminiz.a");
 }
 
 #[cfg(any(feature = "fuzzing", feature = "bench"))]

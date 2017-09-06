@@ -1,7 +1,8 @@
 use super::*;
 
-use std::io::Write;
 use std::{cmp, slice, ptr};
+
+use self::output_buffer::OutputBuffer;
 
 const START: u32 = 0;
 const READ_ZLIB_CMF: u32 = 1;
@@ -37,7 +38,6 @@ const WRITE_LEN_BYTES_TO_END: u32 = 53;
 // Not in miniz - corresponds to main loop end there.
 const BLOCK_DONE: u32 = 100;
 
-const HUFF_DECODE_LOOP_START: u32 = 105;
 const HUFF_DECODE_OUTER_LOOP1: u32 = 101;
 const HUFF_DECODE_OUTER_LOOP2: u32 = 102;
 
@@ -302,11 +302,6 @@ fn decode_huffman_code<F>(
 }
 
 #[inline]
-fn bytes_left(out_buf: &Cursor<&mut [u8]>) -> usize {
-    out_buf.get_ref().len() - out_buf.position() as usize
-}
-
-#[inline]
 fn read_byte<F>(in_iter:  &mut slice::Iter<u8>, flags: u32, f: F) -> Action
     where F: FnOnce(u8) -> Action,
 {
@@ -316,23 +311,6 @@ fn read_byte<F>(in_iter:  &mut slice::Iter<u8>, flags: u32, f: F) -> Action
             f(byte)
         }
     }
-}
-
-/// Write one byte to the cursor.
-///
-/// This is intended for cases where we've already checked that there is space left.
-///
-/// # Panics
-/// Panics if the output buffer is full.
-#[inline]
-fn write_byte(out_buf: &mut Cursor<&mut [u8]>, byte: u8) {
-    // # Optimization
-    //
-    // We avoid using `write` here as it result in a function call to memcpy
-    // rather than a simple write to the current buffer position.
-    let pos = out_buf.position();
-    out_buf.get_mut()[pos as usize] = byte;
-    out_buf.set_position(pos + 1);
 }
 
 #[inline]
@@ -518,14 +496,14 @@ pub struct LocalVars {
 pub fn decompress_oxide(
     r: &mut tinfl_decompressor,
     in_buf: &[u8],
-    out_buf: &mut Cursor<&mut [u8]>,
+    out_cur: &mut Cursor<&mut [u8]>,
     flags: u32,
 ) -> (TINFLStatus, usize, usize) {
-    let out_buf_start_pos = out_buf.position() as usize;
+    let out_buf_start_pos = out_cur.position() as usize;
     let out_buf_size_mask = if flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0 {
         usize::max_value()
     } else {
-        out_buf.get_ref().len() - 1
+        out_cur.get_ref().len() - 1
     };
 
     // Ensure the output buffer's size is a power of 2, unless the output buffer
@@ -538,6 +516,9 @@ pub fn decompress_oxide(
     let mut in_iter = in_buf.iter();
 
     let mut state = r.state;
+
+    let mut out_buf =
+        OutputBuffer::from_slice_and_pos(out_cur.get_mut(), out_buf_start_pos);
 
     // TODO: Borrow instead of Copy
     let mut l = LocalVars {
@@ -585,7 +566,7 @@ pub fn decompress_oxide(
             READ_BLOCK_HEADER => generate_state!(state, 'state_machine, {
                 read_bits(&mut l, 3, &mut in_iter, flags, |l, bits| {
                     r.finish = (bits & 1) as u32;
-                    r.block_type = (bits >> 1) as u32;
+                    r.block_type = (bits >> 1) as u32 & 3;
                     match r.block_type {
                         0 => Action::Jump(BLOCK_TYPE_NO_COMPRESSION),
                         1 => {
@@ -597,7 +578,7 @@ pub fn decompress_oxide(
                             Action::Jump(READ_TABLE_SIZES)
                         },
                         3 => Action::Jump(BLOCK_TYPE_UNEXPECTED),
-                        _ => panic!("Value greater than 3 stored in 2 bits"),
+                        _ => unreachable!()
                     }
                 })
             }),
@@ -652,10 +633,10 @@ pub fn decompress_oxide(
             }),
 
             RAW_STORE_FIRST_BYTE => generate_state!(state, 'state_machine, {
-                if bytes_left(out_buf) == 0 {
+                if out_buf.bytes_left() == 0 {
                     Action::End(TINFLStatus::HasMoreOutput)
                 } else {
-                    write_byte(out_buf, l.dist as u8);
+                    out_buf.write_byte(l.dist as u8);
                     l.counter -= 1;
                     if l.counter == 0 || l.num_bits == 0 {
                         Action::Jump(RAW_MEMCPY1)
@@ -668,7 +649,7 @@ pub fn decompress_oxide(
             RAW_MEMCPY1 => generate_state!(state, 'state_machine, {
                 if l.counter == 0 {
                     Action::Jump(BLOCK_DONE)
-                } else if out_buf.position() as usize == out_buf.get_ref().len() {
+                } else if out_buf.bytes_left() == 0 {
                     Action::End(TINFLStatus::HasMoreOutput)
                 } else {
                     Action::Jump(RAW_MEMCPY2)
@@ -680,15 +661,14 @@ pub fn decompress_oxide(
                     // Copy as many raw bytes as possible from the input to the output.
                     // Raw block lengths are limited to 64 * 1024, so casting through usize and u32
                     // is not an issue.
-                    let space_left = bytes_left(out_buf);
+                    let space_left = out_buf.bytes_left();
                     let bytes_to_copy = cmp::min(cmp::min(
                         space_left,
                         in_iter.len()),
                         l.counter as usize
                     );
 
-                    out_buf.write(&in_iter.as_slice()[..bytes_to_copy])
-                        .expect("Bug! Write fail!");
+                    out_buf.write_slice(&in_iter.as_slice()[..bytes_to_copy]);
 
                     (&mut in_iter).nth(bytes_to_copy - 1);
                     l.counter -= bytes_to_copy as u32;
@@ -777,7 +757,7 @@ pub fn decompress_oxide(
             }),
 
             DECODE_LITLEN => generate_state!(state, 'state_machine, {
-                if in_iter.len() < 4 || bytes_left(out_buf) < 2 {
+                if in_iter.len() < 4 || out_buf.bytes_left() < 2 {
                     // See if we can decode a literal with the data we have left.
                     // Jumps to next state (WRITE_SYMBOL) if successful.
                     decode_huffman_code(r, &mut l, LITLEN_TABLE, flags, &mut in_iter, |_r, l, symbol| {
@@ -824,14 +804,14 @@ pub fn decompress_oxide(
                         l.num_bits -= code_len;
                         // The previous symbol was a literal, so write it directly and check
                         // the next one.
-                        write_byte(out_buf, l.counter as u8);
+                        out_buf.write_byte(l.counter as u8);
                         if (symbol & 256) != 0 {
                             l.counter = symbol as u32;
                             // The symbol is a length value.
                             Action::Jump(HUFF_DECODE_OUTER_LOOP1)
                         } else {
                             // The symbol is a literal, so write it directly and continue.
-                            write_byte(out_buf, symbol as u8);
+                            out_buf.write_byte(symbol as u8);
                             Action::None
                         }
                     }
@@ -842,8 +822,8 @@ pub fn decompress_oxide(
                 if l.counter >= 256 {
                     Action::Jump(HUFF_DECODE_OUTER_LOOP1)
                 } else {
-                    if bytes_left(out_buf) > 0 {
-                        write_byte(out_buf, l.counter as u8);
+                    if out_buf.bytes_left() > 0 {
+                        out_buf.write_byte(l.counter as u8);
                         Action::Jump(DECODE_LITLEN)
                     } else {
                         Action::End(TINFLStatus::HasMoreOutput)
@@ -912,7 +892,7 @@ pub fn decompress_oxide(
 
             HUFF_DECODE_OUTER_LOOP2 => generate_state!(state, 'state_machine, {
                 // A cursor wrapping a slice can't be larger than usize::max.
-                l.dist_from_out_buf_start = out_buf.position() as usize;
+                l.dist_from_out_buf_start = out_buf.position();
                 if l.dist as usize > l.dist_from_out_buf_start &&
                     (flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0) {
                         // We encountered a distance that refers a position before
@@ -923,10 +903,10 @@ pub fn decompress_oxide(
                         out_buf_size_mask;
 
                     let out_len = out_buf.get_ref().len() as usize;
-                    let match_end_pos = cmp::max(source_pos, out_buf.position() as usize)
+                    let match_end_pos = cmp::max(source_pos, out_buf.position())
                         + l.counter as usize;
 
-                    let mut out_pos = out_buf.position() as usize;
+                    let mut out_pos = out_buf.position();
 
                     if match_end_pos > out_len ||
                         // miniz doesn't do this check here. Not sure how it makes sure
@@ -979,18 +959,18 @@ pub fn decompress_oxide(
                                 }
                             }
                         }
-                        out_buf.set_position(out_pos as u64);
+                            out_buf.set_position(out_pos);
                         Action::Jump(DECODE_LITLEN)
                     }
                 }
             }),
 
             WRITE_LEN_BYTES_TO_END => generate_state!(state, 'state_machine, {
-                if bytes_left(out_buf) > 0 {
+                if out_buf.bytes_left() > 0 {
                     let source_pos = l.dist_from_out_buf_start.wrapping_sub(l.dist as usize) & out_buf_size_mask;
                     let val = out_buf.get_ref()[source_pos];
                     l.dist_from_out_buf_start += 1;
-                    write_byte(out_buf, val);
+                    out_buf.write_byte(val);
                     if l.counter == 0 {
                         Action::Jump(DECODE_LITLEN)
                     } else {
@@ -1073,9 +1053,10 @@ pub fn decompress_oxide(
 
     let need_adler = flags & (TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_COMPUTE_ADLER32) != 0;
     if need_adler && status as i32 >= 0 {
+        let out_buf_pos = out_buf.position();
         r.check_adler32 = ::mz_adler32_oxide(
             r.check_adler32,
-            &out_buf.get_ref()[out_buf_start_pos..out_buf.position() as usize]
+            &out_buf.get_ref()[out_buf_start_pos..out_buf_pos]
         );
 
         if status == TINFLStatus::Done && flags & TINFL_FLAG_PARSE_ZLIB_HEADER != 0 && r.check_adler32 != r.z_adler32 {
@@ -1087,7 +1068,7 @@ pub fn decompress_oxide(
     (
         status,
         in_buf.len() - in_iter.len() - in_undo,
-        out_buf.position() as usize - out_buf_start_pos
+        out_buf.position() - out_buf_start_pos
     )
 }
 
@@ -1121,13 +1102,13 @@ mod test {
                     istatus <= TINFL_STATUS_HAS_MORE_OUTPUT,
                     "Invalid status code {}!", istatus);
 
-            let (remaining_start, out_start) = if status == TINFLStatus::BadParam {
+            let (remaining_start, out_start) = if status == TINFL_STATUS_BAD_PARAM {
                 (0, 0)
             } else {
                 (in_buf_size, out_buf_size)
             };
 
-            (status, &input_buffer[remaining_start..], out_start)
+            (TINFLStatus::from_i32(status).unwrap(), &input_buffer[remaining_start..], out_start)
         }
     }
 

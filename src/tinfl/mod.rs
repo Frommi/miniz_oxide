@@ -5,6 +5,7 @@ use std::{slice, mem, ptr, usize};
 use std::io::Cursor;
 
 mod tinfl_oxide;
+mod output_buffer;
 pub use self::tinfl_oxide::*;
 
 pub const TINFL_LZ_DICT_SIZE: usize = 32768;
@@ -77,6 +78,7 @@ const LITLEN_TABLE: usize = 0;
 const DIST_TABLE: usize = 1;
 const HUFFLEN_TABLE: usize = 2;
 
+
 pub const TINFL_FLAG_PARSE_ZLIB_HEADER: u32 = 1;
 pub const TINFL_FLAG_HAS_MORE_INPUT: u32 = 2;
 pub const TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF: u32 = 4;
@@ -90,16 +92,32 @@ pub const TINFL_STATUS_DONE: i32 = 0;
 pub const TINFL_STATUS_NEEDS_MORE_INPUT: i32 = 1;
 pub const TINFL_STATUS_HAS_MORE_OUTPUT: i32 = 2;
 
-#[repr(i32)]
+#[repr(i8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TINFLStatus {
-    FailedCannotMakeProgress = TINFL_STATUS_FAILED_CANNOT_MAKE_PROGRESS,
-    BadParam = TINFL_STATUS_BAD_PARAM,
-    Adler32Mismatch = TINFL_STATUS_ADLER32_MISMATCH,
-    Failed = TINFL_STATUS_FAILED,
-    Done = TINFL_STATUS_DONE,
-    NeedsMoreInput = TINFL_STATUS_NEEDS_MORE_INPUT,
-    HasMoreOutput = TINFL_STATUS_HAS_MORE_OUTPUT,
+    FailedCannotMakeProgress = TINFL_STATUS_FAILED_CANNOT_MAKE_PROGRESS as i8,
+    BadParam = TINFL_STATUS_BAD_PARAM as i8,
+    Adler32Mismatch = TINFL_STATUS_ADLER32_MISMATCH as i8,
+    Failed = TINFL_STATUS_FAILED as i8,
+    Done = TINFL_STATUS_DONE as i8,
+    NeedsMoreInput = TINFL_STATUS_NEEDS_MORE_INPUT as i8,
+    HasMoreOutput = TINFL_STATUS_HAS_MORE_OUTPUT as i8,
+}
+
+impl TINFLStatus {
+    fn from_i32(value: i32) -> Option<TINFLStatus> {
+        use self::TINFLStatus::*;
+        match value {
+            TINFL_STATUS_FAILED_CANNOT_MAKE_PROGRESS => Some(FailedCannotMakeProgress),
+            TINFL_STATUS_BAD_PARAM => Some(BadParam),
+            TINFL_STATUS_ADLER32_MISMATCH => Some(Adler32Mismatch),
+            TINFL_STATUS_FAILED => Some(Failed),
+            TINFL_STATUS_DONE => Some(Done),
+            TINFL_STATUS_NEEDS_MORE_INPUT => Some(NeedsMoreInput),
+            TINFL_STATUS_HAS_MORE_OUTPUT => Some(HasMoreOutput),
+            _ => None,
+        }
+    }
 }
 
 pub const TDEFL_WRITE_ZLIB_HEADER: u32 = 0x01000;
@@ -187,7 +205,7 @@ extern {
         pOut_buf_next: *mut u8,
         pOut_buf_size: *mut size_t,
         decomp_flags: c_uint
-    ) -> TINFLStatus;
+    ) -> c_int;
 }
 
 pub const TINFL_DECOMPRESS_MEM_TO_MEM_FAILED: size_t = usize::MAX;
