@@ -159,6 +159,7 @@ pub unsafe extern "C" fn miniz_def_realloc_func(
     libc::realloc(address, items * size)
 }
 
+#[cfg(feature = "build_non_rust")]
 #[no_mangle]
 pub unsafe extern "C" fn mz_adler32(adler: c_ulong, ptr: *const u8, buf_len: usize) -> c_ulong {
     ptr.as_ref().map_or(MZ_ADLER32_INIT, |r| {
@@ -167,6 +168,7 @@ pub unsafe extern "C" fn mz_adler32(adler: c_ulong, ptr: *const u8, buf_len: usi
     })
 }
 
+#[cfg(feature = "build_non_rust")]
 #[no_mangle]
 pub unsafe extern "C" fn mz_crc32(crc: c_ulong, ptr: *const u8, buf_len: size_t) -> c_ulong {
     ptr.as_ref().map_or(MZ_CRC32_INIT, |r| {

@@ -1044,6 +1044,8 @@ pub fn flush_block(
             comp_success = compress_block(&mut d.huff, &mut output, &mut d.lz, use_static)?;
         }
 
+        // If we failed to compress anything and the output would take up more space than the output
+        // data, output a stored block instead, which has at most 5 bytes of overhead.
         let expanded = (d.lz.total_bytes != 0) &&
             (output.inner.position() - saved_buffer.pos + 1 >= d.lz.total_bytes as u64) &&
             (d.dict.lookahead_pos - d.dict.code_buf_dict_pos <= d.dict.size);
@@ -1277,12 +1279,14 @@ pub fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) ->
 
         if lz_buf_tight || fat_or_raw {
             d.params.src_pos = src_pos;
+            // These values are used in flush_block, so we need to write them back here.
+            d.dict.lookahead_size = lookahead_size;
+            d.dict.lookahead_pos = lookahead_pos;
 
             let n = flush_block(d, callback, TDEFLFlush::None)
                 .unwrap_or(TDEFLStatus::PutBufFailed as i32);
             if n != 0 {
-                d.dict.lookahead_size = lookahead_size;
-                d.dict.lookahead_pos = lookahead_pos;
+
                 d.params.saved_lit = saved_lit;
                 d.params.saved_match_dist = saved_match_dist;
                 d.params.saved_match_len = saved_match_len;
@@ -1420,22 +1424,25 @@ pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> b
                 lookahead_size -= cur_match_len;
 
                 if d.lz.code_position > TDEFL_LZ_CODE_BUF_SIZE - 8 {
+                    // These values are used in flush_block, so we need to write them back here.
+                    d.dict.lookahead_size = lookahead_size;
+                    d.dict.lookahead_pos = lookahead_pos;
+
                     let n = match flush_block(d, callback, TDEFLFlush::None) {
                         Err(_) => {
-                            d.params.prev_return_status = TDEFLStatus::PutBufFailed;
                             d.params.src_pos = src_pos;
-                            d.dict.lookahead_size = lookahead_size;
-                            d.dict.lookahead_pos = lookahead_pos;
+                            d.params.prev_return_status = TDEFLStatus::PutBufFailed;
                             return false;
                         },
                         Ok(status) => status
                     };
                     if n != 0 {
                         d.params.src_pos = src_pos;
-                        d.dict.lookahead_size = lookahead_size;
-                        d.dict.lookahead_pos = lookahead_pos;
                         return n > 0
                     }
+
+                    lookahead_size = d.dict.lookahead_size;
+                    lookahead_pos = d.dict.lookahead_pos;
                 }
             }
         }
@@ -1454,22 +1461,25 @@ pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> b
             lookahead_size -= 1;
 
             if d.lz.code_position > TDEFL_LZ_CODE_BUF_SIZE - 8 {
+                // These values are used in flush_block, so we need to write them back here.
+                d.dict.lookahead_size = lookahead_size;
+                d.dict.lookahead_pos = lookahead_pos;
+
                 let n = match flush_block(d, callback, TDEFLFlush::None) {
                     Err(_) => {
                         d.params.prev_return_status = TDEFLStatus::PutBufFailed;
                         d.params.src_pos = src_pos;
-                        d.dict.lookahead_size = lookahead_size;
-                        d.dict.lookahead_pos = lookahead_pos;
                         return false;
                     },
                     Ok(status) => status
                 };
                 if n != 0 {
                     d.params.src_pos = src_pos;
-                    d.dict.lookahead_size = lookahead_size;
-                    d.dict.lookahead_pos = lookahead_pos;
                     return n > 0
                 }
+
+                lookahead_size = d.dict.lookahead_size;
+                lookahead_pos = d.dict.lookahead_pos;
             }
         }
     }
