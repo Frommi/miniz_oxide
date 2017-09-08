@@ -911,13 +911,19 @@ pub fn decompress_oxide(
                         {
                             let out_slice = out_buf.get_mut();
                             let mut match_len = l.counter as usize;
-                            if match_len <= l.dist as usize && match_len > 3 {
+                            // This is faster on x86, but at least on arm, it's slower, so only
+                            // use it on x86 for now.
+                            if match_len <= l.dist as usize && match_len > 3 &&
+                                (cfg!(any(target_arch = "x86", target_arch ="x86_64"))){
                                 if source_pos < out_pos {
                                     let (from_slice, to_slice) = out_slice.split_at_mut(out_pos);
-                                    to_slice[..match_len].copy_from_slice(&from_slice[source_pos..source_pos + match_len])
+                                    to_slice[..match_len]
+                                        .copy_from_slice(
+                                            &from_slice[source_pos..source_pos + match_len])
                                 } else {
                                     let (to_slice, from_slice) = out_slice.split_at_mut(source_pos);
-                                    to_slice[out_pos..out_pos + match_len].copy_from_slice(&from_slice[..match_len]);
+                                    to_slice[out_pos..out_pos + match_len]
+                                        .copy_from_slice(&from_slice[..match_len]);
                                 }
                                 out_pos += match_len;
                             } else {
@@ -1022,7 +1028,8 @@ pub fn decompress_oxide(
         };
     };
 
-    let in_undo = if status != TINFLStatus::NeedsMoreInput && status != TINFLStatus::FailedCannotMakeProgress {
+    let in_undo = if status != TINFLStatus::NeedsMoreInput &&
+        status != TINFLStatus::FailedCannotMakeProgress {
         undo_bytes(&mut l, (in_buf.len() - in_iter.len()) as u32) as usize
     } else { 0 };
 
