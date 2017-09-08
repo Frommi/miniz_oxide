@@ -141,7 +141,8 @@ type BitBuffer = u32;
 #[repr(C)]
 #[allow(bad_style)]
 pub struct tinfl_decompressor {
-    pub state: u32,
+    //pub state: u32,
+    pub state: tinfl_oxide::State,
     pub num_bits: u32,
     pub z_header0: u32,
     pub z_header1: u32,
@@ -164,7 +165,7 @@ impl tinfl_decompressor {
     /// Create a new tinfl_decompressor with all fields set to 0.
     pub fn new() -> tinfl_decompressor {
         tinfl_decompressor {
-            state: 0,
+            state: tinfl_oxide::State::Start,
             num_bits: 0,
             z_header0: 0,
             z_header1: 0,
@@ -190,7 +191,7 @@ impl tinfl_decompressor {
     /// This is how it's created in miniz.
     pub unsafe fn with_init_state_only() -> tinfl_decompressor {
         let mut decomp: tinfl_decompressor = mem::uninitialized();
-        decomp.state = 0;
+        decomp.state = tinfl_oxide::State::Start;
         decomp
     }
 }
@@ -275,7 +276,8 @@ fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>,(TINFLSta
                     ret.set_len(cap);
                 }
             },
-            _ => return Err((status, decomp.state))
+            // TODO: Return enum directly.
+            _ => return Err((status, decomp.state as u32))
         }
     }
 }

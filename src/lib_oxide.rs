@@ -318,7 +318,7 @@ pub fn mz_inflate_init2_oxide(stream_oxide: &mut StreamOxide<inflate_state>,
 
     stream_oxide.state.alloc_state::<inflate_state>()?;
     let state = stream_oxide.state.as_mut().ok_or(MZError::Mem)?;
-    state.m_decomp.state = 0;
+    state.m_decomp.state = tinfl::State::Start;
     state.m_dict_ofs = 0;
     state.m_dict_avail = 0;
     state.m_last_status = tinfl::TINFLStatus::NeedsMoreInput;
