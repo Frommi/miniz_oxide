@@ -138,24 +138,6 @@ fn transfer_unaligned_u64(buf: &mut &mut[u8], from: isize, to: isize) {
     };
 }
 
-/// Copy data from src to dst.
-#[inline]
-fn copy_data(src: &[u8], dst: &mut [u8]) {
-    // Simple copy for small matches.
-    // This seems to make copying slightly faster.
-    // We also don't bother checking if the lengths match
-    // as that should have already been done earlier.
-    if src.len() == 3 {
-        dst[2] = src[2];
-        dst[1] = src[1];
-        dst[0] = src[0];
-    } else {
-        for (d, s) in dst.iter_mut().zip(src.iter()) {
-            *d = *s;
-        }
-    }
-}
-
 /// Check that the zlib header is correct and that there is enough space in the buffer
 /// for the window size specified in the header.
 ///
@@ -929,29 +911,26 @@ pub fn decompress_oxide(
                         {
                             let out_slice = out_buf.get_mut();
                             let mut match_len = l.counter as usize;
-                            if match_len <= l.dist as usize {
+                            if match_len <= l.dist as usize && match_len > 3 {
                                 if source_pos < out_pos {
                                     let (from_slice, to_slice) = out_slice.split_at_mut(out_pos);
-                                    copy_data(
-                                        &from_slice[source_pos..source_pos + match_len],
-                                        &mut to_slice[..match_len]
-                                    );
+                                    to_slice[..match_len].copy_from_slice(&from_slice[source_pos..source_pos + match_len])
                                 } else {
                                     let (to_slice, from_slice) = out_slice.split_at_mut(source_pos);
-                                    copy_data(
-                                        &from_slice[..match_len],
-                                        &mut to_slice[out_pos..out_pos + match_len]
-                                    );
+                                    to_slice[out_pos..out_pos + match_len].copy_from_slice(&from_slice[..match_len]);
                                 }
                                 out_pos += match_len;
                             } else {
-                                while match_len >= 3 {
+                                loop {
                                     out_slice[out_pos] = out_slice[source_pos];
                                     out_slice[out_pos + 1] = out_slice[source_pos + 1];
                                     out_slice[out_pos + 2] = out_slice[source_pos + 2];
                                     source_pos += 3;
                                     out_pos += 3;
                                     match_len -= 3;
+                                    if match_len < 3 {
+                                        break;
+                                    }
                                 }
 
                                 if match_len > 0 {
@@ -1170,7 +1149,6 @@ mod test {
         assert_eq!(a_buf.as_slice(), b_buf.as_slice());
         assert_eq!(a.z_header0, b.z_header0);
         //assert_eq!(a.state, b.state);
-        // TODO: Fully check that a and b are equal.
     }
 
     #[test]
