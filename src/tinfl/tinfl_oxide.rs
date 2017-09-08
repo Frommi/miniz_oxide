@@ -4,42 +4,42 @@ use std::{cmp, slice, ptr};
 
 use self::output_buffer::OutputBuffer;
 
-const START: u32 = 0;
-const READ_ZLIB_CMF: u32 = 1;
-const READ_ZLIB_FLG: u32 = 2;
-const READ_BLOCK_HEADER: u32 = 3;
-const BLOCK_TYPE_NO_COMPRESSION: u32 = 5;
-const RAW_HEADER1: u32 = 6;
-const RAW_HEADER2: u32 = 7;
-const RAW_MEMCPY1: u32 = 9;
-const BLOCK_TYPE_UNEXPECTED: u32 = 10;
-const READ_TABLE_SIZES: u32 = 11;
-const READ_HUFFLEN_TABLE_CODE_SIZE: u32 = 14;
-const READ_LITLEN_DIST_TABLES_CODE_SIZE: u32 = 16;
-const BAD_CODE_SIZE_DIST_PREV_LOOKUP: u32 = 17;
-const READ_EXTRA_BITS_CODE_SIZE: u32 = 18;
-const BAD_CODE_SIZE_SUM: u32 = 21;
-const DECODE_LITLEN: u32 = 23;
-const WRITE_SYMBOL: u32 = 24;
-const READ_EXTRA_BITS_LITLEN: u32 = 25;
-const DECODE_DISTANCE: u32 = 26;
-const READ_EXTRA_BITS_DISTANCE: u32 = 27;
-const DONE_FOREVER: u32 = 34;
-const BAD_TOTAL_SYMBOLS: u32 = 35;
-const BAD_ZLIB_HEADER: u32 = 36;
-const DISTANCE_OUT_OF_BOUNDS: u32 = 37;
-const RAW_MEMCPY2: u32 = 38;
-const BAD_RAW_LENGTH: u32 = 39;
-const READ_ADLER32: u32 = 41;
-const RAW_READ_FIRST_BYTE: u32 = 51;
-const RAW_STORE_FIRST_BYTE: u32 = 52;
-const WRITE_LEN_BYTES_TO_END: u32 = 53;
+const START: u8 = 0;
+const READ_ZLIB_CMF: u8 = 1;
+const READ_ZLIB_FLG: u8 = 2;
+const READ_BLOCK_HEADER: u8 = 3;
+const BLOCK_TYPE_NO_COMPRESSION: u8 = 5;
+const RAW_HEADER1: u8 = 6;
+const RAW_HEADER2: u8 = 7;
+const RAW_MEMCPY1: u8 = 9;
+const BLOCK_TYPE_UNEXPECTED: u8 = 10;
+const READ_TABLE_SIZES: u8 = 11;
+const READ_HUFFLEN_TABLE_CODE_SIZE: u8 = 14;
+const READ_LITLEN_DIST_TABLES_CODE_SIZE: u8 = 16;
+const BAD_CODE_SIZE_DIST_PREV_LOOKUP: u8 = 17;
+const READ_EXTRA_BITS_CODE_SIZE: u8 = 18;
+const BAD_CODE_SIZE_SUM: u8 = 21;
+const DECODE_LITLEN: u8 = 23;
+const WRITE_SYMBOL: u8 = 24;
+const READ_EXTRA_BITS_LITLEN: u8 = 25;
+const DECODE_DISTANCE: u8 = 26;
+const READ_EXTRA_BITS_DISTANCE: u8 = 27;
+const DONE_FOREVER: u8 = 34;
+const BAD_TOTAL_SYMBOLS: u8 = 35;
+const BAD_ZLIB_HEADER: u8 = 36;
+const DISTANCE_OUT_OF_BOUNDS: u8 = 37;
+const RAW_MEMCPY2: u8 = 38;
+const BAD_RAW_LENGTH: u8 = 39;
+const READ_ADLER32: u8 = 41;
+const RAW_READ_FIRST_BYTE: u8 = 51;
+const RAW_STORE_FIRST_BYTE: u8 = 52;
+const WRITE_LEN_BYTES_TO_END: u8 = 53;
 
 // Not in miniz - corresponds to main loop end there.
-const BLOCK_DONE: u32 = 100;
+const BLOCK_DONE: u8 = 100;
 
-const HUFF_DECODE_OUTER_LOOP1: u32 = 101;
-const HUFF_DECODE_OUTER_LOOP2: u32 = 102;
+const HUFF_DECODE_OUTER_LOOP1: u8 = 101;
+const HUFF_DECODE_OUTER_LOOP2: u8 = 102;
 
 // Not sure why miniz uses 32-bit values for these, maybe alignment/cache again?
 // # Optimization
@@ -49,27 +49,27 @@ const HUFF_DECODE_OUTER_LOOP2: u32 = 102;
 ///
 /// The base is used together with the value of the extra bits to decode the actual
 /// length/distance values in a match.
-const LENGTH_BASE: [i32; 32] = [
+const LENGTH_BASE: [u16; 32] = [
     3,  4,  5,  6,  7,  8,  9,  10,  11,  13,  15,  17,  19,  23, 27, 31,
     35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258, 0,  0, 0
 ];
 
 /// Number of extra bits for each length code.
-const LENGTH_EXTRA: [i32; 32] = [
+const LENGTH_EXTRA: [u8; 32] = [
     0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1,
     1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4,
     4, 4, 5, 5, 5, 5, 0, 0, 0, 0
 ];
 
 /// Base length for each distance code.
-const DIST_BASE: [i32; 32] = [
+const DIST_BASE: [u16; 32] = [
     1,    2,    3,    4,    5,    7,     9,     13,    17,  25,   33,
     49,   65,   97,   129,  193,  257,   385,   513,   769, 1025, 1537,
     2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577, 0,   0
 ];
 
 /// Number of extra bits for each distance code.
-const DIST_EXTRA: [i32; 32] = [
+const DIST_EXTRA: [u8; 32] = [
     0, 0, 0,  0,  1,  1,  2,  2,  3,  3,
     4, 4, 5,  5,  6,  6,  7,  7,  8,  8,
     9, 9, 10, 10, 11, 11, 12, 12, 13, 13,
@@ -186,7 +186,7 @@ fn validate_zlib_header(cmf: u32, flg: u32, flags: u32, mask: usize) -> Action {
 pub enum Action {
     None,
     Next,
-    Jump(u32),
+    Jump(u8),
     End(TINFLStatus),
 }
 
@@ -515,7 +515,7 @@ pub fn decompress_oxide(
 
     let mut in_iter = in_buf.iter();
 
-    let mut state = r.state;
+    let mut state = r.state as u8;
 
     let mut out_buf =
         OutputBuffer::from_slice_and_pos(out_cur.get_mut(), out_buf_start_pos);
@@ -682,7 +682,8 @@ pub fn decompress_oxide(
                 if l.counter < 3 {
                     let num_bits = [5, 5, 4][l.counter as usize];
                     read_bits(&mut l, num_bits, &mut in_iter, flags, |l, bits| {
-                        r.table_sizes[l.counter as usize] = bits as u32 + MIN_TABLE_SIZES[l.counter as usize];
+                        r.table_sizes[l.counter as usize] =
+                            bits as u32 + MIN_TABLE_SIZES[l.counter as usize] as u32;
                         l.counter += 1;
                         Action::None
                     })
@@ -743,7 +744,8 @@ pub fn decompress_oxide(
             READ_EXTRA_BITS_CODE_SIZE => generate_state!(state, 'state_machine, {
                 let num_extra = l.num_extra;
                 read_bits(&mut l, num_extra, &mut in_iter, flags, |l, mut extra_bits| {
-                    extra_bits += [3, 3, 11][l.dist as usize - 16];
+                    // Mask to avoid a bounds check.
+                    extra_bits += [3, 3, 11][l.dist as usize - 16 & 3];
                     let val = if l.dist == 16 {
                         r.len_codes[l.counter as usize - 1]
                     } else {
@@ -1041,7 +1043,7 @@ pub fn decompress_oxide(
         undo_bytes(&mut l, (in_buf.len() - in_iter.len()) as u32) as usize
     } else { 0 };
 
-    r.state = state;
+    r.state = state.into();
     r.bit_buf = l.bit_buf;
     r.num_bits = l.num_bits;
     r.dist = l.dist;
