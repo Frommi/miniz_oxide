@@ -926,8 +926,8 @@ pub fn decompress_oxide(
                     } else {
                         {
                             let out_slice = out_buf.get_mut();
-                            let match_len = l.counter as usize;
-                            if l.counter <= l.dist {
+                            let mut match_len = l.counter as usize;
+                            if match_len <= l.dist as usize {
                                 if source_pos < out_pos {
                                     let (from_slice, to_slice) = out_slice.split_at_mut(out_pos);
                                     copy_data(
@@ -943,25 +943,27 @@ pub fn decompress_oxide(
                                 }
                                 out_pos += match_len;
                             } else {
-                                while l.counter >= 3 {
+                                while match_len >= 3 {
                                     out_slice[out_pos] = out_slice[source_pos];
                                     out_slice[out_pos + 1] = out_slice[source_pos + 1];
                                     out_slice[out_pos + 2] = out_slice[source_pos + 2];
                                     source_pos += 3;
                                     out_pos += 3;
-                                    l.counter -= 3;
+                                    match_len -= 3;
                                 }
 
-                                if l.counter > 0 {
+                                if match_len > 0 {
                                     out_slice[out_pos] = out_slice[source_pos];
-                                    if l.counter > 1 {
+                                    if match_len > 1 {
                                         out_slice[out_pos + 1] = out_slice[source_pos + 1];
                                     }
-                                    out_pos += l.counter as usize;
+                                    out_pos += match_len;
                                 }
+                                l.counter = match_len as u32;
                             }
                         }
-                            out_buf.set_position(out_pos);
+
+                        out_buf.set_position(out_pos);
                         Action::Jump(DECODE_LITLEN)
                     }
                 }
@@ -983,10 +985,6 @@ pub fn decompress_oxide(
                     Action::End(TINFLStatus::HasMoreOutput)
                 }
             }),
-
-            BAD_ZLIB_HEADER | BAD_RAW_LENGTH | BLOCK_TYPE_UNEXPECTED | DISTANCE_OUT_OF_BOUNDS |
-            BAD_TOTAL_SYMBOLS | BAD_CODE_SIZE_DIST_PREV_LOOKUP | BAD_CODE_SIZE_SUM
-                => break TINFLStatus::Failed,
 
             DONE_FOREVER => break TINFLStatus::Done,
 
@@ -1035,7 +1033,10 @@ pub fn decompress_oxide(
                 }
             }),
 
-            _ => panic!("Unknown state"),
+            // Anything else indicates failure.
+            // BAD_ZLIB_HEADER | BAD_RAW_LENGTH | BLOCK_TYPE_UNEXPECTED | DISTANCE_OUT_OF_BOUNDS |
+            // BAD_TOTAL_SYMBOLS | BAD_CODE_SIZE_DIST_PREV_LOOKUP | BAD_CODE_SIZE_SUM
+            _ => break TINFLStatus::Failed,
         };
     };
 
