@@ -1,29 +1,141 @@
-use super::*;
+use std::{cmp, ptr, mem, slice};
+use std::io::Cursor;
 
+use libc::{self, c_ulong, c_void, c_uint, c_int, c_char, size_t};
 use adler32::RollingAdler32;
 use crc::{crc32, Hasher32};
 
-use miniz_oxide::inflate::{self, inflate_flags};
+use inflate::{self, tinfl_decompressor, TINFLStatus, TINFL_LZ_DICT_SIZE, inflate_flags};
 
-use tdef::TDEFL_COMPUTE_ADLER32;
-use tdef::TDEFLStatus;
-use tdef::TDEFLFlush;
+pub const MZ_DEFLATED: c_int = 8;
+pub const MZ_DEFAULT_WINDOW_BITS: c_int = 15;
 
+pub const MZ_ADLER32_INIT: c_ulong = 1;
+pub const MZ_CRC32_INIT: c_ulong = 0;
 
-pub fn mz_adler32_oxide(adler: c_uint, data: &[u8]) -> c_uint {
+pub fn update_adler32(adler: c_uint, data: &[u8]) -> c_uint {
     let mut hash = RollingAdler32::from_value(adler);
     hash.update_buffer(data);
     hash.hash()
 }
 
-pub fn mz_crc32_oxide(crc32: c_uint, data: &[u8]) -> c_uint {
+pub fn update_crc32(crc32: c_uint, data: &[u8]) -> c_uint {
     let mut digest = crc32::Digest::new_with_initial(crc32::IEEE, crc32);
     digest.write(data);
     digest.sum32()
 }
 
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum MZFlush {
+    None = 0,
+    Partial = 1,
+    Sync = 2,
+    Full = 3,
+    Finish = 4,
+    Block = 5
+}
+
+impl MZFlush {
+    pub fn new(flush: c_int) -> Result<Self, MZError> {
+        match flush {
+            0 => Ok(MZFlush::None),
+            1 => Ok(MZFlush::Sync),
+            2 => Ok(MZFlush::Sync),
+            3 => Ok(MZFlush::Full),
+            4 => Ok(MZFlush::Finish),
+            _ => Err(MZError::Param)
+        }
+    }
+}
+
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum MZStatus {
+    Ok = 0,
+    StreamEnd = 1,
+    NeedDict = 2
+}
+
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum MZError {
+    ErrNo = -1,
+    Stream = -2,
+    Data = -3,
+    Mem = -4,
+    Buf = -5,
+    Version = -6,
+    Param = -10000
+}
+
+#[allow(bad_style)]
+pub enum mz_internal_state {}
+#[allow(bad_style)]
+pub type mz_alloc_func = unsafe extern "C" fn(*mut c_void, size_t, size_t) -> *mut c_void;
+#[allow(bad_style)]
+pub type mz_free_func = unsafe extern "C" fn(*mut c_void, *mut c_void);
+
+#[repr(C)]
+#[allow(bad_style)]
+pub struct inflate_state {
+    pub m_decomp: tinfl_decompressor,
+
+    pub m_dict_ofs: c_uint,
+    pub m_dict_avail: c_uint,
+    pub m_first_call: c_uint,
+    pub m_has_flushed: c_uint,
+
+    pub m_window_bits: c_int,
+    pub m_dict: [u8; TINFL_LZ_DICT_SIZE],
+    pub m_last_status: TINFLStatus,
+}
+
+#[repr(C)]
+#[derive(Debug)]
+#[allow(bad_style)]
+pub struct mz_stream {
+    pub next_in: *const u8,
+    pub avail_in: c_uint,
+    pub total_in: c_ulong,
+
+    pub next_out: *mut u8,
+    pub avail_out: c_uint,
+    pub total_out: c_ulong,
+
+    pub msg: *const c_char,
+    pub state: *mut mz_internal_state,
+
+    pub zalloc: Option<mz_alloc_func>,
+    pub zfree: Option<mz_free_func>,
+    pub opaque: *mut c_void,
+
+    pub data_type: c_int,
+    pub adler: c_ulong,
+    pub reserved: c_ulong,
+}
+
+pub type MZResult = Result<MZStatus, MZError>;
+
+pub unsafe extern "C" fn def_alloc_func(_opaque: *mut c_void, items: size_t, size: size_t) -> *mut c_void {
+    libc::malloc(items * size)
+}
+
+pub unsafe extern "C" fn def_free_func(_opaque: *mut c_void, address: *mut c_void) {
+    libc::free(address)
+}
+
+pub unsafe extern "C" fn def_realloc_func(
+    _opaque: *mut c_void,
+    address: *mut c_void,
+    items: size_t, size:
+    size_t
+) -> *mut c_void {
+    libc::realloc(address, items * size)
+}
+
 pub trait StateType {}
-impl StateType for tdefl_compressor {}
+//impl StateType for tdefl_compressor {}
 impl StateType for inflate_state {}
 
 pub struct BoxedState<ST: StateType> {
@@ -55,8 +167,8 @@ impl<ST: StateType> BoxedState<ST> {
     pub fn new(stream: &mut mz_stream) -> Self {
         BoxedState {
             inner: stream.state as *mut ST,
-            alloc: stream.zalloc.unwrap_or(miniz_def_alloc_func),
-            free: stream.zfree.unwrap_or(miniz_def_free_func),
+            alloc: stream.zalloc.unwrap_or(def_alloc_func),
+            free: stream.zfree.unwrap_or(def_free_func),
             opaque: stream.opaque
         }
     }
@@ -144,7 +256,7 @@ impl<'io, ST: StateType> StreamOxide<'io, ST> {
 fn invalid_window_bits(window_bits: c_int) -> bool {
     (window_bits != MZ_DEFAULT_WINDOW_BITS) && (-window_bits != MZ_DEFAULT_WINDOW_BITS)
 }
-
+/*
 pub fn mz_compress2_oxide(
     stream_oxide: &mut StreamOxide<tdefl_compressor>,
     level: c_int,
@@ -284,7 +396,7 @@ pub fn mz_deflate_end_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) ->
     stream_oxide.state.free_state();
     Ok(MZStatus::Ok)
 }
-
+*/
 pub fn mz_uncompress2_oxide(stream_oxide: &mut StreamOxide<inflate_state>,
                             dest_len: &mut c_ulong) -> MZResult
 {
@@ -468,6 +580,7 @@ pub fn mz_inflate_end_oxide(stream_oxide: &mut StreamOxide<inflate_state>) -> MZ
 }
 
 // TODO: probably not covered by tests
+/*
 pub fn mz_deflate_reset_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) -> MZResult {
     let state = stream_oxide.state.as_mut().ok_or(MZError::Stream)?;
     stream_oxide.total_in = 0;
@@ -475,3 +588,4 @@ pub fn mz_deflate_reset_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) 
     *state = tdef::CompressorOxide::new(None, state.get_flags() as u32);
     Ok(MZStatus::Ok)
 }
+*/

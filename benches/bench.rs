@@ -1,6 +1,7 @@
 #![feature(test)]
 
 extern crate libc;
+extern crate miniz_oxide_c_api;
 extern crate miniz_oxide;
 extern crate test;
 
@@ -9,11 +10,11 @@ use std::io::Read;
 use std::{ops, ptr};
 use libc::{c_void, c_int};
 
-use miniz_oxide::{
-    decompress_to_vec,
+use miniz_oxide::inflate::{decompress_to_vec, decompress_to_vec_zlib};
+
+use miniz_oxide_c_api::{
     compress_to_vec,
     compress_to_vec_zlib,
-    decompress_to_vec_zlib,
 
     create_comp_flags_from_zip_params,
     tdefl_compress_mem_to_heap,

@@ -1,8 +1,10 @@
 extern crate miniz_oxide;
+extern crate miniz_oxide_c_api;
 
 use std::io::Read;
 
-use miniz_oxide::{decompress_to_vec, compress_to_vec};
+use miniz_oxide::inflate::{decompress_to_vec};
+use miniz_oxide_c_api::compress_to_vec;
 
 fn get_test_file_data(name: &str) -> Vec<u8> {
     use std::fs::File;

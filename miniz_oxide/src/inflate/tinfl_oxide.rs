@@ -1,4 +1,5 @@
 use super::*;
+use lib_oxide::update_adler32;
 
 use std::{cmp, slice, ptr};
 
@@ -1046,7 +1047,7 @@ pub fn decompress_oxide(
     let need_adler = flags & (TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_COMPUTE_ADLER32) != 0;
     if need_adler && status as i32 >= 0 {
         let out_buf_pos = out_buf.position();
-        r.check_adler32 = ::mz_adler32_oxide(
+        r.check_adler32 = update_adler32(
             r.check_adler32,
             &out_buf.get_ref()[out_buf_start_pos..out_buf_pos]
         );
@@ -1068,41 +1069,9 @@ pub fn decompress_oxide(
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::io::Cursor;
+    //use std::io::Cursor;
 
-    #[cfg(feature = "build_non_rust")]
-    fn tinfl_decompress_miniz<'i>(
-        r: &mut tinfl_decompressor,
-        input_buffer: &'i [u8],
-        output_buffer: &mut [u8],
-        flags: u32,
-    ) -> (TINFLStatus, &'i [u8], usize) {
-        unsafe {
-            let r = r as *mut tinfl_decompressor;
-            let mut in_buf_size = input_buffer.len();
-            let in_buf_next = input_buffer.as_ptr();
-            let mut out_buf_size = output_buffer.len();
-            let out_buf_start = output_buffer.as_mut_ptr();
-            let out_buf_next = out_buf_start;
-            // Confusingly, in_buf_size/out_buf_size
-            // gets set to the number of bytes read from the input/output buffers.
-            let status =
-                tinfl_decompress(r, in_buf_next, &mut in_buf_size, out_buf_start, out_buf_next,
-                                 &mut out_buf_size, flags);
-            let istatus = status as i32;
-            assert!(istatus >= TINFL_STATUS_FAILED_CANNOT_MAKE_PROGRESS &&
-                    istatus <= TINFL_STATUS_HAS_MORE_OUTPUT,
-                    "Invalid status code {}!", istatus);
-
-            let (remaining_start, out_start) = if status == TINFL_STATUS_BAD_PARAM {
-                (0, 0)
-            } else {
-                (in_buf_size, out_buf_size)
-            };
-
-            (TINFLStatus::from_i32(status).unwrap(), &input_buffer[remaining_start..], out_start)
-        }
-    }
+    //TODO: Fix these.
 
     fn tinfl_decompress_oxide<'i>(
         r: &mut tinfl_decompressor,
@@ -1114,10 +1083,6 @@ mod test {
         (status, &input_buffer[in_pos..], out_pos)
     }
 
-    /// Dummy redirect
-    #[cfg(not(feature = "build_non_rust"))]
-    use self::tinfl_decompress_oxide as tinfl_decompress_miniz;
-
     #[test]
     fn decompress_zlib() {
         let encoded =
@@ -1125,37 +1090,24 @@ mod test {
              168, 202, 201, 76, 82, 4, 0, 27, 101, 4, 19];
         let flags = TINFL_FLAG_COMPUTE_ADLER32 | TINFL_FLAG_PARSE_ZLIB_HEADER;
 
-        let mut a = tinfl_decompressor::new();
         let mut b = tinfl_decompressor::new();
         const LEN: usize = 32;
-        let mut a_buf = vec![0; LEN];
         let mut b_buf = vec![0; LEN];
 
-        // These should fail with the out buffer being to small.
-        let a_status = tinfl_decompress_miniz(&mut a, &encoded[..], a_buf.as_mut_slice(), flags);
+        // This should fail with the out buffer being to small.
         let b_status = tinfl_decompress_oxide(&mut b, &encoded[..], b_buf.as_mut_slice(), flags);
 
-        assert_eq!(a_status, b_status);
-        assert_eq!(a_buf.as_slice(), b_buf.as_slice());
-        assert_eq!(a.z_header0, b.z_header0);
-        // Not checking that these match anymore as the won't match.
-        //assert_eq!(a.state, b.state);
+        assert_eq!(b_status.0, TINFLStatus::Failed);
 
         let flags = flags | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
 
-        a = tinfl_decompressor::new();
         b = tinfl_decompressor::new();
 
         // With TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF set this should no longer fail.
-        let a_status = tinfl_decompress_miniz(&mut a, &encoded[..], a_buf.as_mut_slice(), flags);
         let b_status = tinfl_decompress_oxide(&mut b, &encoded[..], b_buf.as_mut_slice(), flags);
 
-        assert_eq!(a_buf[..a_status.2], b"Hello, zlib!"[..]);
         assert_eq!(b_buf[..b_status.2], b"Hello, zlib!"[..]);
-        assert_eq!(a_status, b_status);
-        assert_eq!(a_buf.as_slice(), b_buf.as_slice());
-        assert_eq!(a.z_header0, b.z_header0);
-        //assert_eq!(a.state, b.state);
+        assert_eq!(b_status.0, TINFLStatus::Done);
     }
 
     #[test]
@@ -1176,17 +1128,12 @@ mod test {
         //let flags = TINFL_FLAG_COMPUTE_ADLER32 | TINFL_FLAG_PARSE_ZLIB_HEADER |
         let flags = TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
 
-        let mut a = tinfl_decompressor::new();
         let mut b = tinfl_decompressor::new();
 
-        let mut a_buf = vec![0; LEN];
         let mut b_buf = vec![0; LEN];
 
-        let a_status = tinfl_decompress_miniz(&mut a, &encoded[..], a_buf.as_mut_slice(), flags);
         let b_status = tinfl_decompress_oxide(&mut b, &encoded[..], b_buf.as_mut_slice(), flags);
-        assert_eq!(a_status, b_status);
         assert_eq!(b_buf[..b_status.2], text[..]);
-        assert_eq!(a_status.0, TINFLStatus::Done);
         assert_eq!(b_status.0, TINFLStatus::Done);
     }
 

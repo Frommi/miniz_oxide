@@ -1,6 +1,7 @@
 extern crate libc;
 extern crate adler32;
 extern crate crc;
+extern crate miniz_oxide;
 
 use std::{slice, ptr, mem, cmp};
 use std::io::Cursor;
@@ -10,6 +11,9 @@ use libc::{size_t, c_int, c_uint, c_ulong, c_void, c_char};
 
 mod lib_oxide;
 pub use lib_oxide::*;
+
+use miniz_oxide::lib_oxide::{MZStatus, MZError, MZFlush, MZResult};
+use miniz_oxide::inflate;
 
 mod tdef;
 pub use tdef::{
@@ -37,8 +41,6 @@ pub use tinfl::{
     tinfl_decompressor,
     tinfl_decompress_mem_to_mem,
     tinfl_decompress_mem_to_heap,
-    decompress_to_vec,
-    decompress_to_vec_zlib,
 };
 
 pub const MZ_DEFLATED: c_int = 8;
@@ -46,39 +48,6 @@ pub const MZ_DEFAULT_WINDOW_BITS: c_int = 15;
 
 pub const MZ_ADLER32_INIT: c_ulong = 1;
 pub const MZ_CRC32_INIT: c_ulong = 0;
-
-#[repr(i32)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-enum MZFlush {
-    None = 0,
-    Partial = 1,
-    Sync = 2,
-    Full = 3,
-    Finish = 4,
-    Block = 5
-}
-
-#[repr(i32)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum MZStatus {
-    Ok = 0,
-    StreamEnd = 1,
-    NeedDict = 2
-}
-
-#[repr(i32)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum MZError {
-    ErrNo = -1,
-    Stream = -2,
-    Data = -3,
-    Mem = -4,
-    Buf = -5,
-    Version = -6,
-    Param = -10000
-}
-
-type MZResult = Result<MZStatus, MZError>;
 
 fn as_c_return_code(r: MZResult) -> c_int {
     match r {
@@ -106,19 +75,6 @@ pub enum CompressionStrategy {
     HuffmanOnly = 2,
     RLE = 3,
     Fixed = 4
-}
-
-impl MZFlush {
-    pub fn new(flush: c_int) -> Result<Self, MZError> {
-        match flush {
-            0 => Ok(MZFlush::None),
-            1 => Ok(MZFlush::Sync),
-            2 => Ok(MZFlush::Sync),
-            3 => Ok(MZFlush::Full),
-            4 => Ok(MZFlush::Finish),
-            _ => Err(MZError::Param)
-        }
-    }
 }
 
 
@@ -195,8 +151,8 @@ pub struct inflate_state {
     pub m_has_flushed: c_uint,
 
     pub m_window_bits: c_int,
-    pub m_dict: [u8; tinfl::TINFL_LZ_DICT_SIZE],
-    pub m_last_status: tinfl::TINFLStatus,
+    pub m_dict: [u8; inflate::TINFL_LZ_DICT_SIZE],
+    pub m_last_status: inflate::TINFLStatus,
 }
 
 #[repr(C)]
