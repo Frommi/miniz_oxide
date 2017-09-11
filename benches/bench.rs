@@ -5,6 +5,7 @@ extern crate miniz_oxide_c_api;
 extern crate miniz_oxide;
 extern crate test;
 
+
 use test::Bencher;
 use std::io::Read;
 use std::{ops, ptr};
@@ -12,17 +13,18 @@ use libc::{c_void, c_int};
 
 use miniz_oxide::inflate::{decompress_to_vec, decompress_to_vec_zlib};
 
-use miniz_oxide_c_api::{
+use miniz_oxide::deflate::{
     compress_to_vec,
     compress_to_vec_zlib,
 
     create_comp_flags_from_zip_params,
+    CompressorOxide,
+};
+
+use miniz_oxide_c_api::{
     tdefl_compress_mem_to_heap,
     tinfl_decompress_mem_to_heap,
-
     miniz_def_free_func,
-
-    CompressorOxide,
 };
 
 /// Safe wrapper around a buffer.

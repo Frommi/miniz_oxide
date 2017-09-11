@@ -1,4 +1,3 @@
-use ::libc::*;
 use std::{mem, usize};
 use std::io::Cursor;
 
@@ -69,7 +68,7 @@ impl tinfl_huff_table {
 const TINFL_MAX_HUFF_TABLES: usize = 3;
 const TINFL_MAX_HUFF_SYMBOLS_0: usize = 288;
 const TINFL_MAX_HUFF_SYMBOLS_1: usize = 32;
-const TINFL_MAX_HUFF_SYMBOLS_2: usize = 19;
+const _TINFL_MAX_HUFF_SYMBOLS_2: usize = 19;
 const TINFL_FAST_LOOKUP_BITS: u8 = 10;
 const TINFL_FAST_LOOKUP_SIZE: u32 = 1 << TINFL_FAST_LOOKUP_BITS;
 const LITLEN_TABLE: usize = 0;
@@ -140,27 +139,29 @@ type BitBuffer = u64;
 #[cfg(not(target_pointer_width = "64"))]
 type BitBuffer = u32;
 
+/// Main decompression struct.
+///
+/// This is repr(C) to be usable in the C API.
 #[repr(C)]
 #[allow(bad_style)]
 pub struct tinfl_decompressor {
-    //pub state: u32,
-    pub state: tinfl_oxide::State,
-    pub num_bits: u32,
-    pub z_header0: u32,
-    pub z_header1: u32,
-    pub z_adler32: u32,
-    pub finish: u32,
-    pub block_type: u32,
-    pub check_adler32: u32,
-    pub dist: u32,
-    pub counter: u32,
-    pub num_extra: u32,
-    pub table_sizes: [u32; TINFL_MAX_HUFF_TABLES],
-    pub bit_buf: BitBuffer,
-    pub dist_from_out_buf_start: usize,
-    pub tables: [tinfl_huff_table; TINFL_MAX_HUFF_TABLES],
-    pub raw_header: [u8; 4],
-    pub len_codes: [u8; TINFL_MAX_HUFF_SYMBOLS_0 + TINFL_MAX_HUFF_SYMBOLS_1 + 137],
+    state: tinfl_oxide::State,
+    num_bits: u32,
+    z_header0: u32,
+    z_header1: u32,
+    z_adler32: u32,
+    finish: u32,
+    block_type: u32,
+    check_adler32: u32,
+    dist: u32,
+    counter: u32,
+    num_extra: u32,
+    table_sizes: [u32; TINFL_MAX_HUFF_TABLES],
+    bit_buf: BitBuffer,
+    dist_from_out_buf_start: usize,
+    tables: [tinfl_huff_table; TINFL_MAX_HUFF_TABLES],
+    raw_header: [u8; 4],
+    len_codes: [u8; TINFL_MAX_HUFF_SYMBOLS_0 + TINFL_MAX_HUFF_SYMBOLS_1 + 137],
 }
 
 impl tinfl_decompressor {
@@ -188,17 +189,34 @@ impl tinfl_decompressor {
         }
     }
 
+    #[inline]
+    pub fn init(&mut self) {
+        self.state = tinfl_oxide::State::Start;
+    }
+
     /// Create a new decompressor with only the state field initialized.
     ///
-    /// This is how it's created in miniz.
+    /// This is how it's created in miniz. Unsafe due to uninitialized values.
+    #[inline]
     pub unsafe fn with_init_state_only() -> tinfl_decompressor {
         let mut decomp: tinfl_decompressor = mem::uninitialized();
         decomp.state = tinfl_oxide::State::Start;
         decomp
     }
-}
 
-pub const TINFL_DECOMPRESS_MEM_TO_MEM_FAILED: size_t = usize::MAX;
+    /// Returns the adler32 checksum of the currently decompressed data.
+    #[inline]
+    pub fn adler32(&self) -> Option<u32> {
+        if self.state != tinfl_oxide::State::Start &&
+            self.state != tinfl_oxide::State::BadZlibHeader &&
+            self.z_header0 != 0
+        {
+            Some(self.check_adler32)
+        } else {
+            None
+        }
+    }
+}
 
 /// Decompress the deflate-encoded data in `input` to a vector.
 ///
@@ -213,12 +231,11 @@ pub fn decompress_to_vec(input: &[u8]) -> Result<Vec<u8>, (TINFLStatus, u32)> {
 /// Returns a status and an integer representing where the decompressor failed on failure.
 #[inline]
 pub fn decompress_to_vec_zlib(input: &[u8]) -> Result<Vec<u8>, (TINFLStatus, u32)> {
-    decompress_to_vec_inner(input, TINFL_FLAG_PARSE_ZLIB_HEADER)
+    decompress_to_vec_inner(input, inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER)
 }
 
-#[inline]
 fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>,(TINFLStatus, u32)> {
-    let flags = flags | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
+    let flags = flags | inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
     let mut ret = Vec::with_capacity(input.len() * 2);
 
     // # Unsafe
@@ -270,7 +287,6 @@ fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>,(TINFLSta
         }
     }
 }
-
 
 #[cfg(test)]
 mod test {

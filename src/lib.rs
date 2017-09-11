@@ -1,40 +1,36 @@
 extern crate libc;
-extern crate adler32;
 extern crate crc;
 extern crate miniz_oxide;
 
-use std::{slice, ptr, mem, cmp};
-use std::io::Cursor;
+use std::{slice, ptr, cmp};
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use crc::{crc32, Hasher32};
 
-use libc::{size_t, c_int, c_uint, c_ulong, c_void, c_char};
+use libc::{size_t, c_int, c_uint, c_ulong, c_void};
 
-mod lib_oxide;
-pub use lib_oxide::*;
+//mod lib_oxide;
+//pub use lib_oxide::*;
 
-use miniz_oxide::lib_oxide::{MZStatus, MZError, MZFlush, MZResult};
-use miniz_oxide::inflate;
+use miniz_oxide::lib_oxide::{ MZError, MZResult};
+#[allow(bad_style)]
+pub type tdefl_compressor = miniz_oxide::deflate::CompressorOxide;
 
-mod tdef;
-pub use tdef::{
-    tdefl_compress,
-    tdefl_compress_buffer,
-    tdefl_init,
-    tdefl_get_prev_return_status,
-    tdefl_get_adler32,
-    tdefl_create_comp_flags_from_zip_params,
-    tdefl_compress_mem_to_output,
-    tdefl_compress_mem_to_heap,
-    tdefl_compress_mem_to_mem,
-    compress_to_vec,
-    compress_to_vec_zlib,
-    create_comp_flags_from_zip_params,
-    CompressorOxide,
-    PutBufFuncPtr
+use miniz_oxide::lib_oxide::{mz_stream,
+                             StreamOxide,
+                             mz_inflate_oxide,
+                             mz_inflate_init2_oxide,
+                             mz_inflate_end_oxide,
+                             mz_deflate_oxide,
+                             mz_deflate_reset_oxide,
+                             mz_deflate_init2_oxide,
+                             mz_deflate_end_oxide,
+                             mz_compress2_oxide,
+                             mz_uncompress2_oxide,
 };
 
-#[allow(bad_style)]
-pub type tdefl_compressor = tdef::CompressorOxide;
+pub use miniz_oxide::lib_oxide::update_adler32 as mz_adler32_oxide;
+pub use miniz_oxide::lib_oxide::{mz_alloc_func, mz_free_func};
+
 
 mod tinfl;
 pub use tinfl::{
@@ -42,6 +38,25 @@ pub use tinfl::{
     tinfl_decompress_mem_to_mem,
     tinfl_decompress_mem_to_heap,
 };
+
+mod tdef;
+pub use tdef::{
+    tdefl_compress,
+    tdefl_compress_buffer,
+    tdefl_compress_mem_to_heap,
+    tdefl_compress_mem_to_mem,
+    tdefl_compress_mem_to_output,
+    tdefl_create_comp_flags_from_zip_params,
+    tdefl_get_prev_return_status,
+    tdefl_get_adler32,
+    tdefl_init,
+};
+
+pub fn mz_crc32_oxide(crc32: c_uint, data: &[u8]) -> c_uint {
+    let mut digest = crc32::Digest::new_with_initial(crc32::IEEE, crc32);
+    digest.write(data);
+    digest.sum32()
+}
 
 pub const MZ_DEFLATED: c_int = 8;
 pub const MZ_DEFAULT_WINDOW_BITS: c_int = 15;
@@ -133,77 +148,6 @@ pub unsafe extern "C" fn mz_crc32(crc: c_ulong, ptr: *const u8, buf_len: size_t)
     })
 }
 
-#[allow(bad_style)]
-pub enum mz_internal_state {}
-#[allow(bad_style)]
-pub type mz_alloc_func = unsafe extern "C" fn(*mut c_void, size_t, size_t) -> *mut c_void;
-#[allow(bad_style)]
-pub type mz_free_func = unsafe extern "C" fn(*mut c_void, *mut c_void);
-
-#[repr(C)]
-#[allow(bad_style)]
-pub struct inflate_state {
-    pub m_decomp: tinfl_decompressor,
-
-    pub m_dict_ofs: c_uint,
-    pub m_dict_avail: c_uint,
-    pub m_first_call: c_uint,
-    pub m_has_flushed: c_uint,
-
-    pub m_window_bits: c_int,
-    pub m_dict: [u8; inflate::TINFL_LZ_DICT_SIZE],
-    pub m_last_status: inflate::TINFLStatus,
-}
-
-#[repr(C)]
-#[derive(Debug)]
-#[allow(bad_style)]
-pub struct mz_stream {
-    pub next_in: *const u8,
-    pub avail_in: c_uint,
-    pub total_in: c_ulong,
-
-    pub next_out: *mut u8,
-    pub avail_out: c_uint,
-    pub total_out: c_ulong,
-
-    pub msg: *const c_char,
-    pub state: *mut mz_internal_state,
-
-    pub zalloc: Option<mz_alloc_func>,
-    pub zfree: Option<mz_free_func>,
-    pub opaque: *mut c_void,
-
-    pub data_type: c_int,
-    pub adler: c_ulong,
-    pub reserved: c_ulong,
-}
-
-impl Default for mz_stream {
-    fn default () -> mz_stream {
-        mz_stream {
-            next_in: ptr::null(),
-            avail_in: 0,
-            total_in: 0,
-
-            next_out: ptr::null_mut(),
-            avail_out: 0,
-            total_out: 0,
-
-            msg: ptr::null(),
-            state: ptr::null_mut(),
-
-            zalloc: None,
-            zfree: None,
-            opaque: ptr::null_mut(),
-
-            data_type: 0,
-            adler: 0,
-            reserved: 0,
-        }
-    }
-}
-
 macro_rules! oxidize {
     ($mz_func:ident, $mz_func_oxide:ident; $($arg_name:ident: $type_name:ident),*) => {
         #[no_mangle]
@@ -216,7 +160,7 @@ macro_rules! oxidize {
                     // this is called from C.
                     match catch_unwind(AssertUnwindSafe(|| {
                         let mut stream_oxide = StreamOxide::new(&mut *stream);
-                        let status = lib_oxide::$mz_func_oxide(&mut stream_oxide, $($arg_name),*);
+                        let status = $mz_func_oxide(&mut stream_oxide, $($arg_name),*);
                         *stream = stream_oxide.into_mz_stream();
                         as_c_return_code(status)
                     })) {

@@ -129,7 +129,7 @@ fn read_u32_le(iter: &mut slice::Iter<u8>) -> u32 {
 }
 
 #[inline]
-fn transfer_unaligned_u64(buf: &mut &mut[u8], from: isize, to: isize) {
+fn _transfer_unaligned_u64(buf: &mut &mut[u8], from: isize, to: isize) {
     unsafe {
         let mut data = ptr::read_unaligned((*buf).as_ptr().offset(from) as *const u32);
         ptr::write_unaligned((*buf).as_mut_ptr().offset(to) as *mut u32, data);
@@ -145,7 +145,6 @@ fn transfer_unaligned_u64(buf: &mut &mut[u8], from: isize, to: isize) {
 /// See https://tools.ietf.org/html/rfc1950
 #[inline]
 fn validate_zlib_header(cmf: u32, flg: u32, flags: u32, mask: usize) -> Action {
-    assert!(0b000100000 == 32);
     let mut failed =
     // cmf + flg should be divisible by 31.
         (((cmf * 256) + flg) % 31 != 0) ||

@@ -5,11 +5,11 @@ set -e
 ./build.sh --release
 
 mkdir -p bin
-g++ tests/miniz_tester.cpp tests/timer.cpp -o bin/miniz_tester -I. -ggdb -O2 -L. -lminiz_oxide -lutil -ldl -lrt -lpthread -lgcc_s -lc -lm -lrt -lpthread -lutil
+g++ tests/miniz_tester.cpp tests/timer.cpp -o bin/miniz_tester -I. -ggdb -O2 -L. -lminiz_oxide_c_api -lutil -ldl -lrt -lpthread -lgcc_s -lc -lm -lrt -lpthread -lutil
 
 for i in 1 2 3 4 5 6
 do
-    gcc examples/example$i.c -o bin/example$i -lm -I. -ggdb -L. -lminiz_oxide -lutil -ldl -lrt -lpthread -lgcc_s -lc -lm -lrt -lpthread -lutil
+    gcc examples/example$i.c -o bin/example$i -lm -I. -ggdb -L. -lminiz_oxide_c_api -lutil -ldl -lrt -lpthread -lgcc_s -lc -lm -lrt -lpthread -lutil
 done
 
 mkdir -p test_scratch

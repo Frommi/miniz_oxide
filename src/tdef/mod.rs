@@ -1,163 +1,18 @@
-#![allow(dead_code)]
-
 use ::libc::*;
-use std::slice;
 use std::mem;
 use std::cmp;
-use std::io;
-use std::io::{Cursor, SeekFrom};
 use std::ptr;
 
-use MZError;
-use MZFlush;
-mod tdef_oxide;
-pub use self::tdef_oxide::*;
-
-pub type PutBufFuncPtrNotNull = unsafe extern "C" fn(*const c_void, c_int, *mut c_void) -> bool;
-pub type PutBufFuncPtr = Option<PutBufFuncPtrNotNull>;
-
-#[repr(i32)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum TDEFLStatus {
-    BadParam = -2,
-    PutBufFailed = -1,
-    Okay = 0,
-    Done = 1
-}
-
-#[repr(u32)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum TDEFLFlush {
-    None = 0,
-    Sync = 2,
-    Full = 3,
-    Finish = 4
-}
-
-impl From<MZFlush> for TDEFLFlush {
-    fn from(flush: MZFlush) -> Self {
-        match flush {
-            MZFlush::None => TDEFLFlush::None,
-            MZFlush::Sync => TDEFLFlush::Sync,
-            MZFlush::Full => TDEFLFlush::Full,
-            MZFlush::Finish => TDEFLFlush::Finish,
-            _ => TDEFLFlush::None // TODO: ??? What to do ???
-        }
-    }
-}
-
-impl TDEFLFlush {
-    pub fn new(flush: c_int) -> Result<Self, MZError> {
-        match flush {
-            0 => Ok(TDEFLFlush::None),
-            2 => Ok(TDEFLFlush::Sync),
-            3 => Ok(TDEFLFlush::Full),
-            4 => Ok(TDEFLFlush::Finish),
-            _ => Err(MZError::Param)
-        }
-    }
-}
-
-pub const TDEFL_LZ_CODE_BUF_SIZE: usize = 64 * 1024;
-pub const TDEFL_OUT_BUF_SIZE: usize = (TDEFL_LZ_CODE_BUF_SIZE * 13) / 10;
-pub const TDEFL_MAX_HUFF_SYMBOLS: usize = 288;
-pub const TDEFL_LZ_HASH_BITS: i32 = 15;
-pub const TDEFL_LEVEL1_HASH_SIZE_MASK: u32 = 4095;
-pub const TDEFL_LZ_HASH_SHIFT: i32 = (TDEFL_LZ_HASH_BITS + 2) / 3;
-pub const TDEFL_LZ_HASH_SIZE: usize = 1 << TDEFL_LZ_HASH_BITS;
-
-pub const TDEFL_MAX_HUFF_TABLES: usize = 3;
-pub const TDEFL_MAX_HUFF_SYMBOLS_0: usize = 288;
-pub const TDEFL_MAX_HUFF_SYMBOLS_1: usize = 32;
-pub const TDEFL_MAX_HUFF_SYMBOLS_2: usize = 19;
-pub const TDEFL_LZ_DICT_SIZE: usize = 32768;
-pub const TDEFL_LZ_DICT_SIZE_MASK: u32 = TDEFL_LZ_DICT_SIZE as u32 - 1;
-pub const TDEFL_MIN_MATCH_LEN: u32 = 3;
-pub const TDEFL_MAX_MATCH_LEN: usize = 258;
-
-pub const TDEFL_WRITE_ZLIB_HEADER: u32 = 0x01000;
-pub const TDEFL_COMPUTE_ADLER32: u32 = 0x02000;
-pub const TDEFL_GREEDY_PARSING_FLAG: u32 = 0x04000;
-pub const TDEFL_NONDETERMINISTIC_PARSING_FLAG: u32 = 0x08000;
-pub const TDEFL_RLE_MATCHES: u32 = 0x10000;
-pub const TDEFL_FILTER_MATCHES: u32 = 0x20000;
-pub const TDEFL_FORCE_ALL_STATIC_BLOCKS: u32 = 0x40000;
-pub const TDEFL_FORCE_ALL_RAW_BLOCKS: u32 = 0x80000;
-
-pub const TDEFL_DEFAULT_MAX_PROBES: i32 = 128;
-pub const TDEFL_MAX_PROBES_MASK: i32 = 0xFFF;
-
-const TDEFL_MAX_SUPPORTED_HUFF_CODESIZE: usize = 32;
-
-const TDEFL_LEN_SYM: [u16; 256] = [
-    257, 258, 259, 260, 261, 262, 263, 264, 265, 265, 266, 266, 267, 267, 268, 268, 269, 269, 269, 269, 270, 270, 270, 270, 271, 271, 271, 271, 272, 272, 272, 272,
-    273, 273, 273, 273, 273, 273, 273, 273, 274, 274, 274, 274, 274, 274, 274, 274, 275, 275, 275, 275, 275, 275, 275, 275, 276, 276, 276, 276, 276, 276, 276, 276,
-    277, 277, 277, 277, 277, 277, 277, 277, 277, 277, 277, 277, 277, 277, 277, 277, 278, 278, 278, 278, 278, 278, 278, 278, 278, 278, 278, 278, 278, 278, 278, 278,
-    279, 279, 279, 279, 279, 279, 279, 279, 279, 279, 279, 279, 279, 279, 279, 279, 280, 280, 280, 280, 280, 280, 280, 280, 280, 280, 280, 280, 280, 280, 280, 280,
-    281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281,
-    282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282,
-    283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283,
-    284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 285
-];
-
-const TDEFL_LEN_EXTRA: [u8; 256] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-    4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
-    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
-    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0
-];
-
-const TDEFL_SMALL_DIST_SYM: [u8; 512] = [
-    0, 1, 2, 3, 4, 4, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 11, 11, 11, 11, 11, 11,
-    11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 13,
-    13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15,
-    15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
-    16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
-    16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
-    16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
-    17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
-    17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
-    17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17
-];
-
-const TDEFL_SMALL_DIST_EXTRA: [u8; 512] = [
-    0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5,
-    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
-    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
-    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-    7, 7, 7, 7, 7, 7, 7, 7
-];
-
-const TDEFL_LARGE_DIST_SYM: [u8; 128] = [
-    0, 0, 18, 19, 20, 20, 21, 21, 22, 22, 22, 22, 23, 23, 23, 23, 24, 24, 24, 24, 24, 24, 24, 24, 25, 25, 25, 25, 25, 25, 25, 25, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26,
-    26, 26, 26, 26, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28,
-    28, 28, 28, 28, 28, 28, 28, 28, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29
-];
-
-const TDEFL_LARGE_DIST_EXTRA: [u8; 128] = [
-    0, 0, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 10, 10, 10, 10, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12,
-    12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13,
-    13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13
-];
-
-const MZ_BITMASKS: [u32; 17] = [
-    0x0000, 0x0001, 0x0003, 0x0007, 0x000F, 0x001F, 0x003F, 0x007F, 0x00FF,
-    0x01FF, 0x03FF, 0x07FF, 0x0FFF, 0x1FFF, 0x3FFF, 0x7FFF, 0xFFFF
-];
-
-const TDEFL_NUM_PROBES: [u32; 11] = [0, 1, 6, 32, 16, 32, 128, 256, 512, 768, 1500];
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct SymFreq {
-    key: u16,
-    sym_index: u16,
-}
+use miniz_oxide::deflate::{
+    TDEFLStatus,
+    TDEFLFlush,
+    CallbackOxide,
+    CallbackFunc,
+    CompressorOxide,
+    compress,
+    PutBufFuncPtr,
+    create_comp_flags_from_zip_params,
+};
 
 #[no_mangle]
 pub unsafe extern "C" fn tdefl_compress(
@@ -176,7 +31,7 @@ pub unsafe extern "C" fn tdefl_compress(
         },
         Some(compressor) => {
             let callback_res = CallbackOxide::new(
-                compressor.callback_func.clone(),
+                compressor.callback_func().map(|c| c.clone()),
                 in_buf,
                 in_size,
                 out_buf,
@@ -229,12 +84,12 @@ pub unsafe extern "C" fn tdefl_init(
 pub unsafe extern "C" fn tdefl_get_prev_return_status(
     d: Option<&mut CompressorOxide>
 ) -> TDEFLStatus {
-    d.map_or(TDEFLStatus::Okay, |d| d.params.prev_return_status)
+    d.map_or(TDEFLStatus::Okay, |d| d.prev_return_status())
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn tdefl_get_adler32(d: Option<&mut CompressorOxide>) -> c_uint {
-    d.map_or(::MZ_ADLER32_INIT as u32, |d| d.params.adler32)
+    d.map_or(::MZ_ADLER32_INIT as u32, |d| d.adler32())
 }
 
 #[no_mangle]
@@ -382,94 +237,4 @@ pub extern "C" fn tdefl_create_comp_flags_from_zip_params(
     strategy: c_int,
 ) -> c_uint {
     create_comp_flags_from_zip_params(level, window_bits, strategy)
-}
-
-
-pub fn compress_to_vec(input: &[u8], level: u8) -> Vec<u8> {
-    compress_to_vec_inner(input, level, false)
-}
-
-pub fn compress_to_vec_zlib(input: &[u8], level: u8) -> Vec<u8> {
-    compress_to_vec_inner(input, level, true)
-}
-
-/// Simple function to compress data to a vec.
-fn compress_to_vec_inner(input: &[u8], level: u8, with_zlib: bool) -> Vec<u8> {
-    // The comp flags function sets the zlib flag if the window_bits parameter is > 0.
-    let flags = create_comp_flags_from_zip_params(level.into(), with_zlib as i32, 0);
-    let mut compressor = CompressorOxide::new(None, flags);
-    let mut output = Vec::with_capacity(input.len() / 2);
-    // # Unsafe
-    // We trust compress to not read the uninitialized bytes.
-    unsafe {
-        let cap = output.capacity();
-        output.set_len(cap);
-    }
-    let mut in_pos = 0;
-    let mut out_pos = 0;
-    loop {
-        let (status, bytes_in, bytes_out) = compress(
-            &mut compressor,
-            &mut CallbackOxide::new_callback_buf(&input[in_pos..], &mut output[out_pos..]),
-            TDEFLFlush::Finish);
-
-        out_pos += bytes_out;
-        in_pos += bytes_in;
-
-        match status {
-            TDEFLStatus::Done => {
-                output.truncate(out_pos);
-                break;
-            },
-            TDEFLStatus::Okay => {
-                // We need more space, so extend the vector.
-                if output.len().saturating_sub(out_pos) < 30 {
-                    let current_len = output.len();
-                    output.reserve(current_len);
-
-                    // # Unsafe
-                    // We trust compress to not read the uninitialized bytes.
-                    unsafe {
-                        let cap = output.capacity();
-                        output.set_len(cap);
-                    }
-                }
-            }
-            // Not supposed to happen unless there is a bug.
-            _ => panic!("Bug! Unexpectedly failed to compress!")
-        }
-    }
-
-    output
-}
-
-
-#[cfg(test)]
-mod test {
-    use super::compress_to_vec;
-
-    /// Test deflate example.
-    ///
-    /// Check if the encoder produces the same code as the example given by Mark Adler here:
-    /// https://stackoverflow.com/questions/17398931/deflate-encoding-with-static-huffman-codes/17415203
-    #[test]
-    fn compress_small() {
-        let test_data = b"Deflate late";
-        let check = [
-            0x73,
-            0x49,
-            0x4d,
-            0xcb,
-            0x49,
-            0x2c,
-            0x49,
-            0x55,
-            0x00,
-            0x11,
-            0x00,
-        ];
-
-        let res = compress_to_vec(test_data, 9);
-        assert_eq!(&check[..], res.as_slice());
-    }
 }
