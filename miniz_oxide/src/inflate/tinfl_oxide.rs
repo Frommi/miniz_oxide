@@ -72,7 +72,7 @@ const LENGTH_EXTRA: [u8; 32] = [
 const DIST_BASE: [u16; 32] = [
     1,    2,    3,    4,    5,    7,     9,     13,    17,  25,   33,
     49,   65,   97,   129,  193,  257,   385,   513,   769, 1025, 1537,
-    2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577, 0,   0
+    2049, 3073, 4097, 6145, 8193, 12_289, 16_385, 24_577, 0,   0
 ];
 
 /// Number of extra bits for each distance code.
@@ -150,16 +150,16 @@ fn validate_zlib_header(cmf: u32, flg: u32, flags: u32, mask: usize) -> Action {
         (((cmf * 256) + flg) % 31 != 0) ||
     // If this flag is set, a dictionary was used for this zlib compressed data.
     // This is currently not supported by miniz or miniz-oxide
-        ((flg & 0b000100000) != 0) ||
+        ((flg & 0b0010_0000) != 0) ||
     // Compression method. Only 8(DEFLATE) is defined by the standard.
         ((cmf & 15) != 8);
 
     if (flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF) == 0 {
-        let window_size = 1 << (8 + cmf >> 4);
+        let window_size = 1 << ((8 + cmf) >> 4);
         // Zlib doesn't allow window size above 32 * 1024.
         // Also bail if the buffer is wrapping and the window size is larger than the buffer.
         failed |= (
-            window_size > 32768) ||
+            window_size > 32_768) ||
             ((mask + 1) < window_size);
     }
 
@@ -182,7 +182,7 @@ pub enum Action {
 ///
 /// # Returns
 /// The specified action returned from `f` on success,
-/// Action::End if there are not enough data left to decode a symbol.
+/// `Action::End` if there are not enough data left to decode a symbol.
 fn decode_huffman_code<F>(
     r: &mut tinfl_decompressor,
     l: &mut LocalVars,
@@ -238,13 +238,10 @@ fn decode_huffman_code<F>(
                 // Doing that lets miniz avoid re-doing the lookup that that was done in the
                 // previous call.
                 let mut byte = 0;
-                match read_byte(in_iter, flags, |b| {
+                if let a @ Action::End(_) = read_byte(in_iter, flags, |b| {
                     byte = b;
                     Action::None
-                }) {
-                    a @ Action::End(_) => return a,
-                    _ => (),
-                };
+                }) { return a };
 
                 // Do this outside closure for now to avoid borrowing r.
                 l.bit_buf |= (byte as BitBuffer) << l.num_bits;
@@ -388,7 +385,7 @@ fn init_tree(r: &mut tinfl_decompressor, l: &mut LocalVars) -> Action {
             next_code[i + 1] = total;
         }
 
-        if total != 65536 && used_symbols > 1 {
+        if total != 65_536 && used_symbols > 1 {
             return Action::Jump(BadTotalSymbols);
         }
 
@@ -707,21 +704,19 @@ pub fn decompress_oxide(
                             Action::Jump(ReadExtraBitsCodeSize)
                         }
                     })
+                } else if l.counter != r.table_sizes[LITLEN_TABLE] + r.table_sizes[DIST_TABLE] {
+                    Action::Jump(BadCodeSizeSum)
                 } else {
-                    if l.counter != r.table_sizes[LITLEN_TABLE] + r.table_sizes[DIST_TABLE] {
-                        Action::Jump(BadCodeSizeSum)
-                    } else {
-                        r.tables[LITLEN_TABLE].code_size[..r.table_sizes[LITLEN_TABLE] as usize]
-                            .copy_from_slice(&r.len_codes[..r.table_sizes[LITLEN_TABLE] as usize]);
+                    r.tables[LITLEN_TABLE].code_size[..r.table_sizes[LITLEN_TABLE] as usize]
+                        .copy_from_slice(&r.len_codes[..r.table_sizes[LITLEN_TABLE] as usize]);
 
-                        let dist_table_start = r.table_sizes[LITLEN_TABLE] as usize;
-                        let dist_table_end = (r.table_sizes[LITLEN_TABLE] + r.table_sizes[DIST_TABLE]) as usize;
-                        r.tables[DIST_TABLE].code_size[..r.table_sizes[DIST_TABLE] as usize]
-                            .copy_from_slice(&r.len_codes[dist_table_start..dist_table_end]);
+                    let dist_table_start = r.table_sizes[LITLEN_TABLE] as usize;
+                    let dist_table_end = (r.table_sizes[LITLEN_TABLE] + r.table_sizes[DIST_TABLE]) as usize;
+                    r.tables[DIST_TABLE].code_size[..r.table_sizes[DIST_TABLE] as usize]
+                        .copy_from_slice(&r.len_codes[dist_table_start..dist_table_end]);
 
-                        r.block_type -= 1;
-                        init_tree(r, &mut l)
-                    }
+                    r.block_type -= 1;
+                    init_tree(r, &mut l)
                 }
             }),
 
@@ -729,7 +724,7 @@ pub fn decompress_oxide(
                 let num_extra = l.num_extra;
                 read_bits(&mut l, num_extra, &mut in_iter, flags, |l, mut extra_bits| {
                     // Mask to avoid a bounds check.
-                    extra_bits += [3, 3, 11][l.dist as usize - 16 & 3];
+                    extra_bits += [3, 3, 11][(l.dist as usize - 16) & 3];
                     let val = if l.dist == 16 {
                         r.len_codes[l.counter as usize - 1]
                     } else {
@@ -807,13 +802,11 @@ pub fn decompress_oxide(
             WriteSymbol => generate_state!(state, 'state_machine, {
                 if l.counter >= 256 {
                     Action::Jump(HuffDecodeOuterLoop1)
+                } else if out_buf.bytes_left() > 0 {
+                    out_buf.write_byte(l.counter as u8);
+                    Action::Jump(DecodeLitlen)
                 } else {
-                    if out_buf.bytes_left() > 0 {
-                        out_buf.write_byte(l.counter as u8);
-                        Action::Jump(DecodeLitlen)
-                    } else {
-                        Action::End(TINFLStatus::HasMoreOutput)
-                    }
+                    Action::End(TINFLStatus::HasMoreOutput)
                 }
             }),
 
@@ -983,7 +976,7 @@ pub fn decompress_oxide(
                     in_iter = in_buf[in_consumed - undo..].iter();
 
                     l.bit_buf &= (((1 as BitBuffer) << l.num_bits) - 1) as BitBuffer;
-                    assert!(l.num_bits == 0);
+                    debug_assert_eq!(l.num_bits, 0);
 
                     if flags & TINFL_FLAG_PARSE_ZLIB_HEADER != 0 {
                         l.counter = 0;

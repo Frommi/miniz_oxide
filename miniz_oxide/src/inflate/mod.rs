@@ -5,7 +5,7 @@ mod tinfl_oxide;
 mod output_buffer;
 pub use self::tinfl_oxide::*;
 
-pub const TINFL_LZ_DICT_SIZE: usize = 32768;
+pub const TINFL_LZ_DICT_SIZE: usize = 32_768;
 
 #[repr(C)]
 #[allow(bad_style)]
@@ -121,14 +121,14 @@ impl TINFLStatus {
     }
 }
 
-pub const TDEFL_WRITE_ZLIB_HEADER: u32 = 0x01000;
-pub const TDEFL_COMPUTE_ADLER32: u32 = 0x02000;
-pub const TDEFL_GREEDY_PARSING_FLAG: u32 = 0x04000;
-pub const TDEFL_NONDETERMINISTIC_PARSING_FLAG: u32 = 0x08000;
-pub const TDEFL_RLE_MATCHES: u32 = 0x10000;
-pub const TDEFL_FILTER_MATCHES: u32 = 0x20000;
-pub const TDEFL_FORCE_ALL_STATIC_BLOCKS: u32 = 0x40000;
-pub const TDEFL_FORCE_ALL_RAW_BLOCKS: u32 = 0x80000;
+pub const TDEFL_WRITE_ZLIB_HEADER: u32 = 0x0000_1000;
+pub const TDEFL_COMPUTE_ADLER32: u32 = 0x0000_2000;
+pub const TDEFL_GREEDY_PARSING_FLAG: u32 = 0x0000_4000;
+pub const TDEFL_NONDETERMINISTIC_PARSING_FLAG: u32 = 0x0000_8000;
+pub const TDEFL_RLE_MATCHES: u32 = 0x0001_0000;
+pub const TDEFL_FILTER_MATCHES: u32 = 0x0002_0000;
+pub const TDEFL_FORCE_ALL_STATIC_BLOCKS: u32 = 0x0004_0000;
+pub const TDEFL_FORCE_ALL_RAW_BLOCKS: u32 = 0x0008_0000;
 
 const MIN_TABLE_SIZES: [u16; 3] = [257, 1, 4];
 const LENGTH_DEZIGZAG: [u8; 19] = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];

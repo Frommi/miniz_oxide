@@ -7,14 +7,14 @@ pub type PutBufFuncPtrNotNull = unsafe extern "C" fn(*const c_void, c_int, *mut 
 pub type PutBufFuncPtr = Option<PutBufFuncPtrNotNull>;
 
 pub mod deflate_flags {
-    pub const TDEFL_WRITE_ZLIB_HEADER: u32 = 0x01000;
-    pub const TDEFL_COMPUTE_ADLER32: u32 = 0x02000;
-    pub const TDEFL_GREEDY_PARSING_FLAG: u32 = 0x04000;
-    pub const TDEFL_NONDETERMINISTIC_PARSING_FLAG: u32 = 0x08000;
-    pub const TDEFL_RLE_MATCHES: u32 = 0x10000;
-    pub const TDEFL_FILTER_MATCHES: u32 = 0x20000;
-    pub const TDEFL_FORCE_ALL_STATIC_BLOCKS: u32 = 0x40000;
-    pub const TDEFL_FORCE_ALL_RAW_BLOCKS: u32 = 0x80000;
+    pub const TDEFL_WRITE_ZLIB_HEADER: u32 = 0x0000_1000;
+    pub const TDEFL_COMPUTE_ADLER32: u32 = 0x0000_2000;
+    pub const TDEFL_GREEDY_PARSING_FLAG: u32 = 0x0000_4000;
+    pub const TDEFL_NONDETERMINISTIC_PARSING_FLAG: u32 = 0x0000_8000;
+    pub const TDEFL_RLE_MATCHES: u32 = 0x0001_0000;
+    pub const TDEFL_FILTER_MATCHES: u32 = 0x0002_0000;
+    pub const TDEFL_FORCE_ALL_STATIC_BLOCKS: u32 = 0x0004_0000;
+    pub const TDEFL_FORCE_ALL_RAW_BLOCKS: u32 = 0x0008_0000;
 }
 
 pub use self::deflate_flags::*;

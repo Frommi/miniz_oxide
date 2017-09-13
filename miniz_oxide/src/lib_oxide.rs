@@ -57,8 +57,7 @@ impl MZFlush {
     pub fn new(flush: c_int) -> Result<Self, MZError> {
         match flush {
             0 => Ok(MZFlush::None),
-            1 => Ok(MZFlush::Sync),
-            2 => Ok(MZFlush::Sync),
+            1 | 2 => Ok(MZFlush::Sync),
             3 => Ok(MZFlush::Full),
             4 => Ok(MZFlush::Finish),
             _ => Err(MZError::Param)
@@ -83,7 +82,7 @@ pub enum MZError {
     Mem = -4,
     Buf = -5,
     Version = -6,
-    Param = -10000
+    Param = -10_000
 }
 
 #[allow(bad_style)]
@@ -207,7 +206,7 @@ impl<ST: StateType> BoxedState<ST> {
         state
     }
 
-    fn alloc_state<'a, T>(&mut self) -> MZResult {
+    fn alloc_state<T>(&mut self) -> MZResult {
         self.inner = unsafe { (self.alloc)(self.opaque, 1, mem::size_of::<ST>()) as *mut ST };
         if self.inner.is_null() {
             Err(MZError::Mem)

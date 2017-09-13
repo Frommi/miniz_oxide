@@ -138,13 +138,13 @@ pub const TDEFL_MAX_HUFF_TABLES: usize = 3;
 pub const TDEFL_MAX_HUFF_SYMBOLS_0: usize = 288;
 pub const TDEFL_MAX_HUFF_SYMBOLS_1: usize = 32;
 pub const TDEFL_MAX_HUFF_SYMBOLS_2: usize = 19;
-pub const TDEFL_LZ_DICT_SIZE: usize = 32768;
+pub const TDEFL_LZ_DICT_SIZE: usize = 32_768;
 pub const TDEFL_LZ_DICT_SIZE_MASK: u32 = TDEFL_LZ_DICT_SIZE as u32 - 1;
 pub const TDEFL_MIN_MATCH_LEN: u32 = 3;
 pub const TDEFL_MAX_MATCH_LEN: usize = 258;
 
-fn memset<T : Clone>(slice: &mut [T], val: T) {
-    for x in slice { *x = val.clone() }
+fn memset<T : Copy>(slice: &mut [T], val: T) {
+    for x in slice { *x = val }
 }
 
 pub struct CompressorOxide {
@@ -466,7 +466,7 @@ pub struct HuffmanOxide {
     pub code_sizes: [[u8; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
 }
 
-/// Tables used for literal/lengths in HuffmanOxide.
+/// Tables used for literal/lengths in `HuffmanOxide`.
 const LITLEN_TABLE: usize = 0;
 /// Tables for distances.
 const DIST_TABLE: usize = 1;
@@ -491,10 +491,10 @@ impl RLE {
             if self.repeat_count < 3 {
                 counts[self.prev_code_size as usize] = counts[self.prev_code_size as usize].wrapping_add(self.repeat_count as u16);
                 let code = self.prev_code_size;
-                packed_code_sizes.write(&[code, code, code][..self.repeat_count as usize])?;
+                packed_code_sizes.write_all(&[code, code, code][..self.repeat_count as usize])?;
             } else {
                 counts[16] = counts[16].wrapping_add(1);
-                packed_code_sizes.write(&[16, (self.repeat_count - 3) as u8][..])?;
+                packed_code_sizes.write_all(&[16, (self.repeat_count - 3) as u8][..])?;
             }
             self.repeat_count = 0;
         }
@@ -511,13 +511,13 @@ impl RLE {
         if self.z_count != 0 {
             if self.z_count < 3 {
                 counts[0] = counts[0].wrapping_add(self.z_count as u16);
-                packed_code_sizes.write(&[0, 0, 0][..self.z_count as usize])?;
+                packed_code_sizes.write_all(&[0, 0, 0][..self.z_count as usize])?;
             } else if self.z_count <= 10 {
                 counts[17] = counts[17].wrapping_add(1);
-                packed_code_sizes.write(&[17, (self.z_count - 3) as u8][..])?;
+                packed_code_sizes.write_all(&[17, (self.z_count - 3) as u8][..])?;
             } else {
                 counts[18] = counts[18].wrapping_add(1);
-                packed_code_sizes.write(&[18, (self.z_count - 11) as u8][..])?;
+                packed_code_sizes.write_all(&[18, (self.z_count - 11) as u8][..])?;
             }
             self.z_count = 0;
         }
@@ -765,10 +765,10 @@ impl HuffmanOxide {
 
         let total_code_sizes_to_pack = num_lit_codes + num_dist_codes;
 
-        &code_sizes_to_pack[..num_lit_codes]
+        code_sizes_to_pack[..num_lit_codes]
             .copy_from_slice(&self.code_sizes[0][..num_lit_codes]);
 
-        &code_sizes_to_pack[num_lit_codes..total_code_sizes_to_pack]
+        code_sizes_to_pack[num_lit_codes..total_code_sizes_to_pack]
             .copy_from_slice(&self.code_sizes[1][..num_dist_codes]);
 
         let mut rle = RLE {
@@ -793,7 +793,7 @@ impl HuffmanOxide {
                     rle.prev_code_size(&mut packed_code_sizes_cursor, self)?;
                     self.count[HUFF_CODES_TABLE][code_size as usize] =
                         self.count[HUFF_CODES_TABLE][code_size as usize].wrapping_add(1);
-                    packed_code_sizes_cursor.write(&[code_size][..])?;
+                    packed_code_sizes_cursor.write_all(&[code_size][..])?;
                 } else {
                     rle.repeat_count += 1;
                     if rle.repeat_count == 6 {
@@ -1182,7 +1182,7 @@ pub fn flush_block(
         let mut comp_success = false;
         if !use_raw_block {
             let use_static = (d.params.flags & TDEFL_FORCE_ALL_STATIC_BLOCKS != 0) || (d.lz.total_bytes < 48);
-            comp_success = compress_block(&mut d.huff, &mut output, &mut d.lz, use_static)?;
+            comp_success = compress_block(&mut d.huff, &mut output, &d.lz, use_static)?;
         }
 
         // If we failed to compress anything and the output would take up more space than the output
@@ -1208,7 +1208,7 @@ pub fn flush_block(
             }
         } else if !comp_success {
             output.load(saved_buffer);
-            compress_block(&mut d.huff, &mut output, &mut d.lz, true)?;
+            compress_block(&mut d.huff, &mut output, &d.lz, true)?;
         }
 
         if flush != TDEFLFlush::None {
@@ -1465,12 +1465,12 @@ pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> b
 
         while num_bytes_to_process != 0 {
             let n = cmp::min(TDEFL_LZ_DICT_SIZE - dst_pos , num_bytes_to_process);
-            &mut d.dict.dict[dst_pos..dst_pos + n]
+            d.dict.dict[dst_pos..dst_pos + n]
                 .copy_from_slice(&in_buf[src_pos..src_pos + n]);
 
             if dst_pos < TDEFL_MAX_MATCH_LEN - 1 {
                 let m = cmp::min(n, TDEFL_MAX_MATCH_LEN - 1 - dst_pos);
-                &mut d.dict.dict[dst_pos + TDEFL_LZ_DICT_SIZE..dst_pos + TDEFL_LZ_DICT_SIZE + m]
+                d.dict.dict[dst_pos + TDEFL_LZ_DICT_SIZE..dst_pos + TDEFL_LZ_DICT_SIZE + m]
                     .copy_from_slice(&in_buf[src_pos..src_pos + m]);
             }
 
@@ -1486,7 +1486,7 @@ pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> b
 
         while lookahead_size >= 4 {
             let mut cur_match_len = 1;
-            let first_trigram = d.dict.read_unaligned::<u32>(cur_pos as isize) & 0xFFFFFF;
+            let first_trigram = d.dict.read_unaligned::<u32>(cur_pos as isize) & 0xFF_FFFF;
             let hash = (first_trigram ^ (first_trigram >> (24 - (TDEFL_LZ_HASH_BITS - 8)))) & TDEFL_LEVEL1_HASH_SIZE_MASK;
             let mut probe_pos = d.dict.hash[hash as usize] as u32;
             d.dict.hash[hash as usize] = lookahead_pos as u16;
@@ -1494,7 +1494,7 @@ pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> b
             let mut cur_match_dist = (lookahead_pos - probe_pos) as u16;
             if cur_match_dist as u32 <= d.dict.size {
                 probe_pos &= TDEFL_LZ_DICT_SIZE_MASK;
-                let trigram = d.dict.read_unaligned::<u32>(probe_pos as isize) & 0xFFFFFF;
+                let trigram = d.dict.read_unaligned::<u32>(probe_pos as isize) & 0xFF_FFFF;
                 if first_trigram == trigram {
                     let mut p = (cur_pos + 3) as isize;
                     let mut q = (probe_pos + 3) as isize;
