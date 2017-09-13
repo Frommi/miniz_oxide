@@ -5,13 +5,13 @@
 /// performance on 32-bit systems.
 pub struct OutputBuffer<'a> {
     slice: &'a mut [u8],
-    position: usize
+    position: usize,
 }
 
 impl<'a> OutputBuffer<'a> {
     #[inline]
     pub fn from_slice_and_pos(slice: &'a mut [u8], position: usize) -> OutputBuffer<'a> {
-        OutputBuffer{
+        OutputBuffer {
             slice: slice,
             position: position,
         }

@@ -1,9 +1,10 @@
-use libc::{c_void, c_int};
+use libc::{c_int, c_void};
 
 mod tdef_oxide;
 pub use self::tdef_oxide::*;
 
-pub type PutBufFuncPtrNotNull = unsafe extern "C" fn(*const c_void, c_int, *mut c_void) -> bool;
+pub type PutBufFuncPtrNotNull = unsafe extern "C" fn(*const c_void, c_int, *mut c_void)
+    -> bool;
 pub type PutBufFuncPtr = Option<PutBufFuncPtrNotNull>;
 
 pub mod deflate_flags {
@@ -28,7 +29,7 @@ pub enum CompressionLevel {
     BestCompression = 9,
     UberCompression = 10,
     DefaultLevel = 6,
-    DefaultCompression = -1
+    DefaultCompression = -1,
 }
 
 #[repr(i32)]
@@ -38,7 +39,7 @@ pub enum CompressionStrategy {
     Filtered = 1,
     HuffmanOnly = 2,
     RLE = 3,
-    Fixed = 4
+    Fixed = 4,
 }
 
 
@@ -146,7 +147,8 @@ fn compress_to_vec_inner(input: &[u8], level: u8, with_zlib: bool) -> Vec<u8> {
         let (status, bytes_in, bytes_out) = compress(
             &mut compressor,
             &mut CallbackOxide::new_callback_buf(&input[in_pos..], &mut output[out_pos..]),
-            TDEFLFlush::Finish);
+            TDEFLFlush::Finish,
+        );
 
         out_pos += bytes_out;
         in_pos += bytes_in;
@@ -155,7 +157,7 @@ fn compress_to_vec_inner(input: &[u8], level: u8, with_zlib: bool) -> Vec<u8> {
             TDEFLStatus::Done => {
                 output.truncate(out_pos);
                 break;
-            },
+            }
             TDEFLStatus::Okay => {
                 // We need more space, so extend the vector.
                 if output.len().saturating_sub(out_pos) < 30 {
@@ -171,7 +173,7 @@ fn compress_to_vec_inner(input: &[u8], level: u8, with_zlib: bool) -> Vec<u8> {
                 }
             }
             // Not supposed to happen unless there is a bug.
-            _ => panic!("Bug! Unexpectedly failed to compress!")
+            _ => panic!("Bug! Unexpectedly failed to compress!"),
         }
     }
 
@@ -190,19 +192,7 @@ mod test {
     #[test]
     fn compress_small() {
         let test_data = b"Deflate late";
-        let check = [
-            0x73,
-            0x49,
-            0x4d,
-            0xcb,
-            0x49,
-            0x2c,
-            0x49,
-            0x55,
-            0x00,
-            0x11,
-            0x00,
-        ];
+        let check = [0x73, 0x49, 0x4d, 0xcb, 0x49, 0x2c, 0x49, 0x55, 0x00, 0x11, 0x00];
 
         let res = compress_to_vec(test_data, 9);
         assert_eq!(&check[..], res.as_slice());

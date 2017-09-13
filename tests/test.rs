@@ -25,7 +25,12 @@ fn roundtrip() {
     let level = 9;
     let data = get_test_data();
     let enc = compress_to_vec(&data.as_slice()[..], level);
-    println!("Input len: {}, compressed len: {}, level: {}", data.len(), enc.len(), level);
+    println!(
+        "Input len: {}, compressed len: {}, level: {}",
+        data.len(),
+        enc.len(),
+        level
+    );
     let dec = decompress_to_vec(enc.as_slice()).unwrap();
     assert!(data == dec);
 }
@@ -35,7 +40,12 @@ fn roundtrip_level_1() {
     let level = 1;
     let data = get_test_data();
     let enc = compress_to_vec(&data.as_slice()[..], level);
-    println!("Input len: {}, compressed len: {}, level: {}", data.len(), enc.len(), level);
+    println!(
+        "Input len: {}, compressed len: {}, level: {}",
+        data.len(),
+        enc.len(),
+        level
+    );
     let dec = decompress_to_vec(enc.as_slice()).unwrap();
     assert!(data == dec);
 }

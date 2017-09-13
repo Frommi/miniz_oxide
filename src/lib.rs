@@ -1,56 +1,37 @@
-extern crate libc;
 extern crate crc;
+extern crate libc;
 extern crate miniz_oxide;
 
-use std::{slice, ptr, cmp};
+use std::{cmp, ptr, slice};
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use crc::{crc32, Hasher32};
+use crc::{Hasher32, crc32};
 
-use libc::{size_t, c_int, c_uint, c_ulong, c_void};
+use libc::{c_int, c_uint, c_ulong, c_void, size_t};
 
 //mod lib_oxide;
 //pub use lib_oxide::*;
 
-use miniz_oxide::lib_oxide::{ MZError, MZResult};
+use miniz_oxide::lib_oxide::{MZError, MZResult};
 #[allow(bad_style)]
 pub type tdefl_compressor = miniz_oxide::deflate::CompressorOxide;
 
-use miniz_oxide::lib_oxide::{mz_stream,
-                             StreamOxide,
-                             mz_inflate_oxide,
-                             mz_inflate_init2_oxide,
-                             mz_inflate_end_oxide,
-                             mz_deflate_oxide,
-                             mz_deflate_reset_oxide,
-                             mz_deflate_init2_oxide,
-                             mz_deflate_end_oxide,
-                             mz_compress2_oxide,
-                             mz_uncompress2_oxide,
-};
+use miniz_oxide::lib_oxide::{mz_deflate_end_oxide, mz_deflate_oxide, mz_deflate_reset_oxide,
+                             mz_inflate_end_oxide, mz_inflate_oxide, mz_stream, StreamOxide,
+                             mz_compress2_oxide, mz_deflate_init2_oxide, mz_inflate_init2_oxide,
+                             mz_uncompress2_oxide};
 
 pub use miniz_oxide::lib_oxide::update_adler32 as mz_adler32_oxide;
 pub use miniz_oxide::lib_oxide::{mz_alloc_func, mz_free_func};
 
 
 mod tinfl;
-pub use tinfl::{
-    tinfl_decompressor,
-    tinfl_decompress_mem_to_mem,
-    tinfl_decompress_mem_to_heap,
-};
+pub use tinfl::{tinfl_decompress_mem_to_heap, tinfl_decompress_mem_to_mem, tinfl_decompressor};
 
 mod tdef;
-pub use tdef::{
-    tdefl_compress,
-    tdefl_compress_buffer,
-    tdefl_compress_mem_to_heap,
-    tdefl_compress_mem_to_mem,
-    tdefl_compress_mem_to_output,
-    tdefl_create_comp_flags_from_zip_params,
-    tdefl_get_prev_return_status,
-    tdefl_get_adler32,
-    tdefl_init,
-};
+pub use tdef::{tdefl_compress, tdefl_compress_buffer, tdefl_compress_mem_to_heap,
+               tdefl_compress_mem_to_mem, tdefl_compress_mem_to_output,
+               tdefl_create_comp_flags_from_zip_params, tdefl_get_prev_return_status, tdefl_init,
+               tdefl_get_adler32};
 
 pub fn mz_crc32_oxide(crc32: c_uint, data: &[u8]) -> c_uint {
     let mut digest = crc32::Digest::new_with_initial(crc32::IEEE, crc32);
@@ -67,7 +48,7 @@ pub const MZ_CRC32_INIT: c_ulong = 0;
 fn as_c_return_code(r: MZResult) -> c_int {
     match r {
         Err(status) => status as c_int,
-        Ok(status) => status as c_int
+        Ok(status) => status as c_int,
     }
 }
 
@@ -79,7 +60,7 @@ pub enum CompressionLevel {
     BestCompression = 9,
     UberCompression = 10,
     DefaultLevel = 6,
-    DefaultCompression = -1
+    DefaultCompression = -1,
 }
 
 #[repr(i32)]
@@ -89,27 +70,31 @@ pub enum CompressionStrategy {
     Filtered = 1,
     HuffmanOnly = 2,
     RLE = 3,
-    Fixed = 4
+    Fixed = 4,
 }
 
 
 #[cfg(feature = "build_non_rust")]
 #[allow(bad_style)]
-extern {
+extern "C" {
     pub fn miniz_def_alloc_func(opaque: *mut c_void, items: size_t, size: size_t) -> *mut c_void;
     pub fn miniz_def_free_func(opaque: *mut c_void, address: *mut c_void);
 
     pub fn miniz_def_realloc_func(
         opaque: *mut c_void,
         address: *mut c_void,
-        items: size_t, size:
-        size_t
+        items: size_t,
+        size: size_t,
     ) -> *mut c_void;
 }
 
 #[cfg(not(feature = "build_non_rust"))]
 #[no_mangle]
-pub unsafe extern "C" fn miniz_def_alloc_func(_opaque: *mut c_void, items: size_t, size: size_t) -> *mut c_void {
+pub unsafe extern "C" fn miniz_def_alloc_func(
+    _opaque: *mut c_void,
+    items: size_t,
+    size: size_t,
+) -> *mut c_void {
     libc::malloc(items * size)
 }
 
@@ -124,8 +109,8 @@ pub unsafe extern "C" fn miniz_def_free_func(_opaque: *mut c_void, address: *mut
 pub unsafe extern "C" fn miniz_def_realloc_func(
     _opaque: *mut c_void,
     address: *mut c_void,
-    items: size_t, size:
-    size_t
+    items: size_t,
+    size: size_t,
 ) -> *mut c_void {
     libc::realloc(address, items * size)
 }
@@ -152,7 +137,8 @@ macro_rules! oxidize {
     ($mz_func:ident, $mz_func_oxide:ident; $($arg_name:ident: $type_name:ident),*) => {
         #[no_mangle]
         #[allow(bad_style)]
-        pub unsafe extern "C" fn $mz_func(stream: *mut mz_stream, $($arg_name: $type_name),*) -> c_int {
+        pub unsafe extern "C" fn $mz_func(stream: *mut mz_stream, $($arg_name: $type_name),*)
+                                          -> c_int {
             match stream.as_mut() {
                 None => MZError::Stream as c_int,
                 Some(stream) => {
@@ -199,7 +185,7 @@ pub unsafe extern "C" fn mz_deflateInit(stream: *mut mz_stream, level: c_int) ->
         MZ_DEFLATED,
         MZ_DEFAULT_WINDOW_BITS,
         9,
-        CompressionStrategy::Default as c_int
+        CompressionStrategy::Default as c_int,
     )
 }
 
@@ -208,9 +194,15 @@ pub unsafe extern "C" fn mz_compress(
     dest: *mut u8,
     dest_len: *mut c_ulong,
     source: *const u8,
-    source_len: c_ulong
+    source_len: c_ulong,
 ) -> c_int {
-    mz_compress2(dest, dest_len, source, source_len, CompressionLevel::DefaultCompression as c_int)
+    mz_compress2(
+        dest,
+        dest_len,
+        source,
+        source_len,
+        CompressionLevel::DefaultCompression as c_int,
+    )
 }
 
 #[cfg(target_bit_width = "64")]
@@ -232,31 +224,35 @@ pub unsafe extern "C" fn mz_compress2(
     dest_len: *mut c_ulong,
     source: *const u8,
     source_len: c_ulong,
-    level: c_int
+    level: c_int,
 ) -> c_int {
-    dest_len.as_mut().map_or(MZError::Param as c_int, |dest_len| {
+    dest_len
+        .as_mut()
+        .map_or(MZError::Param as c_int, |dest_len| {
+            if buffer_too_large(source_len, *dest_len) {
+                return MZError::Param as c_int;
+            }
 
-        if buffer_too_large(source_len, *dest_len) {
-            return MZError::Param as c_int;
-        }
+            let mut stream: mz_stream = mz_stream {
+                next_in: source,
+                avail_in: source_len as c_uint,
+                next_out: dest,
+                avail_out: (*dest_len) as c_uint,
+                ..Default::default()
+            };
 
-        let mut stream: mz_stream = mz_stream {
-            next_in: source,
-            avail_in: source_len as c_uint,
-            next_out: dest,
-            avail_out: (*dest_len) as c_uint,
-            ..Default::default()
-        };
-
-        let mut stream_oxide = StreamOxide::new(&mut stream);
-        as_c_return_code(mz_compress2_oxide(&mut stream_oxide, level, dest_len))
-    })
+            let mut stream_oxide = StreamOxide::new(&mut stream);
+            as_c_return_code(mz_compress2_oxide(&mut stream_oxide, level, dest_len))
+        })
 }
 
 #[no_mangle]
 #[allow(bad_style)]
 pub extern "C" fn mz_deflateBound(_stream: *mut mz_stream, source_len: c_ulong) -> c_ulong {
-    cmp::max(128 + (source_len * 110) / 100, 128 + source_len + ((source_len / (31 * 1024)) + 1) * 5)
+    cmp::max(
+        128 + (source_len * 110) / 100,
+        128 + source_len + ((source_len / (31 * 1024)) + 1) * 5,
+    )
 }
 
 
@@ -271,24 +267,26 @@ pub unsafe extern "C" fn mz_uncompress(
     dest: *mut u8,
     dest_len: *mut c_ulong,
     source: *const u8,
-    source_len: c_ulong
+    source_len: c_ulong,
 ) -> c_int {
-    dest_len.as_mut().map_or(MZError::Param as c_int, |dest_len| {
-        if buffer_too_large(source_len, *dest_len) {
-            return MZError::Param as c_int;
-        }
+    dest_len
+        .as_mut()
+        .map_or(MZError::Param as c_int, |dest_len| {
+            if buffer_too_large(source_len, *dest_len) {
+                return MZError::Param as c_int;
+            }
 
-        let mut stream: mz_stream = mz_stream {
-            next_in: source,
-            avail_in: source_len as c_uint,
-            next_out: dest,
-            avail_out: (*dest_len) as c_uint,
-            ..Default::default()
-        };
+            let mut stream: mz_stream = mz_stream {
+                next_in: source,
+                avail_in: source_len as c_uint,
+                next_out: dest,
+                avail_out: (*dest_len) as c_uint,
+                ..Default::default()
+            };
 
-        let mut stream_oxide = StreamOxide::new(&mut stream);
-        as_c_return_code(mz_uncompress2_oxide(&mut stream_oxide, dest_len))
-    })
+            let mut stream_oxide = StreamOxide::new(&mut stream);
+            as_c_return_code(mz_uncompress2_oxide(&mut stream_oxide, dest_len))
+        })
 }
 
 #[no_mangle]

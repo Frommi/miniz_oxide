@@ -1,12 +1,11 @@
-use std::io::{self, Cursor, Seek, SeekFrom, Write};
-use std::{cmp, mem, ptr, slice};
 use libc::{c_int, c_void};
+use std::{cmp, mem, ptr, slice};
+use std::io::{self, Cursor, Seek, SeekFrom, Write};
 
-use super::{CompressionLevel,
-            CompressionStrategy};
+use super::{CompressionLevel, CompressionStrategy};
 use super::deflate_flags::*;
 use super::super::lib_oxide::*;
-use deflate:: PutBufFuncPtrNotNull;
+use deflate::PutBufFuncPtrNotNull;
 use lib_oxide::{MZ_ADLER32_INIT, update_adler32};
 
 pub const TDEFL_DEFAULT_MAX_PROBES: i32 = 128;
@@ -14,62 +13,127 @@ pub const TDEFL_MAX_PROBES_MASK: i32 = 0xFFF;
 
 const TDEFL_MAX_SUPPORTED_HUFF_CODESIZE: usize = 32;
 
+#[cfg_attr(rustfmt, rustfmt_skip)]
 const TDEFL_LEN_SYM: [u16; 256] = [
-    257, 258, 259, 260, 261, 262, 263, 264, 265, 265, 266, 266, 267, 267, 268, 268, 269, 269, 269, 269, 270, 270, 270, 270, 271, 271, 271, 271, 272, 272, 272, 272,
-    273, 273, 273, 273, 273, 273, 273, 273, 274, 274, 274, 274, 274, 274, 274, 274, 275, 275, 275, 275, 275, 275, 275, 275, 276, 276, 276, 276, 276, 276, 276, 276,
-    277, 277, 277, 277, 277, 277, 277, 277, 277, 277, 277, 277, 277, 277, 277, 277, 278, 278, 278, 278, 278, 278, 278, 278, 278, 278, 278, 278, 278, 278, 278, 278,
-    279, 279, 279, 279, 279, 279, 279, 279, 279, 279, 279, 279, 279, 279, 279, 279, 280, 280, 280, 280, 280, 280, 280, 280, 280, 280, 280, 280, 280, 280, 280, 280,
-    281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281,
-    282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282,
-    283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283,
-    284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 285
+    257, 258, 259, 260, 261, 262, 263, 264, 265, 265, 266, 266, 267, 267, 268, 268,
+    269, 269, 269, 269, 270, 270, 270, 270, 271, 271, 271, 271, 272, 272, 272, 272,
+    273, 273, 273, 273, 273, 273, 273, 273, 274, 274, 274, 274, 274, 274, 274, 274,
+    275, 275, 275, 275, 275, 275, 275, 275, 276, 276, 276, 276, 276, 276, 276, 276,
+    277, 277, 277, 277, 277, 277, 277, 277, 277, 277, 277, 277, 277, 277, 277, 277,
+    278, 278, 278, 278, 278, 278, 278, 278, 278, 278, 278, 278, 278, 278, 278, 278,
+    279, 279, 279, 279, 279, 279, 279, 279, 279, 279, 279, 279, 279, 279, 279, 279,
+    280, 280, 280, 280, 280, 280, 280, 280, 280, 280, 280, 280, 280, 280, 280, 280,
+    281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281,
+    281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281, 281,
+    282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282,
+    282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282, 282,
+    283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283,
+    283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283, 283,
+    284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284,
+    284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 285
 ];
 
+#[cfg_attr(rustfmt, rustfmt_skip)]
 const TDEFL_LEN_EXTRA: [u8; 256] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
-    4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
-    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
-    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0
+    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1,
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+    3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+    3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+    4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+    4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+    4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+    4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0
 ];
 
+#[cfg_attr(rustfmt, rustfmt_skip)]
 const TDEFL_SMALL_DIST_SYM: [u8; 512] = [
-    0, 1, 2, 3, 4, 4, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8, 8, 8, 8, 8, 8, 9, 9, 9, 9, 9, 9, 9, 9, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 11, 11, 11, 11, 11, 11,
-    11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 13,
-    13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
-    14, 14, 14, 14, 14, 14, 14, 14, 14, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15,
-    15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
-    16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
-    16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
-    16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
-    17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
-    17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
-    17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17
+     0,  1,  2,  3,  4,  4,  5,  5,  6,  6,  6,  6,  7,  7,  7,  7,
+     8,  8,  8,  8,  8,  8,  8,  8,  9,  9,  9,  9,  9,  9,  9,  9,
+    10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10,
+    11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
+    12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12,
+    12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12,
+    13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13,
+    13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13,
+    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
+    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
+    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
+    14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14,
+    15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15,
+    15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15,
+    15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15,
+    15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15,
+    16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
+    16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
+    16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
+    16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
+    16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
+    16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
+    16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
+    16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
+    17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
+    17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
+    17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
+    17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
+    17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
+    17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
+    17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17,
+    17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17
 ];
 
+#[cfg_attr(rustfmt, rustfmt_skip)]
 const TDEFL_SMALL_DIST_EXTRA: [u8; 512] = [
-    0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5,
-    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
-    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
-    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-    7, 7, 7, 7, 7, 7, 7, 7
+    0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+    4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7
 ];
 
+#[cfg_attr(rustfmt, rustfmt_skip)]
 const TDEFL_LARGE_DIST_SYM: [u8; 128] = [
-    0, 0, 18, 19, 20, 20, 21, 21, 22, 22, 22, 22, 23, 23, 23, 23, 24, 24, 24, 24, 24, 24, 24, 24, 25, 25, 25, 25, 25, 25, 25, 25, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26,
-    26, 26, 26, 26, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28,
-    28, 28, 28, 28, 28, 28, 28, 28, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29
+     0,  0, 18, 19, 20, 20, 21, 21, 22, 22, 22, 22, 23, 23, 23, 23,
+    24, 24, 24, 24, 24, 24, 24, 24, 25, 25, 25, 25, 25, 25, 25, 25,
+    26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26, 26,
+    27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27,
+    28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28,
+    28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28,
+    29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29,
+    29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29
 ];
 
+#[cfg_attr(rustfmt, rustfmt_skip)]
 const TDEFL_LARGE_DIST_EXTRA: [u8; 128] = [
-    0, 0, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 10, 10, 10, 10, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12,
-    12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13,
-    13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13
+     0,  0,  8,  8,  9,  9,  9,  9, 10, 10, 10, 10, 10, 10, 10, 10,
+    11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
+    12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12,
+    12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12,
+    13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13,
+    13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13,
+    13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13,
+    13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13
 ];
 
+#[cfg_attr(rustfmt, rustfmt_skip)]
 const MZ_BITMASKS: [u32; 17] = [
     0x0000, 0x0001, 0x0003, 0x0007, 0x000F, 0x001F, 0x003F, 0x007F, 0x00FF,
     0x01FF, 0x03FF, 0x07FF, 0x0FFF, 0x1FFF, 0x3FFF, 0x7FFF, 0xFFFF
@@ -90,7 +154,7 @@ pub enum TDEFLFlush {
     None = 0,
     Sync = 2,
     Full = 3,
-    Finish = 4
+    Finish = 4,
 }
 
 impl From<MZFlush> for TDEFLFlush {
@@ -100,7 +164,7 @@ impl From<MZFlush> for TDEFLFlush {
             MZFlush::Sync => TDEFLFlush::Sync,
             MZFlush::Full => TDEFLFlush::Full,
             MZFlush::Finish => TDEFLFlush::Finish,
-            _ => TDEFLFlush::None // TODO: ??? What to do ???
+            _ => TDEFLFlush::None, // TODO: ??? What to do ???
         }
     }
 }
@@ -112,7 +176,7 @@ impl TDEFLFlush {
             2 => Ok(TDEFLFlush::Sync),
             3 => Ok(TDEFLFlush::Full),
             4 => Ok(TDEFLFlush::Finish),
-            _ => Err(MZError::Param)
+            _ => Err(MZError::Param),
         }
     }
 }
@@ -123,7 +187,7 @@ pub enum TDEFLStatus {
     BadParam = -2,
     PutBufFailed = -1,
     Okay = 0,
-    Done = 1
+    Done = 1,
 }
 
 pub const TDEFL_LZ_CODE_BUF_SIZE: usize = 64 * 1024;
@@ -143,8 +207,10 @@ pub const TDEFL_LZ_DICT_SIZE_MASK: u32 = TDEFL_LZ_DICT_SIZE as u32 - 1;
 pub const TDEFL_MIN_MATCH_LEN: u32 = 3;
 pub const TDEFL_MAX_MATCH_LEN: usize = 258;
 
-fn memset<T : Copy>(slice: &mut [T], val: T) {
-    for x in slice { *x = val }
+fn memset<T: Copy>(slice: &mut [T], val: T) {
+    for x in slice {
+        *x = val
+    }
 }
 
 pub struct CompressorOxide {
@@ -193,7 +259,7 @@ impl CallbackFunc {
     pub fn flush_output(
         &mut self,
         saved_output: SavedOutputBufferOxide,
-        params: &mut ParamsOxide
+        params: &mut ParamsOxide,
     ) -> i32 {
         let call_success = unsafe {
             (self.put_buf_func)(
@@ -210,7 +276,6 @@ impl CallbackFunc {
 
         params.flush_remaining as i32
     }
-
 }
 
 pub struct CallbackBuf<'a> {
@@ -221,13 +286,15 @@ impl<'a> CallbackBuf<'a> {
     pub fn flush_output(
         &mut self,
         saved_output: SavedOutputBufferOxide,
-        params: &mut ParamsOxide
+        params: &mut ParamsOxide,
     ) -> i32 {
         if saved_output.local {
-            let n = cmp::min(saved_output.pos as usize, self.out_buf.len() - params.out_buf_ofs);
-            (&mut self.out_buf[params.out_buf_ofs..params.out_buf_ofs + n]).copy_from_slice(
-                &params.local_buf[..n]
+            let n = cmp::min(
+                saved_output.pos as usize,
+                self.out_buf.len() - params.out_buf_ofs,
             );
+            (&mut self.out_buf[params.out_buf_ofs..params.out_buf_ofs + n])
+                .copy_from_slice(&params.local_buf[..n]);
 
             params.out_buf_ofs += n;
             if saved_output.pos != n as u64 {
@@ -256,14 +323,16 @@ impl<'a> CallbackOut<'a> {
         let is_local;
         let buf_len = TDEFL_OUT_BUF_SIZE - 16;
         let chosen_buffer = match *self {
-            CallbackOut::Buf(ref mut cb) if cb.out_buf.len() - out_buf_ofs >= TDEFL_OUT_BUF_SIZE => {
+            CallbackOut::Buf(ref mut cb)
+                if cb.out_buf.len() - out_buf_ofs >= TDEFL_OUT_BUF_SIZE =>
+            {
                 is_local = false;
                 &mut cb.out_buf[out_buf_ofs..out_buf_ofs + buf_len]
-            },
+            }
             _ => {
                 is_local = true;
                 &mut local_buf[..buf_len]
-            },
+            }
         };
 
         let cursor = Cursor::new(chosen_buffer);
@@ -294,14 +363,14 @@ impl<'a> CallbackOxide<'a> {
     }
 
     pub fn new_callback_func(in_buf: &'a [u8], d: &mut CompressorOxide) -> Option<Self> {
-        d.callback_func.map(|func|
+        d.callback_func.map(|func| {
             CallbackOxide {
                 in_buf: Some(in_buf),
                 in_buf_size: None,
                 out_buf_size: None,
                 out: CallbackOut::Func(func),
             }
-        )
+        })
     }
 
     pub unsafe fn new(
@@ -331,7 +400,7 @@ impl<'a> CallbackOxide<'a> {
                     return Err(TDEFLStatus::BadParam);
                 }
                 CallbackOut::Func(func)
-            },
+            }
         };
 
         if in_buf_size > 0 && in_buf.is_null() {
@@ -341,9 +410,9 @@ impl<'a> CallbackOxide<'a> {
         }
 
         Ok(CallbackOxide {
-            in_buf: (in_buf as *const u8).as_ref().map(|in_buf|
-                slice::from_raw_parts(in_buf, in_buf_size)
-            ),
+            in_buf: (in_buf as *const u8)
+                .as_ref()
+                .map(|in_buf| slice::from_raw_parts(in_buf, in_buf_size)),
             in_buf_size: in_size,
             out_buf_size: out_size,
             out: out,
@@ -365,7 +434,9 @@ impl<'a> CallbackOxide<'a> {
         saved_output: SavedOutputBufferOxide,
         params: &mut ParamsOxide,
     ) -> i32 {
-        if saved_output.pos == 0 { return params.flush_remaining as i32 }
+        if saved_output.pos == 0 {
+            return params.flush_remaining as i32;
+        }
 
         self.update_size(Some(params.src_pos), None);
         match self.out {
@@ -441,11 +512,13 @@ impl BitBuffer {
 
     pub fn flush(&mut self, output: &mut OutputBufferOxide) -> io::Result<()> {
         let pos = output.inner.position() as usize;
-        let inner = &mut((*output.inner.get_mut())[pos]) as *mut u8 as *mut u64;
+        let inner = &mut ((*output.inner.get_mut())[pos]) as *mut u8 as *mut u64;
         unsafe {
             ptr::write_unaligned(inner, self.bit_buffer);
         }
-        output.inner.seek(SeekFrom::Current((self.bits_in >> 3) as i64))?;
+        output
+            .inner
+            .seek(SeekFrom::Current((self.bits_in >> 3) as i64))?;
         self.bit_buffer >>= self.bits_in & !7;
         self.bits_in &= 7;
         Ok(())
@@ -489,7 +562,8 @@ impl RLE {
         let counts = &mut h.count[HUFF_CODES_TABLE];
         if self.repeat_count != 0 {
             if self.repeat_count < 3 {
-                counts[self.prev_code_size as usize] = counts[self.prev_code_size as usize].wrapping_add(self.repeat_count as u16);
+                counts[self.prev_code_size as usize] =
+                    counts[self.prev_code_size as usize].wrapping_add(self.repeat_count as u16);
                 let code = self.prev_code_size;
                 packed_code_sizes.write_all(&[code, code, code][..self.repeat_count as usize])?;
             } else {
@@ -638,10 +712,15 @@ impl HuffmanOxide {
         code_list_len: usize,
         max_code_size: usize,
     ) {
-        if code_list_len <= 1 { return; }
+        if code_list_len <= 1 {
+            return;
+        }
 
         num_codes[max_code_size] += num_codes[max_code_size + 1..].iter().sum();
-        let total = num_codes[1..max_code_size + 1].iter().rev().enumerate()
+        let total = num_codes[1..max_code_size + 1]
+            .iter()
+            .rev()
+            .enumerate()
             .fold(0u32, |total, (i, &x)| total + ((x as u32) << i));
 
         for _ in (1 << max_code_size)..total {
@@ -671,15 +750,21 @@ impl HuffmanOxide {
                 num_codes[code_size as usize] += 1;
             }
         } else {
-            let mut symbols0 = [SymFreq { key: 0, sym_index: 0 }; TDEFL_MAX_HUFF_SYMBOLS];
-            let mut symbols1 = [SymFreq { key: 0, sym_index: 0 }; TDEFL_MAX_HUFF_SYMBOLS];
+            let mut symbols0 = [SymFreq {
+                key: 0,
+                sym_index: 0,
+            }; TDEFL_MAX_HUFF_SYMBOLS];
+            let mut symbols1 = [SymFreq {
+                key: 0,
+                sym_index: 0,
+            }; TDEFL_MAX_HUFF_SYMBOLS];
 
             let mut num_used_symbols = 0;
             for i in 0..table_len {
                 if self.count[table_num][i] != 0 {
                     symbols0[num_used_symbols] = SymFreq {
                         key: self.count[table_num][i],
-                        sym_index: i as u16
+                        sym_index: i as u16,
                     };
                     num_used_symbols += 1;
                 }
@@ -717,21 +802,25 @@ impl HuffmanOxide {
             next_code[i] = j as u32;
         }
 
-        for (&code_size, huff_code) in self.code_sizes[table_num].iter().take(table_len)
+        for (&code_size, huff_code) in self.code_sizes[table_num]
+            .iter()
+            .take(table_len)
             .zip(self.codes[table_num].iter_mut().take(table_len))
-            {
-                if code_size == 0 { continue }
-
-                let mut code = next_code[code_size as usize];
-                next_code[code_size as usize] += 1;
-
-                let mut rev_code = 0;
-                for _ in 0..code_size {
-                    rev_code = (rev_code << 1) | (code & 1);
-                    code >>= 1;
-                }
-                *huff_code = rev_code as u16;
+        {
+            if code_size == 0 {
+                continue;
             }
+
+            let mut code = next_code[code_size as usize];
+            next_code[code_size as usize] += 1;
+
+            let mut rev_code = 0;
+            for _ in 0..code_size {
+                rev_code = (rev_code << 1) | (code & 1);
+                code >>= 1;
+            }
+            *huff_code = rev_code as u16;
+        }
     }
 
     pub fn start_static_block(&mut self, output: &mut OutputBufferOxide) {
@@ -754,19 +843,26 @@ impl HuffmanOxide {
         self.optimize_table(0, TDEFL_MAX_HUFF_SYMBOLS_0, 15, false);
         self.optimize_table(1, TDEFL_MAX_HUFF_SYMBOLS_1, 15, false);
 
-        let num_lit_codes = 286 - &self.code_sizes[0][257..286]
-            .iter().rev().take_while(|&x| *x == 0).count();
+        let num_lit_codes = 286 -
+            &self.code_sizes[0][257..286]
+                .iter()
+                .rev()
+                .take_while(|&x| *x == 0)
+                .count();
 
-        let num_dist_codes = 30 - &self.code_sizes[1][1..30]
-            .iter().rev().take_while(|&x| *x == 0).count();
+        let num_dist_codes = 30 -
+            &self.code_sizes[1][1..30]
+                .iter()
+                .rev()
+                .take_while(|&x| *x == 0)
+                .count();
 
         let mut code_sizes_to_pack = [0u8; TDEFL_MAX_HUFF_SYMBOLS_0 + TDEFL_MAX_HUFF_SYMBOLS_1];
         let mut packed_code_sizes = [0u8; TDEFL_MAX_HUFF_SYMBOLS_0 + TDEFL_MAX_HUFF_SYMBOLS_1];
 
         let total_code_sizes_to_pack = num_lit_codes + num_dist_codes;
 
-        code_sizes_to_pack[..num_lit_codes]
-            .copy_from_slice(&self.code_sizes[0][..num_lit_codes]);
+        code_sizes_to_pack[..num_lit_codes].copy_from_slice(&self.code_sizes[0][..num_lit_codes]);
 
         code_sizes_to_pack[num_lit_codes..total_code_sizes_to_pack]
             .copy_from_slice(&self.code_sizes[1][..num_dist_codes]);
@@ -777,7 +873,10 @@ impl HuffmanOxide {
             prev_code_size: 0xFF,
         };
 
-        memset(&mut self.count[HUFF_CODES_TABLE][..TDEFL_MAX_HUFF_SYMBOLS_2], 0);
+        memset(
+            &mut self.count[HUFF_CODES_TABLE][..TDEFL_MAX_HUFF_SYMBOLS_2],
+            0,
+        );
 
         let mut packed_code_sizes_cursor = Cursor::new(&mut packed_code_sizes[..]);
         for &code_size in &code_sizes_to_pack[..total_code_sizes_to_pack] {
@@ -817,13 +916,22 @@ impl HuffmanOxide {
         output.put_bits((num_lit_codes - 257) as u32, 5);
         output.put_bits((num_dist_codes - 1) as u32, 5);
 
-        let mut num_bit_lengths = 18 - TDEFL_PACKED_CODE_SIZE_SYMS_SWIZZLE
-            .iter().rev().take_while(|&swizzle| self.code_sizes[HUFF_CODES_TABLE][*swizzle as usize] == 0).count();
+        let mut num_bit_lengths = 18 -
+            TDEFL_PACKED_CODE_SIZE_SYMS_SWIZZLE
+                .iter()
+                .rev()
+                .take_while(|&swizzle| {
+                    self.code_sizes[HUFF_CODES_TABLE][*swizzle as usize] == 0
+                })
+                .count();
 
         num_bit_lengths = cmp::max(4, num_bit_lengths + 1);
         output.put_bits(num_bit_lengths as u32 - 4, 4);
         for &swizzle in &TDEFL_PACKED_CODE_SIZE_SYMS_SWIZZLE[..num_bit_lengths] {
-            output.put_bits(self.code_sizes[HUFF_CODES_TABLE][swizzle as usize] as u32, 3);
+            output.put_bits(
+                self.code_sizes[HUFF_CODES_TABLE][swizzle as usize] as u32,
+                3,
+            );
         }
 
         let mut packed_code_size_index = 0 as usize;
@@ -832,11 +940,15 @@ impl HuffmanOxide {
             let code = packed_code_sizes[packed_code_size_index] as usize;
             packed_code_size_index += 1;
             assert!(code < TDEFL_MAX_HUFF_SYMBOLS_2);
-            output.put_bits(self.codes[HUFF_CODES_TABLE][code] as u32,
-                            self.code_sizes[HUFF_CODES_TABLE][code] as u32);
+            output.put_bits(
+                self.codes[HUFF_CODES_TABLE][code] as u32,
+                self.code_sizes[HUFF_CODES_TABLE][code] as u32,
+            );
             if code >= 16 {
-                output.put_bits(packed_code_sizes[packed_code_size_index] as u32,
-                                [2, 3, 7][code - 16]);
+                output.put_bits(
+                    packed_code_sizes[packed_code_size_index] as u32,
+                    [2, 3, 7][code - 16],
+                );
                 packed_code_size_index += 1;
             }
         }
@@ -860,10 +972,7 @@ pub struct DictOxide {
 impl DictOxide {
     pub fn new(flags: u32) -> Self {
         DictOxide {
-            max_probes: [
-                1 + ((flags & 0xFFF) + 2) / 3,
-                1 + (((flags & 0xFFF) >> 2) + 2) / 3
-            ],
+            max_probes: [1 + ((flags & 0xFFF) + 2) / 3, 1 + (((flags & 0xFFF) >> 2) + 2) / 3],
             dict: [0; TDEFL_LZ_DICT_SIZE + TDEFL_MAX_MATCH_LEN - 1],
             next: [0; TDEFL_LZ_DICT_SIZE],
             hash: [0; TDEFL_LZ_DICT_SIZE],
@@ -877,7 +986,8 @@ impl DictOxide {
 
     fn read_unaligned<T>(&self, pos: isize) -> T {
         unsafe {
-            ptr::read_unaligned((&self.dict as *const [u8] as *const u8).offset(pos) as *const T)
+            ptr::read_unaligned((&self.dict as *const [u8] as *const u8).offset(pos) as
+                *const T)
         }
     }
 
@@ -898,30 +1008,38 @@ impl DictOxide {
         let mut c01: u16 = self.read_unaligned((pos + match_len - 1) as isize);
         let s01: u16 = self.read_unaligned(pos as isize);
 
-        if max_match_len <= match_len { return (match_dist, match_len) }
+        if max_match_len <= match_len {
+            return (match_dist, match_len);
+        }
         'outer: loop {
             let mut dist;
             'found: loop {
                 num_probes_left -= 1;
-                if num_probes_left == 0 { return (match_dist, match_len) }
+                if num_probes_left == 0 {
+                    return (match_dist, match_len);
+                }
 
                 for _ in 0..3 {
                     let next_probe_pos = self.next[probe_pos as usize] as u32;
 
                     dist = ((lookahead_pos - next_probe_pos) & 0xFFFF) as u32;
                     if next_probe_pos == 0 || dist > max_dist {
-                        return (match_dist, match_len)
+                        return (match_dist, match_len);
                     }
 
                     probe_pos = next_probe_pos & TDEFL_LZ_DICT_SIZE_MASK;
                     if self.read_unaligned::<u16>((probe_pos + match_len - 1) as isize) == c01 {
-                        break 'found
+                        break 'found;
                     }
                 }
             }
 
-            if dist == 0 { return (match_dist, match_len) }
-            if self.read_unaligned::<u16>(probe_pos as isize) != s01 { continue }
+            if dist == 0 {
+                return (match_dist, match_len);
+            }
+            if self.read_unaligned::<u16>(probe_pos as isize) != s01 {
+                continue;
+            }
 
             let mut p = pos + 2;
             let mut q = probe_pos + 2;
@@ -948,7 +1066,7 @@ impl DictOxide {
                 }
             }
 
-            return (dist, cmp::min(max_match_len, TDEFL_MAX_MATCH_LEN as u32))
+            return (dist, cmp::min(max_match_len, TDEFL_MAX_MATCH_LEN as u32));
         }
     }
 }
@@ -1082,15 +1200,21 @@ pub fn compress_lz_codes(
 
             let match_len = lz_code_buf[i] as usize;
             let match_dist = unsafe {
-                ptr::read_unaligned::<u16>(lz_code_buf.get_unchecked(i + 1) as *const u8 as *const u16)
+                ptr::read_unaligned::<u16>(
+                    lz_code_buf.get_unchecked(i + 1) as *const u8 as *const u16,
+                )
             };
             i += 3;
 
             assert!(huff.code_sizes[0][TDEFL_LEN_SYM[match_len] as usize] != 0);
-            bb.put_fast(huff.codes[0][TDEFL_LEN_SYM[match_len] as usize] as u64,
-                        huff.code_sizes[0][TDEFL_LEN_SYM[match_len] as usize] as u32);
-            bb.put_fast(match_len as u64 & MZ_BITMASKS[TDEFL_LEN_EXTRA[match_len] as usize] as u64,
-                        TDEFL_LEN_EXTRA[match_len] as u32);
+            bb.put_fast(
+                huff.codes[0][TDEFL_LEN_SYM[match_len] as usize] as u64,
+                huff.code_sizes[0][TDEFL_LEN_SYM[match_len] as usize] as u32,
+            );
+            bb.put_fast(
+                match_len as u64 & MZ_BITMASKS[TDEFL_LEN_EXTRA[match_len] as usize] as u64,
+                TDEFL_LEN_EXTRA[match_len] as u32,
+            );
 
             if match_dist < 512 {
                 sym = TDEFL_SMALL_DIST_SYM[match_dist as usize] as usize;
@@ -1102,7 +1226,10 @@ pub fn compress_lz_codes(
 
             assert!(huff.code_sizes[1][sym] != 0);
             bb.put_fast(huff.codes[1][sym] as u64, huff.code_sizes[1][sym] as u32);
-            bb.put_fast(match_dist as u64 & MZ_BITMASKS[num_extra_bits as usize] as u64, num_extra_bits as u32);
+            bb.put_fast(
+                match_dist as u64 & MZ_BITMASKS[num_extra_bits as usize] as u64,
+                num_extra_bits as u32,
+            );
         } else {
             for _ in 0..3 {
                 flags >>= 1;
@@ -1110,7 +1237,10 @@ pub fn compress_lz_codes(
                 i += 1;
 
                 assert!(huff.code_sizes[0][lit as usize] != 0);
-                bb.put_fast(huff.codes[0][lit as usize] as u64, huff.code_sizes[0][lit as usize] as u32);
+                bb.put_fast(
+                    huff.codes[0][lit as usize] as u64,
+                    huff.code_sizes[0][lit as usize] as u32,
+                );
 
                 if flags & 1 == 1 || i >= lz_code_buf.len() {
                     break;
@@ -1157,7 +1287,9 @@ pub fn flush_block(
 ) -> io::Result<i32> {
     let mut saved_buffer;
     {
-        let mut output = callback.out.new_output_buffer(&mut d.params.local_buf, d.params.out_buf_ofs);
+        let mut output = callback
+            .out
+            .new_output_buffer(&mut d.params.local_buf, d.params.out_buf_ofs);
         output.bit_buffer = d.params.saved_bit_buffer;
         output.bits_in = d.params.saved_bits_in;
 
@@ -1181,7 +1313,8 @@ pub fn flush_block(
 
         let mut comp_success = false;
         if !use_raw_block {
-            let use_static = (d.params.flags & TDEFL_FORCE_ALL_STATIC_BLOCKS != 0) || (d.lz.total_bytes < 48);
+            let use_static =
+                (d.params.flags & TDEFL_FORCE_ALL_STATIC_BLOCKS != 0) || (d.lz.total_bytes < 48);
             comp_success = compress_block(&mut d.huff, &mut output, &d.lz, use_static)?;
         }
 
@@ -1303,11 +1436,13 @@ pub fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) ->
 
     while src_pos < in_buf.len() || (d.params.flush != TDEFLFlush::None && lookahead_size != 0) {
         let src_buf_left = in_buf.len() - src_pos;
-        let num_bytes_to_process = cmp::min(src_buf_left, TDEFL_MAX_MATCH_LEN - lookahead_size as usize);
+        let num_bytes_to_process =
+            cmp::min(src_buf_left, TDEFL_MAX_MATCH_LEN - lookahead_size as usize);
         if lookahead_size + d.dict.size >= TDEFL_MIN_MATCH_LEN - 1 {
             let mut dst_pos = (lookahead_pos + lookahead_size) & TDEFL_LZ_DICT_SIZE_MASK;
             let mut ins_pos = lookahead_pos + lookahead_size - 2;
-            let mut hash = ((d.dict.dict[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] as u32) << TDEFL_LZ_HASH_SHIFT) ^
+            let mut hash = ((d.dict.dict[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] as u32) <<
+                TDEFL_LZ_HASH_SHIFT) ^
                 (d.dict.dict[((ins_pos + 1) & TDEFL_LZ_DICT_SIZE_MASK) as usize] as u32);
 
             lookahead_size += num_bytes_to_process as u32;
@@ -1317,8 +1452,10 @@ pub fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) ->
                     d.dict.dict[TDEFL_LZ_DICT_SIZE + dst_pos as usize] = c;
                 }
 
-                hash = ((hash << TDEFL_LZ_HASH_SHIFT) ^ (c as u32)) & (TDEFL_LZ_HASH_SIZE as u32 - 1);
-                d.dict.next[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] = d.dict.hash[hash as usize];
+                hash =
+                    ((hash << TDEFL_LZ_HASH_SHIFT) ^ (c as u32)) & (TDEFL_LZ_HASH_SIZE as u32 - 1);
+                d.dict.next[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] =
+                    d.dict.hash[hash as usize];
                 d.dict.hash[hash as usize] = ins_pos as u16;
                 dst_pos = (dst_pos + 1) & TDEFL_LZ_DICT_SIZE_MASK;
                 ins_pos += 1;
@@ -1335,11 +1472,14 @@ pub fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) ->
                 lookahead_size += 1;
                 if lookahead_size + d.dict.size >= TDEFL_MIN_MATCH_LEN {
                     let ins_pos = lookahead_pos + lookahead_size - 3;
-                    let hash = (((d.dict.dict[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] as u32) << (TDEFL_LZ_HASH_SHIFT * 2)) ^
-                        (((d.dict.dict[((ins_pos + 1) & TDEFL_LZ_DICT_SIZE_MASK) as usize] as u32) << TDEFL_LZ_HASH_SHIFT) ^ (c as u32))) &
+                    let hash = (((d.dict.dict[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] as
+                        u32) << (TDEFL_LZ_HASH_SHIFT * 2)) ^
+                        (((d.dict.dict[((ins_pos + 1) & TDEFL_LZ_DICT_SIZE_MASK) as usize] as
+                            u32) << TDEFL_LZ_HASH_SHIFT) ^ (c as u32))) &
                         (TDEFL_LZ_HASH_SIZE as u32 - 1);
 
-                    d.dict.next[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] = d.dict.hash[hash as usize];
+                    d.dict.next[(ins_pos & TDEFL_LZ_DICT_SIZE_MASK) as usize] =
+                        d.dict.hash[hash as usize];
                     d.dict.hash[hash as usize] = ins_pos as u16;
                 }
             }
@@ -1348,18 +1488,31 @@ pub fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) ->
         }
 
         d.dict.size = cmp::min(TDEFL_LZ_DICT_SIZE as u32 - lookahead_size, d.dict.size);
-        if d.params.flush == TDEFLFlush::None && (lookahead_size as usize) < TDEFL_MAX_MATCH_LEN { break }
+        if d.params.flush == TDEFLFlush::None && (lookahead_size as usize) < TDEFL_MAX_MATCH_LEN {
+            break;
+        }
 
         let mut len_to_move = 1;
         let mut cur_match_dist = 0;
-        let mut cur_match_len = if saved_match_len != 0 { saved_match_len } else { TDEFL_MIN_MATCH_LEN - 1 };
+        let mut cur_match_len = if saved_match_len != 0 {
+            saved_match_len
+        } else {
+            TDEFL_MIN_MATCH_LEN - 1
+        };
         let cur_pos = lookahead_pos & TDEFL_LZ_DICT_SIZE_MASK;
         if d.params.flags & (TDEFL_RLE_MATCHES | TDEFL_FORCE_ALL_RAW_BLOCKS) != 0 {
             if d.dict.size != 0 && d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS == 0 {
                 let c = d.dict.dict[((cur_pos.wrapping_sub(1)) & TDEFL_LZ_DICT_SIZE_MASK) as usize];
-                cur_match_len = d.dict.dict[cur_pos as usize..(cur_pos + lookahead_size) as usize]
-                    .iter().take_while(|&x| *x == c).count() as u32;
-                if cur_match_len < TDEFL_MIN_MATCH_LEN { cur_match_len = 0 } else { cur_match_dist = 1 }
+                cur_match_len = d.dict.dict
+                    [cur_pos as usize..(cur_pos + lookahead_size) as usize]
+                    .iter()
+                    .take_while(|&x| *x == c)
+                    .count() as u32;
+                if cur_match_len < TDEFL_MIN_MATCH_LEN {
+                    cur_match_len = 0
+                } else {
+                    cur_match_dist = 1
+                }
             }
         } else {
             let dist_len = d.dict.find_match(
@@ -1398,8 +1551,14 @@ pub fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) ->
                 saved_match_len = 0;
             }
         } else if cur_match_dist == 0 {
-            record_literal(&mut d.huff, &mut d.lz, d.dict.dict[cmp::min(cur_pos as usize, d.dict.dict.len() - 1)]);
-        } else if d.params.greedy_parsing || (d.params.flags & TDEFL_RLE_MATCHES != 0) || cur_match_len >= 128 {
+            record_literal(
+                &mut d.huff,
+                &mut d.lz,
+                d.dict.dict[cmp::min(cur_pos as usize, d.dict.dict.len() - 1)],
+            );
+        } else if d.params.greedy_parsing || (d.params.flags & TDEFL_RLE_MATCHES != 0) ||
+            cur_match_len >= 128
+        {
             record_match(&mut d.huff, &mut d.lz, cur_match_len, cur_match_dist);
             len_to_move = cur_match_len;
         } else {
@@ -1427,11 +1586,10 @@ pub fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) ->
             let n = flush_block(d, callback, TDEFLFlush::None)
                 .unwrap_or(TDEFLStatus::PutBufFailed as i32);
             if n != 0 {
-
                 d.params.saved_lit = saved_lit;
                 d.params.saved_match_dist = saved_match_dist;
                 d.params.saved_match_len = saved_match_len;
-                return n > 0
+                return n > 0;
             }
         }
     }
@@ -1460,13 +1618,15 @@ pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> b
 
     while src_pos < in_buf.len() || (d.params.flush != TDEFLFlush::None && lookahead_size > 0) {
         let mut dst_pos = ((lookahead_pos + lookahead_size) & TDEFL_LZ_DICT_SIZE_MASK) as usize;
-        let mut num_bytes_to_process = cmp::min(in_buf.len() - src_pos, (TDEFL_COMP_FAST_LOOKAHEAD_SIZE - lookahead_size) as usize);
+        let mut num_bytes_to_process = cmp::min(
+            in_buf.len() - src_pos,
+            (TDEFL_COMP_FAST_LOOKAHEAD_SIZE - lookahead_size) as usize,
+        );
         lookahead_size += num_bytes_to_process as u32;
 
         while num_bytes_to_process != 0 {
-            let n = cmp::min(TDEFL_LZ_DICT_SIZE - dst_pos , num_bytes_to_process);
-            d.dict.dict[dst_pos..dst_pos + n]
-                .copy_from_slice(&in_buf[src_pos..src_pos + n]);
+            let n = cmp::min(TDEFL_LZ_DICT_SIZE - dst_pos, num_bytes_to_process);
+            d.dict.dict[dst_pos..dst_pos + n].copy_from_slice(&in_buf[src_pos..src_pos + n]);
 
             if dst_pos < TDEFL_MAX_MATCH_LEN - 1 {
                 let m = cmp::min(n, TDEFL_MAX_MATCH_LEN - 1 - dst_pos);
@@ -1487,7 +1647,8 @@ pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> b
         while lookahead_size >= 4 {
             let mut cur_match_len = 1;
             let first_trigram = d.dict.read_unaligned::<u32>(cur_pos as isize) & 0xFF_FFFF;
-            let hash = (first_trigram ^ (first_trigram >> (24 - (TDEFL_LZ_HASH_BITS - 8)))) & TDEFL_LEVEL1_HASH_SIZE_MASK;
+            let hash = (first_trigram ^ (first_trigram >> (24 - (TDEFL_LZ_HASH_BITS - 8)))) &
+                TDEFL_LEVEL1_HASH_SIZE_MASK;
             let mut probe_pos = d.dict.hash[hash as usize] as u32;
             d.dict.hash[hash as usize] = lookahead_pos as u16;
 
@@ -1519,7 +1680,9 @@ pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> b
                         };
                     };
 
-                    if cur_match_len < TDEFL_MIN_MATCH_LEN || (cur_match_len == TDEFL_MIN_MATCH_LEN && cur_match_dist >= 8 * 1024) {
+                    if cur_match_len < TDEFL_MIN_MATCH_LEN ||
+                        (cur_match_len == TDEFL_MIN_MATCH_LEN && cur_match_dist >= 8 * 1024)
+                    {
                         cur_match_len = 1;
                         d.lz.write_code(first_trigram as u8);
                         *d.lz.get_flag() >>= 1;
@@ -1534,7 +1697,9 @@ pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> b
                         d.lz.write_code((cur_match_len - TDEFL_MIN_MATCH_LEN) as u8);
                         unsafe {
                             ptr::write_unaligned(
-                                (&mut d.lz.codes[0] as *mut u8).offset(d.lz.code_position as isize) as *mut u16,
+                                (&mut d.lz.codes[0] as *mut u8)
+                                    .offset(d.lz.code_position as isize) as
+                                    *mut u16,
                                 cur_match_dist as u16,
                             );
                             d.lz.code_position += 2;
@@ -1543,12 +1708,17 @@ pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> b
                         *d.lz.get_flag() >>= 1;
                         *d.lz.get_flag() |= 0x80;
                         if cur_match_dist < 512 {
-                            d.huff.count[1][TDEFL_SMALL_DIST_SYM[cur_match_dist as usize] as usize] += 1;
+                            d.huff.count[1]
+                                [TDEFL_SMALL_DIST_SYM[cur_match_dist as usize] as usize] += 1;
                         } else {
-                            d.huff.count[1][TDEFL_LARGE_DIST_SYM[(cur_match_dist >> 8) as usize] as usize] += 1;
+                            d.huff.count[1]
+                                [TDEFL_LARGE_DIST_SYM[(cur_match_dist >> 8) as usize] as usize] +=
+                                1;
                         }
 
-                        d.huff.count[0][TDEFL_LEN_SYM[(cur_match_len - TDEFL_MIN_MATCH_LEN) as usize] as usize] += 1;
+                        d.huff.count[0][TDEFL_LEN_SYM
+                                            [(cur_match_len - TDEFL_MIN_MATCH_LEN) as usize] as
+                                            usize] += 1;
                     }
                 } else {
                     d.lz.write_code(first_trigram as u8);
@@ -1574,12 +1744,12 @@ pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> b
                             d.params.src_pos = src_pos;
                             d.params.prev_return_status = TDEFLStatus::PutBufFailed;
                             return false;
-                        },
-                        Ok(status) => status
+                        }
+                        Ok(status) => status,
                     };
                     if n != 0 {
                         d.params.src_pos = src_pos;
-                        return n > 0
+                        return n > 0;
                     }
 
                     lookahead_size = d.dict.lookahead_size;
@@ -1611,12 +1781,12 @@ pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> b
                         d.params.prev_return_status = TDEFLStatus::PutBufFailed;
                         d.params.src_pos = src_pos;
                         return false;
-                    },
-                    Ok(status) => status
+                    }
+                    Ok(status) => status,
                 };
                 if n != 0 {
                     d.params.src_pos = src_pos;
-                    return n > 0
+                    return n > 0;
                 }
 
                 lookahead_size = d.dict.lookahead_size;
@@ -1631,14 +1801,16 @@ pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> b
     true
 }
 
-pub fn flush_output_buffer(c: &mut CallbackOxide, p: &mut ParamsOxide) -> (TDEFLStatus, usize, usize) {
+pub fn flush_output_buffer(
+    c: &mut CallbackOxide,
+    p: &mut ParamsOxide,
+) -> (TDEFLStatus, usize, usize) {
     let mut res = (TDEFLStatus::Okay, p.src_pos, 0);
     if let CallbackOut::Buf(ref mut cb) = c.out {
         let n = cmp::min(cb.out_buf.len() - p.out_buf_ofs, p.flush_remaining as usize);
         if n != 0 {
-            (&mut cb.out_buf[p.out_buf_ofs..p.out_buf_ofs + n]).copy_from_slice(
-                &p.local_buf[p.flush_ofs as usize.. p.flush_ofs as usize + n]
-            );
+            (&mut cb.out_buf[p.out_buf_ofs..p.out_buf_ofs + n])
+                .copy_from_slice(&p.local_buf[p.flush_ofs as usize..p.flush_ofs as usize + n]);
         }
         p.flush_ofs += n as u32;
         p.flush_remaining -= n as u32;
@@ -1661,8 +1833,7 @@ pub fn compress(
     d.params.src_pos = 0;
 
     let prev_ok = d.params.prev_return_status == TDEFLStatus::Okay;
-    let flush_finish_once = d.params.flush != TDEFLFlush::Finish ||
-        flush == TDEFLFlush::Finish;
+    let flush_finish_once = d.params.flush != TDEFLFlush::Finish || flush == TDEFLFlush::Finish;
 
     d.params.flush = flush;
     if !prev_ok || !flush_finish_once {
@@ -1678,7 +1849,9 @@ pub fn compress(
 
     let one_probe = d.params.flags & TDEFL_MAX_PROBES_MASK as u32 == 1;
     let greedy = d.params.flags & TDEFL_GREEDY_PARSING_FLAG != 0;
-    let filter_or_rle_or_raw = d.params.flags & (TDEFL_FILTER_MATCHES | TDEFL_FORCE_ALL_RAW_BLOCKS | TDEFL_RLE_MATCHES) != 0;
+    let filter_or_rle_or_raw = d.params.flags &
+        (TDEFL_FILTER_MATCHES | TDEFL_FORCE_ALL_RAW_BLOCKS | TDEFL_RLE_MATCHES) !=
+        0;
 
     let compress_success = if one_probe && greedy && !filter_or_rle_or_raw {
         compress_fast(d, callback)
@@ -1687,15 +1860,16 @@ pub fn compress(
     };
 
     if !compress_success {
-        return (d.params.prev_return_status, d.params.src_pos, d.params.out_buf_ofs);
+        return (
+            d.params.prev_return_status,
+            d.params.src_pos,
+            d.params.out_buf_ofs,
+        );
     }
 
     if let Some(in_buf) = callback.in_buf {
         if d.params.flags & (TDEFL_WRITE_ZLIB_HEADER | TDEFL_COMPUTE_ADLER32) != 0 {
-            d.params.adler32 = update_adler32(
-                d.params.adler32,
-                &in_buf[..d.params.src_pos],
-            );
+            d.params.adler32 = update_adler32(d.params.adler32, &in_buf[..d.params.src_pos]);
         }
     }
 
@@ -1707,9 +1881,19 @@ pub fn compress(
         match flush_block(d, callback, flush) {
             Err(_) => {
                 d.params.prev_return_status = TDEFLStatus::PutBufFailed;
-                return (d.params.prev_return_status, d.params.src_pos, d.params.out_buf_ofs);
-            },
-            Ok(x) if x < 0 => return (d.params.prev_return_status, d.params.src_pos, d.params.out_buf_ofs),
+                return (
+                    d.params.prev_return_status,
+                    d.params.src_pos,
+                    d.params.out_buf_ofs,
+                );
+            }
+            Ok(x) if x < 0 => {
+                return (
+                    d.params.prev_return_status,
+                    d.params.src_pos,
+                    d.params.out_buf_ofs,
+                )
+            }
             _ => {
                 d.params.finished = d.params.flush == TDEFLFlush::Finish;
                 if d.params.flush == TDEFLFlush::Full {
@@ -1717,7 +1901,7 @@ pub fn compress(
                     memset(&mut d.dict.next[..], 0);
                     d.dict.size = 0;
                 }
-            },
+            }
         }
     }
 
@@ -1733,7 +1917,11 @@ pub fn create_comp_flags_from_zip_params(level: i32, window_bits: i32, strategy:
     } else {
         CompressionLevel::DefaultLevel as i32
     }) as usize;
-    let greedy = if level <= 3 { TDEFL_GREEDY_PARSING_FLAG } else { 0 } as u32;
+    let greedy = if level <= 3 {
+        TDEFL_GREEDY_PARSING_FLAG
+    } else {
+        0
+    } as u32;
     let mut comp_flags = TDEFL_NUM_PROBES[num_probes] | greedy;
 
     if window_bits > 0 {

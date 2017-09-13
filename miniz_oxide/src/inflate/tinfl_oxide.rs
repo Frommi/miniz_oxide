@@ -1,7 +1,7 @@
 use super::*;
 use lib_oxide::update_adler32;
 
-use std::{cmp, slice, ptr};
+use std::{cmp, ptr, slice};
 
 use self::output_buffer::OutputBuffer;
 
@@ -56,31 +56,32 @@ use self::State::*;
 ///
 /// The base is used together with the value of the extra bits to decode the actual
 /// length/distance values in a match.
+#[cfg_attr(rustfmt, rustfmt_skip)]
 const LENGTH_BASE: [u16; 32] = [
     3,  4,  5,  6,  7,  8,  9,  10,  11,  13,  15,  17,  19,  23, 27, 31,
     35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258, 0,  0, 0
 ];
 
 /// Number of extra bits for each length code.
+#[cfg_attr(rustfmt, rustfmt_skip)]
 const LENGTH_EXTRA: [u8; 32] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1,
-    1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4,
-    4, 4, 5, 5, 5, 5, 0, 0, 0, 0
+    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2,
+    3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0, 0, 0, 0
 ];
 
 /// Base length for each distance code.
+#[cfg_attr(rustfmt, rustfmt_skip)]
 const DIST_BASE: [u16; 32] = [
-    1,    2,    3,    4,    5,    7,     9,     13,    17,  25,   33,
-    49,   65,   97,   129,  193,  257,   385,   513,   769, 1025, 1537,
+    1,    2,    3,    4,    5,    7,      9,      13,     17,  25,   33,
+    49,   65,   97,   129,  193,  257,    385,    513,    769, 1025, 1537,
     2049, 3073, 4097, 6145, 8193, 12_289, 16_385, 24_577, 0,   0
 ];
 
 /// Number of extra bits for each distance code.
+#[cfg_attr(rustfmt, rustfmt_skip)]
 const DIST_EXTRA: [u8; 32] = [
-    0, 0, 0,  0,  1,  1,  2,  2,  3,  3,
-    4, 4, 5,  5,  6,  6,  7,  7,  8,  8,
-    9, 9, 10, 10, 11, 11, 12, 12, 13, 13,
-    13, 13
+    0, 0, 0, 0, 1, 1, 2,  2,  3,  3,  4,  4,  5,  5,  6,  6,
+    7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 13, 13
 ];
 
 /// The mask used when indexing the base/extra arrays.
@@ -88,8 +89,10 @@ const BASE_EXTRA_MASK: usize = 32 - 1;
 
 /// Sets the value of all the elements of the slice to `val`.
 #[inline]
-pub fn memset<T : Copy>(slice: &mut [T], val: T) {
-    for x in slice { *x = val }
+pub fn memset<T: Copy>(slice: &mut [T], val: T) {
+    for x in slice {
+        *x = val
+    }
 }
 
 /// Read an le u16 value from the slice iterator.
@@ -102,9 +105,7 @@ fn read_u16_le(iter: &mut slice::Iter<u8>) -> u16 {
         // # Unsafe
         //
         // The slice was just bounds checked to be 2 bytes long.
-        unsafe {
-            ptr::read_unaligned(two_bytes.as_ptr() as *const u16)
-        }
+        unsafe { ptr::read_unaligned(two_bytes.as_ptr() as *const u16) }
     };
     iter.nth(1);
     u16::from_le(ret)
@@ -120,16 +121,14 @@ fn read_u32_le(iter: &mut slice::Iter<u8>) -> u32 {
         // # Unsafe
         //
         // The slice was just bounds checked to be 4 bytes long.
-        unsafe {
-            ptr::read_unaligned(four_bytes.as_ptr() as *const u32)
-        }
+        unsafe { ptr::read_unaligned(four_bytes.as_ptr() as *const u32) }
     };
     iter.nth(3);
     u32::from_le(ret)
 }
 
 #[inline]
-fn _transfer_unaligned_u64(buf: &mut &mut[u8], from: isize, to: isize) {
+fn _transfer_unaligned_u64(buf: &mut &mut [u8], from: isize, to: isize) {
     unsafe {
         let mut data = ptr::read_unaligned((*buf).as_ptr().offset(from) as *const u32);
         ptr::write_unaligned((*buf).as_mut_ptr().offset(to) as *mut u32, data);
@@ -158,9 +157,7 @@ fn validate_zlib_header(cmf: u32, flg: u32, flags: u32, mask: usize) -> Action {
         let window_size = 1 << ((8 + cmf) >> 4);
         // Zlib doesn't allow window size above 32 * 1024.
         // Also bail if the buffer is wrapping and the window size is larger than the buffer.
-        failed |= (
-            window_size > 32_768) ||
-            ((mask + 1) < window_size);
+        failed |= (window_size > 32_768) || ((mask + 1) < window_size);
     }
 
     if failed {
@@ -191,7 +188,8 @@ fn decode_huffman_code<F>(
     in_iter: &mut slice::Iter<u8>,
     f: F,
 ) -> Action
-    where F: FnOnce(&mut tinfl_decompressor, &mut LocalVars, i32) -> Action,
+where
+    F: FnOnce(&mut tinfl_decompressor, &mut LocalVars, i32) -> Action,
 {
     // As the huffman codes can be up to 15 bits long we need at least 15 bits
     // ready in the bit buffer to start decoding the next huffman code.
@@ -221,8 +219,9 @@ fn decode_huffman_code<F>(
                 } else if l.num_bits > TINFL_FAST_LOOKUP_BITS.into() {
                     let mut code_len = TINFL_FAST_LOOKUP_BITS as u32;
                     loop {
-                        temp = r.tables[table].tree[
-                            (!temp + ((l.bit_buf >> code_len) & 1) as i32) as usize] as i32;
+                        temp = r.tables[table].tree
+                            [(!temp + ((l.bit_buf >> code_len) & 1) as i32) as usize] as
+                            i32;
                         code_len += 1;
                         if temp >= 0 || l.num_bits < code_len + 1 {
                             break;
@@ -241,7 +240,9 @@ fn decode_huffman_code<F>(
                 if let a @ Action::End(_) = read_byte(in_iter, flags, |b| {
                     byte = b;
                     Action::None
-                }) { return a };
+                }) {
+                    return a;
+                };
 
                 // Do this outside closure for now to avoid borrowing r.
                 l.bit_buf |= (byte as BitBuffer) << l.num_bits;
@@ -287,14 +288,13 @@ fn decode_huffman_code<F>(
 }
 
 #[inline]
-fn read_byte<F>(in_iter:  &mut slice::Iter<u8>, flags: u32, f: F) -> Action
-    where F: FnOnce(u8) -> Action,
+fn read_byte<F>(in_iter: &mut slice::Iter<u8>, flags: u32, f: F) -> Action
+where
+    F: FnOnce(u8) -> Action,
 {
     match in_iter.next() {
         None => end_of_input(flags),
-        Some(&byte) => {
-            f(byte)
-        }
+        Some(&byte) => f(byte),
     }
 }
 
@@ -306,7 +306,8 @@ fn read_bits<F>(
     flags: u32,
     f: F,
 ) -> Action
-    where F: FnOnce(&mut LocalVars, BitBuffer) -> Action,
+where
+    F: FnOnce(&mut LocalVars, BitBuffer) -> Action,
 {
     while l.num_bits < amount {
         match read_byte(in_iter, flags, |byte| {
@@ -326,13 +327,9 @@ fn read_bits<F>(
 }
 
 #[inline]
-fn pad_to_bytes<F>(
-    l: &mut LocalVars,
-    in_iter: &mut slice::Iter<u8>,
-    flags: u32,
-    f: F,
-) -> Action
-    where F: FnOnce(&mut LocalVars) -> Action,
+fn pad_to_bytes<F>(l: &mut LocalVars, in_iter: &mut slice::Iter<u8>, flags: u32, f: F) -> Action
+where
+    F: FnOnce(&mut LocalVars) -> Action,
 {
     let num_bits = l.num_bits & 7;
     read_bits(l, num_bits, in_iter, flags, |l, _| f(l))
@@ -393,7 +390,9 @@ fn init_tree(r: &mut tinfl_decompressor, l: &mut LocalVars) -> Action {
         for symbol_index in 0..table_size {
             let mut rev_code = 0;
             let code_size = table.code_size[symbol_index];
-            if code_size == 0 { continue }
+            if code_size == 0 {
+                continue;
+            }
 
             let mut cur_code = next_code[code_size as usize];
             next_code[code_size as usize] += 1;
@@ -414,7 +413,8 @@ fn init_tree(r: &mut tinfl_decompressor, l: &mut LocalVars) -> Action {
 
             let mut tree_cur = table.look_up[(rev_code & (TINFL_FAST_LOOKUP_SIZE - 1)) as usize];
             if tree_cur == 0 {
-                table.look_up[(rev_code & (TINFL_FAST_LOOKUP_SIZE - 1)) as usize] = tree_next as i16;
+                table.look_up[(rev_code & (TINFL_FAST_LOOKUP_SIZE - 1)) as usize] =
+                    tree_next as i16;
                 tree_cur = tree_next;
                 tree_next -= 2;
             }
@@ -442,7 +442,9 @@ fn init_tree(r: &mut tinfl_decompressor, l: &mut LocalVars) -> Action {
             return Action::Jump(ReadLitlenDistTablesCodeSize);
         }
 
-        if r.block_type == 0 { break }
+        if r.block_type == 0 {
+            break;
+        }
         r.block_type -= 1;
     }
 
@@ -491,15 +493,14 @@ pub fn decompress_oxide(
     // is large enough to hold the entire output file (in which case it doesn't
     // matter).
     if (out_buf_size_mask.wrapping_add(1) & out_buf_size_mask) != 0 {
-        return (TINFLStatus::BadParam, 0, 0)
+        return (TINFLStatus::BadParam, 0, 0);
     }
 
     let mut in_iter = in_buf.iter();
 
-    let mut state = r.state;//r.state as u8;
+    let mut state = r.state; //r.state as u8;
 
-    let mut out_buf =
-        OutputBuffer::from_slice_and_pos(out_cur.get_mut(), out_buf_start_pos);
+    let mut out_buf = OutputBuffer::from_slice_and_pos(out_cur.get_mut(), out_buf_start_pos);
 
     // TODO: Borrow instead of Copy
     let mut l = LocalVars {
@@ -678,7 +679,8 @@ pub fn decompress_oxide(
             ReadHufflenTableCodeSize => generate_state!(state, 'state_machine, {
                 if l.counter < r.table_sizes[HUFFLEN_TABLE] {
                     read_bits(&mut l, 3, &mut in_iter, flags, |l, bits| {
-                        r.tables[HUFFLEN_TABLE].code_size[LENGTH_DEZIGZAG[l.counter as usize] as usize]
+                        r.tables[HUFFLEN_TABLE]
+                            .code_size[LENGTH_DEZIGZAG[l.counter as usize] as usize]
                             = bits as u8;
                         l.counter += 1;
                         Action::None
@@ -691,7 +693,9 @@ pub fn decompress_oxide(
 
             ReadLitlenDistTablesCodeSize => generate_state!(state, 'state_machine, {
                 if l.counter < r.table_sizes[LITLEN_TABLE] + r.table_sizes[DIST_TABLE] {
-                    decode_huffman_code(r, &mut l, HUFFLEN_TABLE, flags, &mut in_iter, |r, l, symbol| {
+                    decode_huffman_code(
+                        r, &mut l, HUFFLEN_TABLE,
+                        flags, &mut in_iter, |r, l, symbol| {
                         l.dist = symbol as u32;
                         if l.dist < 16 {
                             r.len_codes[l.counter as usize] = l.dist as u8;
@@ -711,7 +715,8 @@ pub fn decompress_oxide(
                         .copy_from_slice(&r.len_codes[..r.table_sizes[LITLEN_TABLE] as usize]);
 
                     let dist_table_start = r.table_sizes[LITLEN_TABLE] as usize;
-                    let dist_table_end = (r.table_sizes[LITLEN_TABLE] + r.table_sizes[DIST_TABLE]) as usize;
+                    let dist_table_end = (r.table_sizes[LITLEN_TABLE] +
+                                          r.table_sizes[DIST_TABLE]) as usize;
                     r.tables[DIST_TABLE].code_size[..r.table_sizes[DIST_TABLE] as usize]
                         .copy_from_slice(&r.len_codes[dist_table_start..dist_table_end]);
 
@@ -731,7 +736,10 @@ pub fn decompress_oxide(
                         0
                     };
 
-                    memset(&mut r.len_codes[l.counter as usize..l.counter as usize + extra_bits as usize], val);
+                    memset(
+                        &mut r.len_codes[
+                            l.counter as usize..l.counter as usize + extra_bits as usize],
+                        val);
                     l.counter += extra_bits as u32;
                     Action::Jump(ReadLitlenDistTablesCodeSize)
                 })
@@ -741,7 +749,8 @@ pub fn decompress_oxide(
                 if in_iter.len() < 4 || out_buf.bytes_left() < 2 {
                     // See if we can decode a literal with the data we have left.
                     // Jumps to next state (WriteSymbol) if successful.
-                    decode_huffman_code(r, &mut l, LITLEN_TABLE, flags, &mut in_iter, |_r, l, symbol| {
+                    decode_huffman_code(
+                        r, &mut l, LITLEN_TABLE, flags, &mut in_iter, |_r, l, symbol| {
                         l.counter = symbol as u32;
                         Action::Jump(WriteSymbol)
                     })
@@ -951,7 +960,8 @@ pub fn decompress_oxide(
 
             WriteLenBytesToEnd => generate_state!(state, 'state_machine, {
                 if out_buf.bytes_left() > 0 {
-                    let source_pos = l.dist_from_out_buf_start.wrapping_sub(l.dist as usize) & out_buf_size_mask;
+                    let source_pos =
+                        l.dist_from_out_buf_start.wrapping_sub(l.dist as usize) & out_buf_size_mask;
                     let val = out_buf.get_ref()[source_pos];
                     l.dist_from_out_buf_start += 1;
                     out_buf.write_byte(val);
@@ -1022,9 +1032,12 @@ pub fn decompress_oxide(
     };
 
     let in_undo = if status != TINFLStatus::NeedsMoreInput &&
-        status != TINFLStatus::FailedCannotMakeProgress {
+        status != TINFLStatus::FailedCannotMakeProgress
+    {
         undo_bytes(&mut l, (in_buf.len() - in_iter.len()) as u32) as usize
-    } else { 0 };
+    } else {
+        0
+    };
 
     r.state = state.into();
     r.bit_buf = l.bit_buf;
@@ -1041,10 +1054,12 @@ pub fn decompress_oxide(
         let out_buf_pos = out_buf.position();
         r.check_adler32 = update_adler32(
             r.check_adler32,
-            &out_buf.get_ref()[out_buf_start_pos..out_buf_pos]
+            &out_buf.get_ref()[out_buf_start_pos..out_buf_pos],
         );
 
-        if status == TINFLStatus::Done && flags & TINFL_FLAG_PARSE_ZLIB_HEADER != 0 && r.check_adler32 != r.z_adler32 {
+        if status == TINFLStatus::Done && flags & TINFL_FLAG_PARSE_ZLIB_HEADER != 0 &&
+            r.check_adler32 != r.z_adler32
+        {
             status = TINFLStatus::Adler32Mismatch;
         }
     }
@@ -1053,7 +1068,7 @@ pub fn decompress_oxide(
     (
         status,
         in_buf.len() - in_iter.len() - in_undo,
-        out_buf.position() - out_buf_start_pos
+        out_buf.position() - out_buf_start_pos,
     )
 }
 
@@ -1071,15 +1086,35 @@ mod test {
         output_buffer: &mut [u8],
         flags: u32,
     ) -> (TINFLStatus, &'i [u8], usize) {
-        let (status, in_pos, out_pos) = decompress_oxide(r, input_buffer, &mut Cursor::new(output_buffer), flags);
+        let (status, in_pos, out_pos) =
+            decompress_oxide(r, input_buffer, &mut Cursor::new(output_buffer), flags);
         (status, &input_buffer[in_pos..], out_pos)
     }
 
     #[test]
     fn decompress_zlib() {
-        let encoded =
-            [120, 156, 243, 72, 205, 201, 201, 215, 81,
-             168, 202, 201, 76, 82, 4, 0, 27, 101, 4, 19];
+        let encoded = [
+            120,
+            156,
+            243,
+            72,
+            205,
+            201,
+            201,
+            215,
+            81,
+            168,
+            202,
+            201,
+            76,
+            82,
+            4,
+            0,
+            27,
+            101,
+            4,
+            19,
+        ];
         let flags = TINFL_FLAG_COMPUTE_ADLER32 | TINFL_FLAG_PARSE_ZLIB_HEADER;
 
         let mut b = tinfl_decompressor::new();
@@ -1111,8 +1146,7 @@ mod test {
             let len = text.len().to_le();
             let notlen = !len;
             let mut encoded =
-                vec![1, len as u8, (len >> 8) as u8, notlen as u8,
-                     (notlen >> 8) as u8];
+                vec![1, len as u8, (len >> 8) as u8, notlen as u8, (notlen >> 8) as u8];
             encoded.extend_from_slice(&text[..]);
             encoded
         };

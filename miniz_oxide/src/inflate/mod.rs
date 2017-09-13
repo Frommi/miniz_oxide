@@ -35,12 +35,7 @@ impl tinfl_huff_table {
 
     /// Get the huffman code and the length from the huffman tree.
     #[inline]
-    fn tree_lookup(
-        &self,
-        fast_symbol: i32,
-        bit_buf: BitBuffer,
-        mut code_len: u32,
-    ) -> (i32, u32) {
+    fn tree_lookup(&self, fast_symbol: i32, bit_buf: BitBuffer, mut code_len: u32) -> (i32, u32) {
         let mut symbol = fast_symbol;
         loop {
             symbol = self.tree[(!symbol + ((bit_buf >> code_len) & 1) as i32) as usize] as i32;
@@ -131,7 +126,8 @@ pub const TDEFL_FORCE_ALL_STATIC_BLOCKS: u32 = 0x0004_0000;
 pub const TDEFL_FORCE_ALL_RAW_BLOCKS: u32 = 0x0008_0000;
 
 const MIN_TABLE_SIZES: [u16; 3] = [257, 1, 4];
-const LENGTH_DEZIGZAG: [u8; 19] = [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
+const LENGTH_DEZIGZAG: [u8; 19] =
+    [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
 
 #[cfg(target_pointer_width = "64")]
 type BitBuffer = u64;
@@ -208,8 +204,7 @@ impl tinfl_decompressor {
     #[inline]
     pub fn adler32(&self) -> Option<u32> {
         if self.state != tinfl_oxide::State::Start &&
-            self.state != tinfl_oxide::State::BadZlibHeader &&
-            self.z_header0 != 0
+            self.state != tinfl_oxide::State::BadZlibHeader && self.z_header0 != 0
         {
             Some(self.check_adler32)
         } else {
@@ -234,7 +229,7 @@ pub fn decompress_to_vec_zlib(input: &[u8]) -> Result<Vec<u8>, (TINFLStatus, u32
     decompress_to_vec_inner(input, inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER)
 }
 
-fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>,(TINFLStatus, u32)> {
+fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>, (TINFLStatus, u32)> {
     let flags = flags | inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
     let mut ret = Vec::with_capacity(input.len() * 2);
 
@@ -245,9 +240,7 @@ fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>,(TINFLSta
         let cap = ret.capacity();
         ret.set_len(cap);
     };
-    let mut decomp = unsafe {
-        tinfl_decompressor::with_init_state_only()
-    };
+    let mut decomp = unsafe { tinfl_decompressor::with_init_state_only() };
 
     let mut in_pos = 0;
     let mut out_pos = 0;
@@ -257,11 +250,7 @@ fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>,(TINFLSta
             // decompressed data for matches.
             let mut c = Cursor::new(ret.as_mut_slice());
             c.set_position(out_pos as u64);
-            decompress_oxide(
-                &mut decomp,
-                &input[in_pos..],
-                &mut c,
-                flags)
+            decompress_oxide(&mut decomp, &input[in_pos..], &mut c, flags)
         };
         in_pos += in_consumed;
         out_pos += out_consumed;
@@ -270,7 +259,7 @@ fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>,(TINFLSta
             TINFLStatus::Done => {
                 ret.truncate(out_pos);
                 return Ok(ret);
-            },
+            }
             TINFLStatus::HasMoreOutput => {
                 // We need more space so extend the buffer.
                 ret.reserve(out_pos);
@@ -281,9 +270,9 @@ fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>,(TINFLSta
                     let cap = ret.capacity();
                     ret.set_len(cap);
                 }
-            },
+            }
             // TODO: Return enum directly.
-            _ => return Err((status, decomp.state as u32))
+            _ => return Err((status, decomp.state as u32)),
         }
     }
 }
@@ -294,9 +283,28 @@ mod test {
 
     #[test]
     fn decompress_vec() {
-        let encoded =
-            [120, 156, 243, 72, 205, 201, 201, 215, 81,
-             168, 202, 201, 76, 82, 4, 0, 27, 101, 4, 19];
+        let encoded = [
+            120,
+            156,
+            243,
+            72,
+            205,
+            201,
+            201,
+            215,
+            81,
+            168,
+            202,
+            201,
+            76,
+            82,
+            4,
+            0,
+            27,
+            101,
+            4,
+            19,
+        ];
         let res = decompress_to_vec_zlib(&encoded[..]).unwrap();
         assert_eq!(res.as_slice(), &b"Hello, zlib!"[..]);
     }

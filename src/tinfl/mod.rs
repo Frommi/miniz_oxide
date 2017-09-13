@@ -1,16 +1,14 @@
 #![allow(dead_code)]
 
-use ::libc::*;
-use std::{slice, ptr, usize};
+use libc::*;
+use std::{ptr, slice, usize};
 use std::io::Cursor;
-pub use miniz_oxide::inflate::{TINFLStatus,
-                               tinfl_decompressor,
-                               decompress_oxide};
+pub use miniz_oxide::inflate::{decompress_oxide, tinfl_decompressor, TINFLStatus};
 
 pub use miniz_oxide::inflate::inflate_flags::*;
 
 #[allow(bad_style)]
-extern {
+extern "C" {
     pub fn tinfl_decompress(
         r: *mut tinfl_decompressor,
         pIn_buf_next: *const u8,
@@ -18,7 +16,7 @@ extern {
         pOut_buf_start: *mut u8,
         pOut_buf_next: *mut u8,
         pOut_buf_size: *mut size_t,
-        decomp_flags: c_uint
+        decomp_flags: c_uint,
     ) -> c_int;
 }
 
@@ -38,10 +36,7 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_mem(
     let (status, _, out_consumed) = decompress_oxide(
         &mut decomp,
         slice::from_raw_parts(p_src_buf as *const u8, src_buf_len),
-        &mut Cursor::new(slice::from_raw_parts_mut(
-            p_out_buf as *mut u8,
-            out_buf_len
-        )),
+        &mut Cursor::new(slice::from_raw_parts_mut(p_out_buf as *mut u8, out_buf_len)),
         ((flags & !TINFL_FLAG_HAS_MORE_INPUT) | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF),
     );
 
@@ -82,7 +77,7 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_heap(
     loop {
         let mut out_cur = Cursor::new(slice::from_raw_parts_mut(
             p_buf as *mut u8,
-            out_buf_capacity
+            out_buf_capacity,
         ));
         out_cur.set_position(*p_out_len as u64);
         let (status, in_consumed, out_consumed) = decompress_oxide(
@@ -118,12 +113,7 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_heap(
             new_out_buf_capacity = MIN_BUFFER_CAPACITY
         }
 
-        let p_new_buf = ::miniz_def_realloc_func(
-            ptr::null_mut(),
-            p_buf,
-            1,
-            new_out_buf_capacity
-        );
+        let p_new_buf = ::miniz_def_realloc_func(ptr::null_mut(), p_buf, 1, new_out_buf_capacity);
         // Bail out if growing fails.
         if p_new_buf.is_null() {
             ::miniz_def_free_func(ptr::null_mut(), p_buf);
@@ -147,7 +137,11 @@ mod test {
     /// Safe wrapper for `tinfl_decompress_mem_to_mem` using slices.
     ///
     /// Could maybe make this public later.
-    fn tinfl_decompress_mem_to_mem_wrapper(source: &mut [u8], dest: &mut [u8], flags: i32) -> Option<usize> {
+    fn tinfl_decompress_mem_to_mem_wrapper(
+        source: &mut [u8],
+        dest: &mut [u8],
+        flags: i32,
+    ) -> Option<usize> {
         let status = unsafe {
             let source_len = source.len();
             let dest_len = dest.len();
@@ -156,7 +150,7 @@ mod test {
                 dest_len,
                 source.as_mut_ptr() as *mut c_void,
                 source_len,
-                flags
+                flags,
             )
         };
         if status != TINFL_DECOMPRESS_MEM_TO_MEM_FAILED {
@@ -174,9 +168,7 @@ mod test {
 
     impl TinflHeapBuf {
         fn as_slice(&self) -> &[u8] {
-            unsafe {
-                slice::from_raw_parts(self.buf as *const u8, self.len)
-            }
+            unsafe { slice::from_raw_parts(self.buf as *const u8, self.len) }
         }
     }
 
@@ -214,10 +206,29 @@ mod test {
 
     #[test]
     fn mem_to_mem() {
-        let mut encoded =
-            [120, 156, 243, 72, 205, 201, 201, 215, 81,
-             168, 202, 201, 76, 82, 4, 0, 27, 101, 4, 19];
-        let mut out_buf = vec![0;50];
+        let mut encoded = [
+            120,
+            156,
+            243,
+            72,
+            205,
+            201,
+            201,
+            215,
+            81,
+            168,
+            202,
+            201,
+            76,
+            82,
+            4,
+            0,
+            27,
+            101,
+            4,
+            19,
+        ];
+        let mut out_buf = vec![0; 50];
         let flags = TINFL_FLAG_COMPUTE_ADLER32 | TINFL_FLAG_PARSE_ZLIB_HEADER;
         let size = tinfl_decompress_mem_to_mem_wrapper(
             &mut encoded[..],
@@ -229,14 +240,30 @@ mod test {
 
     #[test]
     fn mem_to_heap() {
-        let mut encoded =
-            [120, 156, 243, 72, 205, 201, 201, 215, 81,
-             168, 202, 201, 76, 82, 4, 0, 27, 101, 4, 19];
+        let mut encoded = [
+            120,
+            156,
+            243,
+            72,
+            205,
+            201,
+            201,
+            215,
+            81,
+            168,
+            202,
+            201,
+            76,
+            82,
+            4,
+            0,
+            27,
+            101,
+            4,
+            19,
+        ];
         let flags = TINFL_FLAG_COMPUTE_ADLER32 | TINFL_FLAG_PARSE_ZLIB_HEADER;
-        let out_buf = tinfl_decompress_mem_to_heap_wrapper(
-            &mut encoded[..],
-            flags as i32,
-        ).unwrap();
+        let out_buf = tinfl_decompress_mem_to_heap_wrapper(&mut encoded[..], flags as i32).unwrap();
         assert_eq!(out_buf.as_slice(), &b"Hello, zlib!"[..]);
     }
 }

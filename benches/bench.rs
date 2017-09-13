@@ -1,31 +1,23 @@
 #![feature(test)]
 
 extern crate libc;
-extern crate miniz_oxide_c_api;
 extern crate miniz_oxide;
+extern crate miniz_oxide_c_api;
 extern crate test;
 
 
 use test::Bencher;
 use std::io::Read;
 use std::{ops, ptr};
-use libc::{c_void, c_int};
+use libc::{c_int, c_void};
 
 use miniz_oxide::inflate::{decompress_to_vec, decompress_to_vec_zlib};
 
-use miniz_oxide::deflate::{
-    compress_to_vec,
-    compress_to_vec_zlib,
+use miniz_oxide::deflate::{compress_to_vec, compress_to_vec_zlib,
+                           create_comp_flags_from_zip_params, CompressorOxide};
 
-    create_comp_flags_from_zip_params,
-    CompressorOxide,
-};
-
-use miniz_oxide_c_api::{
-    tdefl_compress_mem_to_heap,
-    tinfl_decompress_mem_to_heap,
-    miniz_def_free_func,
-};
+use miniz_oxide_c_api::{miniz_def_free_func, tdefl_compress_mem_to_heap,
+                        tinfl_decompress_mem_to_heap};
 
 /// Safe wrapper around a buffer.
 pub struct HeapBuf {
@@ -42,9 +34,7 @@ impl ops::Drop for HeapBuf {
 
 /// Wrap pointer in a buffer that frees the memory on exit.
 fn w(buf: *mut c_void) -> HeapBuf {
-    HeapBuf {
-        buf: buf,
-    }
+    HeapBuf { buf: buf }
 }
 
 extern "C" {
@@ -83,9 +73,7 @@ fn decompress(b: &mut Bencher) {
     let input = get_test_data();
 
     let compressed = compress_to_vec(input.as_slice(), 6);
-    b.iter(||
-        decompress_to_vec(&compressed[..])
-    );
+    b.iter(|| decompress_to_vec(&compressed[..]));
 }
 
 #[bench]
@@ -94,16 +82,14 @@ fn decompress_mem_to_heap_miniz(b: &mut Bencher) {
     let compressed = compress_to_vec(input.as_slice(), 6);
 
     let mut out_len: usize = 0;
-    b.iter(||
-        unsafe {
-            w(c_tinfl_decompress_mem_to_heap(
-                compressed.as_ptr() as *mut c_void,
-                compressed.len(),
-                &mut out_len,
-                0,
-            ))
-        }
-    );
+    b.iter(|| unsafe {
+        w(c_tinfl_decompress_mem_to_heap(
+            compressed.as_ptr() as *mut c_void,
+            compressed.len(),
+            &mut out_len,
+            0,
+        ))
+    });
 }
 
 #[bench]
@@ -112,16 +98,14 @@ fn decompress_mem_to_heap_oxide(b: &mut Bencher) {
     let compressed = compress_to_vec(input.as_slice(), 6);
 
     let mut out_len: usize = 0;
-    b.iter(||
-           unsafe {
-               w(tinfl_decompress_mem_to_heap(
-                   compressed.as_ptr() as *mut c_void,
-                   compressed.len(),
-                   &mut out_len,
-                   0,
-               ))
-           }
-    );
+    b.iter(|| unsafe {
+        w(tinfl_decompress_mem_to_heap(
+            compressed.as_ptr() as *mut c_void,
+            compressed.len(),
+            &mut out_len,
+            0,
+        ))
+    });
 }
 
 #[bench]
@@ -129,9 +113,7 @@ fn zlib_decompress(b: &mut Bencher) {
     let input = get_test_data();
 
     let compressed = compress_to_vec_zlib(input.as_slice(), 6);
-    b.iter(||
-        decompress_to_vec_zlib(&compressed[..])
-    );
+    b.iter(|| decompress_to_vec_zlib(&compressed[..]));
 }
 
 
@@ -139,9 +121,7 @@ fn zlib_decompress(b: &mut Bencher) {
 fn compress_fast(b: &mut Bencher) {
     let input = get_test_data();
 
-    b.iter(||
-        compress_to_vec(input.as_slice(), 1)
-    );
+    b.iter(|| compress_to_vec(input.as_slice(), 1));
 }
 
 #[bench]
@@ -150,16 +130,14 @@ fn compress_mem_to_heap_fast_oxide(b: &mut Bencher) {
 
     let mut out_len: usize = 0;
     let flags = create_comp_flags_from_zip_params(1, -15, 0) as i32;
-    b.iter(||
-        unsafe {
-            w(tdefl_compress_mem_to_heap(
-                input.as_ptr() as *mut c_void,
-                input.len(),
-                &mut out_len,
-                flags,
-            ))
-        }
-    );
+    b.iter(|| unsafe {
+        w(tdefl_compress_mem_to_heap(
+            input.as_ptr() as *mut c_void,
+            input.len(),
+            &mut out_len,
+            flags,
+        ))
+    });
 }
 
 #[bench]
@@ -168,16 +146,14 @@ fn compress_mem_to_heap_default_oxide(b: &mut Bencher) {
 
     let mut out_len: usize = 0;
     let flags = create_comp_flags_from_zip_params(6, -15, 0) as i32;
-    b.iter(||
-        unsafe {
-            w(tdefl_compress_mem_to_heap(
-                input.as_ptr() as *mut c_void,
-                input.len(),
-                &mut out_len,
-                flags,
-            ))
-        }
-    );
+    b.iter(|| unsafe {
+        w(tdefl_compress_mem_to_heap(
+            input.as_ptr() as *mut c_void,
+            input.len(),
+            &mut out_len,
+            flags,
+        ))
+    });
 }
 
 #[bench]
@@ -186,16 +162,14 @@ fn compress_mem_to_heap_high_oxide(b: &mut Bencher) {
 
     let mut out_len: usize = 0;
     let flags = create_comp_flags_from_zip_params(9, -15, 0) as i32;
-    b.iter(||
-        unsafe {
-            w(tdefl_compress_mem_to_heap(
-                input.as_ptr() as *mut c_void,
-                input.len(),
-                &mut out_len,
-                flags,
-            ))
-        }
-    );
+    b.iter(|| unsafe {
+        w(tdefl_compress_mem_to_heap(
+            input.as_ptr() as *mut c_void,
+            input.len(),
+            &mut out_len,
+            flags,
+        ))
+    });
 }
 
 #[bench]
@@ -204,16 +178,14 @@ fn compress_mem_to_heap_fast_miniz(b: &mut Bencher) {
 
     let mut out_len: usize = 0;
     let flags = create_comp_flags_from_zip_params(1, -15, 0) as i32;
-    b.iter(||
-        unsafe {
-           w(c_tdefl_compress_mem_to_heap(
-               input.as_ptr() as *mut c_void,
-               input.len(),
-               &mut out_len,
-               flags,
-           ))
-        }
-    );
+    b.iter(|| unsafe {
+        w(c_tdefl_compress_mem_to_heap(
+            input.as_ptr() as *mut c_void,
+            input.len(),
+            &mut out_len,
+            flags,
+        ))
+    });
 }
 
 #[bench]
@@ -222,16 +194,14 @@ fn compress_mem_to_heap_default_miniz(b: &mut Bencher) {
 
     let mut out_len: usize = 0;
     let flags = create_comp_flags_from_zip_params(6, -15, 0) as i32;
-    b.iter(||
-        unsafe {
-            w(c_tdefl_compress_mem_to_heap(
-                input.as_ptr() as *mut c_void,
-                input.len(),
-                &mut out_len,
-                flags,
-            ))
-        }
-    );
+    b.iter(|| unsafe {
+        w(c_tdefl_compress_mem_to_heap(
+            input.as_ptr() as *mut c_void,
+            input.len(),
+            &mut out_len,
+            flags,
+        ))
+    });
 }
 
 #[bench]
@@ -240,50 +210,40 @@ fn compress_mem_to_heap_high_miniz(b: &mut Bencher) {
 
     let mut out_len: usize = 0;
     let flags = create_comp_flags_from_zip_params(9, -15, 0) as i32;
-    b.iter(||
-        unsafe {
-            w(c_tdefl_compress_mem_to_heap(
-                input.as_ptr() as *mut c_void,
-                input.len(),
-                &mut out_len,
-                flags,
-            ))
-        }
-    );
+    b.iter(|| unsafe {
+        w(c_tdefl_compress_mem_to_heap(
+            input.as_ptr() as *mut c_void,
+            input.len(),
+            &mut out_len,
+            flags,
+        ))
+    });
 }
 
 #[bench]
 fn zlib_compress_fast(b: &mut Bencher) {
     let input = get_test_data();
 
-    b.iter(||
-        compress_to_vec_zlib(input.as_slice(), 1)
-    );
+    b.iter(|| compress_to_vec_zlib(input.as_slice(), 1));
 }
 
 #[bench]
 fn compress_default(b: &mut Bencher) {
     let input = get_test_data();
 
-    b.iter(||
-        compress_to_vec(input.as_slice(), 6)
-    );
+    b.iter(|| compress_to_vec(input.as_slice(), 6));
 }
 
 #[bench]
 fn compress_high(b: &mut Bencher) {
     let input = get_test_data();
 
-    b.iter(||
-        compress_to_vec(input.as_slice(), 9)
-    );
+    b.iter(|| compress_to_vec(input.as_slice(), 9));
 }
 
 
 #[bench]
 fn create_compressor(b: &mut Bencher) {
     let flags = create_comp_flags_from_zip_params(6, true as i32, 0);
-    b.iter(||
-           CompressorOxide::new(None, flags)
-    );
+    b.iter(|| CompressorOxide::new(None, flags));
 }
