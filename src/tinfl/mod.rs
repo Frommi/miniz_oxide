@@ -48,7 +48,7 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_mem(
 }
 
 #[no_mangle]
-/// Decompress data from p_src_buf to a continiuosly growing heap-allocated buffer.
+/// Decompress data from `p_src_buf` to a continiuosly growing heap-allocated buffer.
 ///
 /// Sets `p_out_len` to the length of the returned buffer.
 /// Returns `ptr::null()` if decompression or allocation fails.

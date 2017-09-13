@@ -23,7 +23,7 @@ pub unsafe extern "C" fn tdefl_compress(
         }
         Some(compressor) => {
             let callback_res = CallbackOxide::new(
-                compressor.callback_func().map(|c| c.clone()),
+                compressor.callback_func().cloned(),
                 in_buf,
                 in_size,
                 out_buf,
@@ -177,7 +177,7 @@ pub unsafe extern "C" fn tdefl_compress_mem_to_heap(
     flags: c_int,
 ) -> *mut c_void {
     match out_len.as_mut() {
-        None => return ptr::null_mut(),
+        None => ptr::null_mut(),
         Some(len) => {
             *len = 0;
 
