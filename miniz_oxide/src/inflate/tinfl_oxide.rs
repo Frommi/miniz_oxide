@@ -8,7 +8,7 @@ use self::output_buffer::OutputBuffer;
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[repr(C)]
 pub enum State {
-    Start,
+    Start = 0,
     ReadZlibCmf,
     ReadZlibFlg,
     ReadBlockHeader,
@@ -153,12 +153,14 @@ fn validate_zlib_header(cmf: u32, flg: u32, flags: u32, mask: usize) -> Action {
     // Compression method. Only 8(DEFLATE) is defined by the standard.
         ((cmf & 15) != 8);
 
+    let window_size = 1 << ((cmf >> 4) + 8);
     if (flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF) == 0 {
-        let window_size = 1 << ((8 + cmf) >> 4);
-        // Zlib doesn't allow window size above 32 * 1024.
-        // Also bail if the buffer is wrapping and the window size is larger than the buffer.
-        failed |= (window_size > 32_768) || ((mask + 1) < window_size);
+        // Bail if the buffer is wrapping and the window size is larger than the buffer.
+        failed |= (mask + 1) < window_size;
     }
+
+    // Zlib doesn't allow window sizes above 32 * 1024.
+    failed |= window_size > 32_768;
 
     if failed {
         Action::Jump(BadZlibHeader)
@@ -1198,4 +1200,37 @@ mod test {
         assert_eq!(masked_lookup(dt, 0), (0, 5));
         assert_eq!(masked_lookup(dt, 20), (5, 5));
     }
+
+    fn check_result(input: &[u8], status: TINFLStatus, expected_state: State, zlib: bool) {
+        let mut r = unsafe {tinfl_decompressor::with_init_state_only() };
+        let mut output_buf = vec![0;1024 * 32];
+        let mut out_cursor = Cursor::new(output_buf.as_mut_slice());
+        let flags = if zlib {
+            inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER
+        } else {
+            0
+        } | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
+        let (d_status, _in_bytes, _out_bytes) =
+            decompress_oxide(&mut r, input, &mut out_cursor, flags);
+        assert_eq!(r.state, expected_state);
+        assert_eq!(status, d_status);
+    }
+
+    #[test]
+    fn bogus_input() {
+        const F: TINFLStatus = TINFLStatus::Failed;
+        // Bad CM.
+        check_result(&[0x77,0x85][..], F, State::BadZlibHeader, true);
+        // Bad window size (but check is correct).
+        check_result(&[0x88,0x98][..], F, State::BadZlibHeader, true);
+        // Bad check bits.
+        check_result(&[0x78,0x98][..], F, State::BadZlibHeader, true);
+
+        // Too many code lengths. (From inflate library issues)
+        check_result(b"M\xff\xffM*\xad\xad\xad\xad\xad\xad\xad\xcd\xcd\xcdM",
+                     F, State::BadTotalSymbols, false);
+        // Bad CLEN (also from inflate library issues)
+        check_result(b"\xdd\xff\xff*M\x94ffffffffff", F, State::BadTotalSymbols, false);
+    }
+
 }
