@@ -1,7 +1,6 @@
 use std::{cmp, mem, ptr, slice, usize};
 use std::io::Cursor;
 
-use adler32::RollingAdler32;
 use libc::{self, c_char, c_int, c_uint, c_ulong, c_void, size_t};
 
 use deflate::{compress, create_comp_flags_from_zip_params, deflate_flags, CallbackOxide,
@@ -12,17 +11,12 @@ use inflate::{self, inflate_flags, tinfl_decompressor, TINFLStatus, TINFL_LZ_DIC
 pub const MZ_DEFLATED: c_int = 8;
 pub const MZ_DEFAULT_WINDOW_BITS: c_int = 15;
 
-pub const MZ_ADLER32_INIT: c_ulong = 1;
-pub const MZ_CRC32_INIT: c_ulong = 0;
-
-pub fn update_adler32(adler: c_uint, data: &[u8]) -> c_uint {
-    let mut hash = RollingAdler32::from_value(adler);
-    hash.update_buffer(data);
-    hash.hash()
-}
+pub use shared::MZ_ADLER32_INIT;
+pub use shared::update_adler32 as mz_adler32_oxide;
 
 // Only used for zip stuff in miniz, so not sure if we need it for the non-C api parts.
-/*
+/* pub const MZ_CRC32_INIT: c_ulong = 0;
+
 pub fn update_crc32(crc32: c_uint, data: &[u8]) -> c_uint {
     let mut digest = crc32::Digest::new_with_initial(crc32::IEEE, crc32);
     digest.write(data);

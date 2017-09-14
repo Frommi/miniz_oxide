@@ -126,8 +126,6 @@ pub const TDEFL_FORCE_ALL_STATIC_BLOCKS: u32 = 0x0004_0000;
 pub const TDEFL_FORCE_ALL_RAW_BLOCKS: u32 = 0x0008_0000;
 
 const MIN_TABLE_SIZES: [u16; 3] = [257, 1, 4];
-const LENGTH_DEZIGZAG: [u8; 19] =
-    [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
 
 #[cfg(target_pointer_width = "64")]
 type BitBuffer = u64;

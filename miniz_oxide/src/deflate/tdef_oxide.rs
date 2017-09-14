@@ -6,13 +6,14 @@ use super::{CompressionLevel, CompressionStrategy};
 use super::deflate_flags::*;
 use super::super::lib_oxide::*;
 use deflate::PutBufFuncPtrNotNull;
-use lib_oxide::{MZ_ADLER32_INIT, update_adler32};
+use shared::{MZ_ADLER32_INIT, update_adler32, HUFFMAN_LENGTH_ORDER};
 
 pub const TDEFL_DEFAULT_MAX_PROBES: i32 = 128;
 pub const TDEFL_MAX_PROBES_MASK: i32 = 0xFFF;
 
 const TDEFL_MAX_SUPPORTED_HUFF_CODESIZE: usize = 32;
 
+/// Length code for length values.
 #[cfg_attr(rustfmt, rustfmt_skip)]
 const TDEFL_LEN_SYM: [u16; 256] = [
     257, 258, 259, 260, 261, 262, 263, 264, 265, 265, 266, 266, 267, 267, 268, 268,
@@ -33,6 +34,7 @@ const TDEFL_LEN_SYM: [u16; 256] = [
     284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 284, 285
 ];
 
+/// Number of extra bits for length values.
 #[cfg_attr(rustfmt, rustfmt_skip)]
 const TDEFL_LEN_EXTRA: [u8; 256] = [
     0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1,
@@ -53,6 +55,7 @@ const TDEFL_LEN_EXTRA: [u8; 256] = [
     5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 0
 ];
 
+/// Distance codes for distances smaller than 512.
 #[cfg_attr(rustfmt, rustfmt_skip)]
 const TDEFL_SMALL_DIST_SYM: [u8; 512] = [
      0,  1,  2,  3,  4,  4,  5,  5,  6,  6,  6,  6,  7,  7,  7,  7,
@@ -89,6 +92,7 @@ const TDEFL_SMALL_DIST_SYM: [u8; 512] = [
     17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17
 ];
 
+/// Number of extra bits for distances smaller than 512.
 #[cfg_attr(rustfmt, rustfmt_skip)]
 const TDEFL_SMALL_DIST_EXTRA: [u8; 512] = [
     0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
@@ -109,6 +113,7 @@ const TDEFL_SMALL_DIST_EXTRA: [u8; 512] = [
     7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7
 ];
 
+/// Base values to calculate distances above 512.
 #[cfg_attr(rustfmt, rustfmt_skip)]
 const TDEFL_LARGE_DIST_SYM: [u8; 128] = [
      0,  0, 18, 19, 20, 20, 21, 21, 22, 22, 22, 22, 23, 23, 23, 23,
@@ -121,6 +126,7 @@ const TDEFL_LARGE_DIST_SYM: [u8; 128] = [
     29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29, 29
 ];
 
+/// Number of extra bits distances above 512.
 #[cfg_attr(rustfmt, rustfmt_skip)]
 const TDEFL_LARGE_DIST_EXTRA: [u8; 128] = [
      0,  0,  8,  8,  9,  9,  9,  9, 10, 10, 10, 10, 10, 10, 10, 10,
@@ -139,9 +145,10 @@ const MZ_BITMASKS: [u32; 17] = [
     0x01FF, 0x03FF, 0x07FF, 0x0FFF, 0x1FFF, 0x3FFF, 0x7FFF, 0xFFFF
 ];
 
+/// The maximum number of checks for matches in the hash table the compressor will make for each
+/// compression level.
 const TDEFL_NUM_PROBES: [u32; 11] = [0, 1, 6, 32, 16, 32, 128, 256, 512, 768, 1500];
 
-#[repr(C)]
 #[derive(Copy, Clone)]
 pub struct SymFreq {
     key: u16,
@@ -190,22 +197,37 @@ pub enum TDEFLStatus {
     Done = 1,
 }
 
-pub const TDEFL_LZ_CODE_BUF_SIZE: usize = 64 * 1024;
-pub const TDEFL_OUT_BUF_SIZE: usize = (TDEFL_LZ_CODE_BUF_SIZE * 13) / 10;
-pub const TDEFL_MAX_HUFF_SYMBOLS: usize = 288;
-pub const TDEFL_LZ_HASH_BITS: i32 = 15;
-pub const TDEFL_LEVEL1_HASH_SIZE_MASK: u32 = 4095;
-pub const TDEFL_LZ_HASH_SHIFT: i32 = (TDEFL_LZ_HASH_BITS + 2) / 3;
-pub const TDEFL_LZ_HASH_SIZE: usize = 1 << TDEFL_LZ_HASH_BITS;
+/// Size of the buffer of lz77 encoded data.
+const TDEFL_LZ_CODE_BUF_SIZE: usize = 64 * 1024;
+/// Size of the output buffer.
+const TDEFL_OUT_BUF_SIZE: usize = (TDEFL_LZ_CODE_BUF_SIZE * 13) / 10;
+const TDEFL_MAX_HUFF_SYMBOLS: usize = 288;
+/// Size of hash values in the hash chains.
+const TDEFL_LZ_HASH_BITS: i32 = 15;
+/// Size of hash chain for fast compression mode.
+const TDEFL_LEVEL1_HASH_SIZE_MASK: u32 = 4095;
+/// How many bits to shift when updating the current hash value.
+const TDEFL_LZ_HASH_SHIFT: i32 = (TDEFL_LZ_HASH_BITS + 2) / 3;
+/// Size of the chained hash tables.
+const TDEFL_LZ_HASH_SIZE: usize = 1 << TDEFL_LZ_HASH_BITS;
 
-pub const TDEFL_MAX_HUFF_TABLES: usize = 3;
-pub const TDEFL_MAX_HUFF_SYMBOLS_0: usize = 288;
-pub const TDEFL_MAX_HUFF_SYMBOLS_1: usize = 32;
-pub const TDEFL_MAX_HUFF_SYMBOLS_2: usize = 19;
-pub const TDEFL_LZ_DICT_SIZE: usize = 32_768;
-pub const TDEFL_LZ_DICT_SIZE_MASK: u32 = TDEFL_LZ_DICT_SIZE as u32 - 1;
-pub const TDEFL_MIN_MATCH_LEN: u32 = 3;
-pub const TDEFL_MAX_MATCH_LEN: usize = 258;
+/// The number of huffman tables used by the compressor.
+/// Literal/length, Distances and Length of the huffman codes for the other two tables.
+const TDEFL_MAX_HUFF_TABLES: usize = 3;
+/// Literal/length codes
+const TDEFL_MAX_HUFF_SYMBOLS_0: usize = 288;
+/// Distance codes.
+const TDEFL_MAX_HUFF_SYMBOLS_1: usize = 32;
+/// Huffman length values.
+const TDEFL_MAX_HUFF_SYMBOLS_2: usize = 19;
+/// Size of the chained hash table.
+const TDEFL_LZ_DICT_SIZE: usize = 32_768;
+/// Mask used when stepping through the hash chains.
+const TDEFL_LZ_DICT_SIZE_MASK: u32 = TDEFL_LZ_DICT_SIZE as u32 - 1;
+/// The minimum length of a match.
+const TDEFL_MIN_MATCH_LEN: u32 = 3;
+/// The maximum length of a match.
+const TDEFL_MAX_MATCH_LEN: usize = 258;
 
 fn memset<T: Copy>(slice: &mut [T], val: T) {
     for x in slice {
@@ -600,9 +622,6 @@ impl RLE {
     }
 }
 
-const TDEFL_PACKED_CODE_SIZE_SYMS_SWIZZLE: [u8; 19] =
-    [16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15];
-
 impl HuffmanOxide {
     pub fn new() -> Self {
         HuffmanOxide {
@@ -917,7 +936,7 @@ impl HuffmanOxide {
         output.put_bits((num_dist_codes - 1) as u32, 5);
 
         let mut num_bit_lengths = 18 -
-            TDEFL_PACKED_CODE_SIZE_SYMS_SWIZZLE
+            HUFFMAN_LENGTH_ORDER
                 .iter()
                 .rev()
                 .take_while(|&swizzle| {
@@ -927,7 +946,7 @@ impl HuffmanOxide {
 
         num_bit_lengths = cmp::max(4, num_bit_lengths + 1);
         output.put_bits(num_bit_lengths as u32 - 4, 4);
-        for &swizzle in &TDEFL_PACKED_CODE_SIZE_SYMS_SWIZZLE[..num_bit_lengths] {
+        for &swizzle in &HUFFMAN_LENGTH_ORDER[..num_bit_lengths] {
             output.put_bits(
                 self.code_sizes[HUFF_CODES_TABLE][swizzle as usize] as u32,
                 3,

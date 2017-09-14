@@ -1,5 +1,5 @@
 use super::*;
-use lib_oxide::update_adler32;
+use shared::{update_adler32, HUFFMAN_LENGTH_ORDER};
 
 use std::{cmp, ptr, slice};
 
@@ -680,7 +680,7 @@ pub fn decompress_oxide(
                 if l.counter < r.table_sizes[HUFFLEN_TABLE] {
                     read_bits(&mut l, 3, &mut in_iter, flags, |l, bits| {
                         r.tables[HUFFLEN_TABLE]
-                            .code_size[LENGTH_DEZIGZAG[l.counter as usize] as usize]
+                            .code_size[HUFFMAN_LENGTH_ORDER[l.counter as usize] as usize]
                             = bits as u8;
                         l.counter += 1;
                         Action::None

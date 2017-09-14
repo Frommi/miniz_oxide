@@ -20,7 +20,7 @@ use miniz_oxide::lib_oxide::{mz_deflate_end_oxide, mz_deflate_oxide, mz_deflate_
                              mz_compress2_oxide, mz_deflate_init2_oxide, mz_inflate_init2_oxide,
                              mz_uncompress2_oxide};
 
-pub use miniz_oxide::lib_oxide::update_adler32 as mz_adler32_oxide;
+pub use miniz_oxide::lib_oxide::mz_adler32_oxide;
 pub use miniz_oxide::lib_oxide::{mz_alloc_func, mz_free_func};
 
 
