@@ -44,6 +44,14 @@ pub enum State {
     DistanceOutOfBounds,
     BadRawLength,
     BadCodeSizeDistPrevLookup,
+    InternalError,
+}
+
+impl State {
+    #[inline]
+    fn begin(&mut self, new_state: State) {
+        *self = new_state;
+    }
 }
 
 use self::State::*;
@@ -99,6 +107,8 @@ pub fn memset<T: Copy>(slice: &mut [T], val: T) {
 ///
 /// # Panics
 /// Panics if there are less than two bytes left.
+#[inline]
+#[cfg(not(target_pointer_width = "64"))]
 fn read_u16_le(iter: &mut slice::Iter<u8>) -> u16 {
     let ret = {
         let two_bytes = &iter.as_ref()[0..2];
@@ -115,6 +125,8 @@ fn read_u16_le(iter: &mut slice::Iter<u8>) -> u16 {
 ///
 /// # Panics
 /// Panics if there are less than four bytes left.
+#[inline(always)]
+#[cfg(target_pointer_width = "64")]
 fn read_u32_le(iter: &mut slice::Iter<u8>) -> u32 {
     let ret = {
         let four_bytes = &iter.as_ref()[..4];
@@ -125,6 +137,33 @@ fn read_u32_le(iter: &mut slice::Iter<u8>) -> u32 {
     };
     iter.nth(3);
     u32::from_le(ret)
+}
+
+/// Ensure that there is data in the bit buffer.
+///
+/// On 64-bit platform, we use a 64-bit value so this will
+/// result in there being at least 32 bits in the bit buffer.
+/// This function assumes that there is at least 4 bytes left in the input buffer.
+#[inline(always)]
+#[cfg(target_pointer_width = "64")]
+fn fill_bit_buffer(l: &mut LocalVars, in_iter: &mut slice::Iter<u8>) {
+    // Read four bytes into the buffer at once.
+    if l.num_bits < 30 {
+        l.bit_buf |= (read_u32_le(in_iter) as BitBuffer) << l.num_bits;
+        l.num_bits += 32;
+    }
+}
+
+/// Same as previous, but for non-64-bit platforms.
+/// Ensures at least 16 bits are present, requires at least 2 bytes in the in buffer.
+#[inline(always)]
+#[cfg(not(target_pointer_width = "64"))]
+fn fill_bit_buffer(l: &mut LocalVars, in_iter: &mut slice::Iter<u8>) {
+    // If the buffer is 32-bit wide, read 2 bytes instead.
+    if l.num_bits < 15 {
+        l.bit_buf |= (read_u16_le(in_iter) as BitBuffer) << l.num_bits;
+        l.num_bits += 16;
+    }
 }
 
 #[inline]
@@ -469,6 +508,7 @@ macro_rules! generate_state {
     };
 }
 
+#[derive(Copy, Clone)]
 pub struct LocalVars {
     pub bit_buf: BitBuffer,
     pub num_bits: u32,
@@ -478,6 +518,213 @@ pub struct LocalVars {
     pub dist_from_out_buf_start: usize,
 }
 
+/// Wrapper for read_bits/bytes that jumps out if reading failed.
+/// This could possibly be done cleaner with ? later.
+macro_rules! try_read {
+    ($f: expr) => {
+        if let Action::End(s) = $f {
+            break s;
+        }
+    }
+}
+
+/// Fast inner decompression loop which is run  while there is at least
+/// 258 bytes left in the output buffer, and at least 6 bytes left in the input buffer
+/// (The maximum one match would need).
+///
+/// This was inspired by a similar optimization in zlib, which uses this info to do
+/// faster unchecked copies of multiple bytes at a time.
+/// Currently we don't do this here, but this function does avoid having to jump through the
+/// big match loop on each state change(as rust does not have fallthrough or gotos at the moment),
+/// and already improves decompression speed a fair bit.
+fn decompress_fast(
+    r: &mut tinfl_decompressor,
+    mut in_iter: &mut slice::Iter<u8>,
+    out_buf: &mut OutputBuffer,
+    flags: u32,
+    local_vars: &mut LocalVars,
+    out_buf_size_mask: usize,
+) -> (TINFLStatus, State) {
+    let mut l = *local_vars;
+    let mut state;
+
+    let status: TINFLStatus = 'o: loop {
+        'litlen: loop {
+            state = State::DecodeLitlen;
+            // This function assumes that there is at least 258 bytes left in the output buffer,
+            // and that there is at least 6 bytes left in the input buffer.
+            if out_buf.bytes_left() < 258 || in_iter.len() < 6
+            {
+                break 'o TINFLStatus::Done;
+            }
+                    fill_bit_buffer(&mut l, &mut in_iter);
+
+                    let (symbol, code_len) = r.tables[LITLEN_TABLE].lookup(l.bit_buf);
+
+                    l.counter = symbol as u32;
+                    l.bit_buf >>= code_len;
+                    l.num_bits -= code_len;
+
+                    if (l.counter & 256) != 0 {
+                        // The symbol is not a literal.
+                        break;
+                    } else {
+                        // If we have a 32-bit buffer we need to read another two bytes now
+                        // to have enough bits to keep going.
+                        if cfg!(not(target_pointer_width = "64")) {
+                            fill_bit_buffer(&mut l, &mut in_iter);
+                        }
+
+                        let (symbol, code_len) = r.tables[LITLEN_TABLE].lookup(l.bit_buf);
+
+                        l.bit_buf >>= code_len;
+                        l.num_bits -= code_len;
+                        // The previous symbol was a literal, so write it directly and check
+                        // the next one.
+                        out_buf.write_byte(l.counter as u8);
+                        if (symbol & 256) != 0 {
+                            l.counter = symbol as u32;
+                            // The symbol is a length value.
+                            break;
+                        } else {
+                            // The symbol is a literal, so write it directly and continue.
+                            out_buf.write_byte(symbol as u8);
+                        }
+                    }
+        }
+        state.begin(HuffDecodeOuterLoop1);
+        // Mask the top bits since they may contain length info.
+        l.counter &= 511;
+
+        if l.counter == 256 {
+            // We hit the end of block symbol.
+            state.begin(BlockDone);
+            break 'o TINFLStatus::Done;
+        } else {
+            // # Optimization
+            // Mask the value to avoid bounds checks
+            // We could use get_unchecked later if can statically verify that
+            // this will never go out of bounds.
+            l.num_extra = LENGTH_EXTRA[(l.counter - 257) as usize & BASE_EXTRA_MASK] as u32;
+            l.counter = LENGTH_BASE[(l.counter - 257) as usize & BASE_EXTRA_MASK] as u32;
+            // Length and distance codes have a number of extra bits depending on
+            // the base, which together with the base gives us the exact value.
+            if l.num_extra != 0 {
+                state.begin(ReadExtraBitsLitlen);
+                let num_extra = l.num_extra;
+                try_read!(read_bits(&mut l, num_extra, &mut in_iter, flags, |l, extra_bits| {
+                    l.counter += extra_bits as u32;
+                    Action::None
+                }));
+            }
+
+            state.begin(DecodeDistance);
+            match decode_huffman_code(r, &mut l, DIST_TABLE, flags, &mut in_iter, |_r, l, symbol| {
+                // # Optimization
+                // Mask the value to avoid bounds checks
+                // We could use get_unchecked later if can statically verify that
+                // this will never go out of bounds.
+                l.num_extra = DIST_EXTRA[symbol as usize & BASE_EXTRA_MASK] as u32;
+                l.dist = DIST_BASE[symbol as usize & BASE_EXTRA_MASK] as u32;
+                if l.num_extra != 0 {
+                    // ReadEXTRA_BITS_DISTACNE
+                    Action::Jump(ReadExtraBitsDistance)
+                } else {
+                    Action::Jump(HuffDecodeOuterLoop2)
+                }
+            }) {
+                Action::Jump(j) if j == ReadExtraBitsDistance => {
+                    state.begin(ReadExtraBitsDistance);
+                    let num_extra = l.num_extra;
+                    try_read!(read_bits(&mut l, num_extra, &mut in_iter, flags, |l, extra_bits| {
+                        l.dist += extra_bits as u32;
+                        Action::None
+                    }));
+                },
+                Action::End(s) => break s,
+                _ => (),
+            };
+            state.begin(HuffDecodeOuterLoop2);
+
+            l.dist_from_out_buf_start = out_buf.position();
+            if l.dist as usize > l.dist_from_out_buf_start &&
+                (flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0) {
+                    // We encountered a distance that refers a position before
+                    // the start of the decoded data, so we can't continue.
+                    state.begin(DistanceOutOfBounds);
+                    break TINFLStatus::Failed;
+                }
+
+            let mut source_pos = (l.dist_from_out_buf_start.wrapping_sub(l.dist as usize)) &
+                out_buf_size_mask;
+
+            let mut out_pos = out_buf.position();
+
+            {
+                let out_slice = out_buf.get_mut();
+                let mut match_len = l.counter as usize;
+                // This is faster on x86, but at least on arm, it's slower, so only
+                // use it on x86 for now.
+                // TODO: We know that there will always be at least 258 bytes of space
+                // in the output buffer, so maybe we can use that to do big copies without
+                // checking.
+                if match_len <= l.dist as usize && match_len > 3 &&
+                    (cfg!(any(target_arch = "x86", target_arch ="x86_64"))){
+                        if source_pos < out_pos {
+                            let (from_slice, to_slice) = out_slice.split_at_mut(out_pos);
+                            to_slice[..match_len]
+                                .copy_from_slice(
+                                    &from_slice[source_pos..source_pos + match_len])
+                        } else {
+                            let (to_slice, from_slice) = out_slice.split_at_mut(source_pos);
+                            to_slice[out_pos..out_pos + match_len]
+                                .copy_from_slice(&from_slice[..match_len]);
+                        }
+                        out_pos += match_len;
+                    } else {
+                        // We are not on x86, or there was an overlapping match,
+                        // so copy manually.
+                        loop {
+                            out_slice[out_pos] = out_slice[source_pos];
+                            out_slice[out_pos + 1] = out_slice[source_pos + 1];
+                            out_slice[out_pos + 2] = out_slice[source_pos + 2];
+                            source_pos += 3;
+                            out_pos += 3;
+                            match_len -= 3;
+                            if match_len < 3 {
+                                break;
+                            }
+                        }
+
+                        if match_len > 0 {
+                            out_slice[out_pos] = out_slice[source_pos];
+                            if match_len > 1 {
+                                out_slice[out_pos + 1] = out_slice[source_pos + 1];
+                            }
+                            out_pos += match_len;
+                        }
+                        l.counter = match_len as u32;
+                    }
+            }
+            out_buf.set_position(out_pos);
+        }
+    };
+
+    *local_vars = l;
+    (status, state)
+}
+
+/// Main decompression function. Keeps decompressing data from `in_buf` until the in_buf is emtpy,
+/// out_cur is full, the end of the deflate stream is hit, or there is an error in the deflate
+/// stream.
+///
+/// The position of the output cursor indicates where in the output buffer slice writing should
+/// start.
+///
+/// # Returns
+/// returns a tuple containing the status of the compressor, the number of input bytes read, and the
+/// number of bytes output to out_cur.
+/// This currently will not update out_cur with the new position.
 pub fn decompress_oxide(
     r: &mut tinfl_decompressor,
     in_buf: &[u8],
@@ -755,21 +1002,35 @@ pub fn decompress_oxide(
                         r, &mut l, LITLEN_TABLE, flags, &mut in_iter, |_r, l, symbol| {
                         l.counter = symbol as u32;
                         Action::Jump(WriteSymbol)
-                    })
-                } else {
-                    if cfg!(target_pointer_width = "64") {
-                        // Read four bytes into the buffer at once.
-                        if l.num_bits < 30 {
-                            l.bit_buf |= (read_u32_le(&mut in_iter) as BitBuffer) << l.num_bits;
-                            l.num_bits += 32;
-                        }
+                        })
+                } else if
+                // If there is enough space, use the fast inner decompression
+                // function.
+                    out_buf.bytes_left() >= 258 &&
+                    in_iter.len() >= 6 &&
+                // If a wrapping buffer is used, avoid wraparound inside
+                // decompress_fast.
+                // TODO: Maybe find some way to ensure this without
+                // having to wait until we are halfway through the buffer, so we can take full
+                // advantage of decompress_fast when using wrapping buffers.
+                    !(flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF == 0 &&
+                      out_buf.position() <= (32 * 1024))
+                {
+                    let (status, new_state) =
+                        decompress_fast(r,
+                                        &mut in_iter,
+                                        &mut out_buf,
+                                        flags,
+                                        &mut l,
+                                        out_buf_size_mask);
+                    state = new_state;
+                    if status == TINFLStatus::Done {
+                        Action::Jump(new_state)
                     } else {
-                        // If the buffer is 32-bit wide, read 2 bytes instead.
-                        if l.num_bits < 15 {
-                            l.bit_buf |= (read_u16_le(&mut in_iter) as BitBuffer) << l.num_bits;
-                            l.num_bits += 16;
-                        }
+                        Action::End(status)
                     }
+                } else {
+                    fill_bit_buffer(&mut l, &mut in_iter);
 
                     let (symbol, code_len) = r.tables[LITLEN_TABLE].lookup(l.bit_buf);
 
@@ -784,10 +1045,7 @@ pub fn decompress_oxide(
                         // If we have a 32-bit buffer we need to read another two bytes now
                         // to have enough bits to keep going.
                         if cfg!(not(target_pointer_width = "64")) {
-                            if l.num_bits < 15 {
-                                l.bit_buf |= (read_u16_le(&mut in_iter) as BitBuffer) << l.num_bits;
-                                l.num_bits += 16;
-                            }
+                            fill_bit_buffer(&mut l, &mut in_iter);
                         }
 
                         let (symbol, code_len) = r.tables[LITLEN_TABLE].lookup(l.bit_buf);
@@ -881,7 +1139,6 @@ pub fn decompress_oxide(
             }),
 
             HuffDecodeOuterLoop2 => generate_state!(state, 'state_machine, {
-                // A cursor wrapping a slice can't be larger than usize::max.
                 l.dist_from_out_buf_start = out_buf.position();
                 if l.dist as usize > l.dist_from_out_buf_start &&
                     (flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0) {
@@ -904,7 +1161,6 @@ pub fn decompress_oxide(
                         (source_pos >= out_pos && (source_pos - out_pos) < l.counter as usize) {
                         // Not enough space for all of the data in the output buffer,
                         // so copy what we have space for.
-
                         if l.counter == 0 {
                             Action::Jump(DecodeLitlen)
                         } else {
@@ -1051,6 +1307,8 @@ pub fn decompress_oxide(
 
     r.bit_buf &= (((1 as BitBuffer) << r.num_bits) - 1) as BitBuffer;
 
+    // If this is a zlib stream, and update the adler32 checksum with the decompressed bytes if
+    // requested.
     let need_adler = flags & (TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_COMPUTE_ADLER32) != 0;
     if need_adler && status as i32 >= 0 {
         let out_buf_pos = out_buf.position();
@@ -1059,6 +1317,7 @@ pub fn decompress_oxide(
             &out_buf.get_ref()[out_buf_start_pos..out_buf_pos],
         );
 
+        // Once we are done, check if the checksum matches with the one provided in the zlib header.
         if status == TINFLStatus::Done && flags & TINFL_FLAG_PARSE_ZLIB_HEADER != 0 &&
             r.check_adler32 != r.z_adler32
         {
