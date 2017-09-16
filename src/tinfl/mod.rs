@@ -7,20 +7,33 @@ pub use miniz_oxide::inflate::{decompress_oxide, tinfl_decompressor, TINFLStatus
 
 pub use miniz_oxide::inflate::inflate_flags::*;
 
-#[allow(bad_style)]
-extern "C" {
-    pub fn tinfl_decompress(
-        r: *mut tinfl_decompressor,
-        pIn_buf_next: *const u8,
-        pIn_buf_size: *mut size_t,
-        pOut_buf_start: *mut u8,
-        pOut_buf_next: *mut u8,
-        pOut_buf_size: *mut size_t,
-        decomp_flags: c_uint,
-    ) -> c_int;
-}
-
 pub const TINFL_DECOMPRESS_MEM_TO_MEM_FAILED: size_t = usize::MAX;
+
+#[no_mangle]
+pub unsafe extern "C" fn tinfl_decompress(
+    r: *mut tinfl_decompressor,
+    in_buf: *const u8,
+    in_buf_size: *mut usize,
+    out_buf_start: *mut u8,
+    out_buf_next: *mut u8,
+    out_buf_size: *mut usize,
+    flags: u32,
+) -> i32 {
+    let next_pos = out_buf_next as usize - out_buf_start as usize;
+    let out_size = *out_buf_size + next_pos;
+    let mut out_cursor = Cursor::new(slice::from_raw_parts_mut(out_buf_start, out_size));
+    out_cursor.set_position(next_pos as u64);
+    let (status, in_consumed, out_consumed) = decompress_oxide(
+        r.as_mut().expect("bad decompressor pointer"),
+        slice::from_raw_parts(in_buf, *in_buf_size),
+        &mut out_cursor,
+        flags,
+    );
+
+    *in_buf_size = in_consumed;
+    *out_buf_size = out_consumed;
+    status as i32
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn tinfl_decompress_mem_to_mem(

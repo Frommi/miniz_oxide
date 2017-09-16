@@ -25,7 +25,12 @@ pub use miniz_oxide::lib_oxide::{mz_alloc_func, mz_free_func};
 
 
 mod tinfl;
-pub use tinfl::{tinfl_decompress_mem_to_heap, tinfl_decompress_mem_to_mem, tinfl_decompressor};
+pub use tinfl::{
+    tinfl_decompress,
+    tinfl_decompress_mem_to_heap,
+    tinfl_decompress_mem_to_mem,
+    tinfl_decompressor
+};
 
 mod tdef;
 pub use tdef::{tdefl_compress, tdefl_compress_buffer, tdefl_compress_mem_to_heap,
