@@ -1,6 +1,6 @@
 
 [package]
-name = "miniz_oxide-fuzz"
+name = "miniz_oxide_c_api-fuzz"
 version = "0.0.1"
 authors = ["Automatically generated"]
 publish = false
@@ -11,7 +11,7 @@ cargo-fuzz = true
 [dependencies]
 libc="0.2.22"
 
-[dependencies.miniz_oxide]
+[dependencies.miniz_oxide_c_api]
 path = ".."
 [dependencies.libfuzzer-sys]
 git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
@@ -26,5 +26,5 @@ path = "fuzz_targets/fuzz_high.rs"
 
 [features]
 default = ["fuzzing"]
-fuzzing = ["miniz_oxide/fuzzing"]
+fuzzing = ["miniz_oxide_c_api/fuzzing"]
 

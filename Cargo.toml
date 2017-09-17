@@ -22,6 +22,7 @@ gcc = "0.3"
 
 [features]
 default = ["build_orig_miniz"]
+fuzzing = ["build_orig_miniz"]
 build_orig_miniz = []
 
 [profile.dev]

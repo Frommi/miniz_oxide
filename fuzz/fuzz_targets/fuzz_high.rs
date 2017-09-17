@@ -2,7 +2,7 @@
 #[macro_use]
 
 extern crate libfuzzer_sys;
-extern crate miniz_oxide;
+extern crate miniz_oxide_c_api;
 
 extern crate libc;
 
@@ -24,7 +24,7 @@ fuzz_target!(|data: &[u8]| {
 
     let uncompressed_size = s.len() as c_ulong;
 
-    const N: usize = 600000;
+    const N: usize = 1000;
 
     let mut rust_compressed_size: c_ulong = N as c_ulong;
     let mut rust_compressed_buf = [0u8; N];
@@ -37,7 +37,7 @@ fuzz_target!(|data: &[u8]| {
     let mut c_decompressed_buf = [0u8; N];
 
     let rust_res =  unsafe {
-        miniz_oxide::mz_compress(rust_compressed_buf.as_mut_ptr(),
+        miniz_oxide_c_api::mz_compress(rust_compressed_buf.as_mut_ptr(),
                                  &mut rust_compressed_size,
                                  s.as_mut_ptr(),
                                  uncompressed_size)
@@ -55,7 +55,7 @@ fuzz_target!(|data: &[u8]| {
                c_compressed_buf[..c_compressed_size as usize]);
 
     let rust_res = unsafe {
-        miniz_oxide::mz_uncompress(rust_decompressed_buf.as_mut_ptr(),
+        miniz_oxide_c_api::mz_uncompress(rust_decompressed_buf.as_mut_ptr(),
                                    &mut rust_decompressed_size,
                                    rust_compressed_buf.as_mut_ptr(),
                                    rust_compressed_size)

@@ -8,3 +8,5 @@ rust: nightly
 script:
   - cargo test
   - ./test.sh
+after_success:
+  - ./travis-after-success.sh
