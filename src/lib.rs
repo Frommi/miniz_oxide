@@ -78,22 +78,6 @@ pub enum CompressionStrategy {
     Fixed = 4,
 }
 
-
-#[cfg(feature = "build_non_rust")]
-#[allow(bad_style)]
-extern "C" {
-    pub fn miniz_def_alloc_func(opaque: *mut c_void, items: size_t, size: size_t) -> *mut c_void;
-    pub fn miniz_def_free_func(opaque: *mut c_void, address: *mut c_void);
-
-    pub fn miniz_def_realloc_func(
-        opaque: *mut c_void,
-        address: *mut c_void,
-        items: size_t,
-        size: size_t,
-    ) -> *mut c_void;
-}
-
-#[cfg(not(feature = "build_non_rust"))]
 #[no_mangle]
 pub unsafe extern "C" fn miniz_def_alloc_func(
     _opaque: *mut c_void,
@@ -103,13 +87,11 @@ pub unsafe extern "C" fn miniz_def_alloc_func(
     libc::malloc(items * size)
 }
 
-#[cfg(not(feature = "build_non_rust"))]
 #[no_mangle]
 pub unsafe extern "C" fn miniz_def_free_func(_opaque: *mut c_void, address: *mut c_void) {
     libc::free(address)
 }
 
-#[cfg(not(feature = "build_non_rust"))]
 #[no_mangle]
 pub unsafe extern "C" fn miniz_def_realloc_func(
     _opaque: *mut c_void,
@@ -120,7 +102,6 @@ pub unsafe extern "C" fn miniz_def_realloc_func(
     libc::realloc(address, items * size)
 }
 
-#[cfg(feature = "build_non_rust")]
 #[no_mangle]
 pub unsafe extern "C" fn mz_adler32(adler: c_ulong, ptr: *const u8, buf_len: usize) -> c_ulong {
     ptr.as_ref().map_or(MZ_ADLER32_INIT, |r| {
@@ -129,7 +110,6 @@ pub unsafe extern "C" fn mz_adler32(adler: c_ulong, ptr: *const u8, buf_len: usi
     })
 }
 
-#[cfg(feature = "build_non_rust")]
 #[no_mangle]
 pub unsafe extern "C" fn mz_crc32(crc: c_ulong, ptr: *const u8, buf_len: size_t) -> c_ulong {
     ptr.as_ref().map_or(MZ_CRC32_INIT, |r| {

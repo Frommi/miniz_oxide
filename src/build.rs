@@ -1,8 +1,9 @@
-#[cfg(all(not(feature = "fuzzing"), not(feature = "bench"), feature = "build_non_rust"))]
+#[cfg(not(feature = "build_orig_miniz"))]
 extern crate gcc;
 
-#[cfg(all(not(feature = "fuzzing"), not(feature = "bench"), feature = "build_non_rust"))]
+#[cfg(not(feature = "build_orig_miniz"))]
 fn main() {
+//    panic!("only stub");
     gcc::Build::new()
         .files(&[
             "miniz_stub/miniz.c",
@@ -13,14 +14,12 @@ fn main() {
         .compile("libminiz.a");
 }
 
-#[cfg(any(feature = "fuzzing", feature = "bench"))]
+#[cfg(feature = "build_orig_miniz")]
 fn main() {
+//    panic!("old fuzzy pushover");
     use std::process::Command;
 
-    Command::new("./build_fuzz.sh").status().unwrap();
+    Command::new("./build_orig_miniz.sh").status().unwrap();
     println!("cargo:rustc-link-search=native=bin");
     println!("cargo:rustc-link-lib=static=miniz");
 }
-
-#[cfg(all(not(feature = "fuzzing"), not(feature = "build_non_rust")))]
-fn main() {}

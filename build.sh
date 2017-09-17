@@ -9,10 +9,10 @@ sed -i "s/$OLD/$NEW/g" Cargo.toml
 
 if [[ ($# == 0 || $1 == "--release" ) ]]; then
 #    cargo rustc --release -- --emit asm
-    cargo build --release || exit 1
+    cargo build --release --features= || exit 1
     cp target/release/libminiz_oxide_c_api.a .
 elif [[ $1 == "--debug" ]]; then
-    cargo build || exit 1
+    cargo build --features= || exit 1
     cp target/debug/libminiz_oxide_c_api.a .
 else
     echo --relese or --debug

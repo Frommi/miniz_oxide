@@ -21,10 +21,8 @@ miniz_oxide = { path = "miniz_oxide" }
 gcc = "0.3"
 
 [features]
-default = ["build_non_rust"]
-fuzzing = []
-bench = ["build_non_rust"]
-build_non_rust = []
+default = ["build_orig_miniz"]
+build_orig_miniz = []
 
 [profile.dev]
 panic = "abort"

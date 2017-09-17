@@ -11,10 +11,7 @@ use std::io::Read;
 use std::{ops, ptr};
 use libc::{c_int, c_void};
 
-use miniz_oxide::inflate::{decompress_to_vec, decompress_to_vec_zlib};
-
-use miniz_oxide::deflate::{compress_to_vec, compress_to_vec_zlib,
-                           create_comp_flags_from_zip_params, CompressorOxide};
+use miniz_oxide::deflate::{compress_to_vec, create_comp_flags_from_zip_params, CompressorOxide};
 
 use miniz_oxide_c_api::{miniz_def_free_func, tdefl_compress_mem_to_heap,
                         tinfl_decompress_mem_to_heap};
@@ -62,185 +59,99 @@ fn get_test_file_data(name: &str) -> Vec<u8> {
     input
 }
 
-fn get_test_data() -> Vec<u8> {
-    use std::env;
-    let path = env::var("TEST_FILE").unwrap_or_else(|_| "bin/libminiz.a".to_string());
-    get_test_file_data(&path)
+macro_rules! decompress_bench {
+    ($bench_name:ident, $decompress_func:ident, $level:expr, $path_to_data:expr) => {
+        #[bench]
+        fn $bench_name(b: &mut Bencher) {
+            let input = get_test_file_data($path_to_data);
+            let compressed = compress_to_vec(input.as_slice(), $level);
+
+            let mut out_len: usize = 0;
+            b.iter(|| unsafe {
+                w($decompress_func(
+                    compressed.as_ptr() as *mut c_void,
+                    compressed.len(),
+                    &mut out_len,
+                    0,
+                ))
+            });
+        }
+    };
 }
 
-#[bench]
-fn decompress(b: &mut Bencher) {
-    let input = get_test_data();
+macro_rules! compress_bench {
+    ($bench_name:ident, $compress_func:ident, $level:expr, $path_to_data:expr) => {
+        #[bench]
+        fn $bench_name(b: &mut Bencher) {
+            let input = get_test_file_data($path_to_data);
 
-    let compressed = compress_to_vec(input.as_slice(), 6);
-    b.iter(|| decompress_to_vec(&compressed[..]));
+            let mut out_len: usize = 0;
+            let flags = create_comp_flags_from_zip_params($level, -15, 0) as i32;
+            b.iter(|| unsafe {
+                w($compress_func(
+                    input.as_ptr() as *mut c_void,
+                    input.len(),
+                    &mut out_len,
+                    flags,
+                ))
+            });
+        }
+    };
 }
 
-#[bench]
-fn decompress_mem_to_heap_miniz(b: &mut Bencher) {
-    let input = get_test_data();
-    let compressed = compress_to_vec(input.as_slice(), 6);
+compress_bench!(compress_bin_lvl_1_oxide, tdefl_compress_mem_to_heap, 1, "benches/data/bin");
+compress_bench!(compress_bin_lvl_6_oxide, tdefl_compress_mem_to_heap, 6, "benches/data/bin");
+compress_bench!(compress_bin_lvl_9_oxide, tdefl_compress_mem_to_heap, 9, "benches/data/bin");
 
-    let mut out_len: usize = 0;
-    b.iter(|| unsafe {
-        w(c_tinfl_decompress_mem_to_heap(
-            compressed.as_ptr() as *mut c_void,
-            compressed.len(),
-            &mut out_len,
-            0,
-        ))
-    });
-}
-
-#[bench]
-fn decompress_mem_to_heap_oxide(b: &mut Bencher) {
-    let input = get_test_data();
-    let compressed = compress_to_vec(input.as_slice(), 6);
-
-    let mut out_len: usize = 0;
-    b.iter(|| unsafe {
-        w(tinfl_decompress_mem_to_heap(
-            compressed.as_ptr() as *mut c_void,
-            compressed.len(),
-            &mut out_len,
-            0,
-        ))
-    });
-}
-
-#[bench]
-fn zlib_decompress(b: &mut Bencher) {
-    let input = get_test_data();
-
-    let compressed = compress_to_vec_zlib(input.as_slice(), 6);
-    b.iter(|| decompress_to_vec_zlib(&compressed[..]));
-}
+compress_bench!(compress_bin_lvl_1_miniz, c_tdefl_compress_mem_to_heap, 1, "benches/data/bin");
+compress_bench!(compress_bin_lvl_6_miniz, c_tdefl_compress_mem_to_heap, 6, "benches/data/bin");
+compress_bench!(compress_bin_lvl_9_miniz, c_tdefl_compress_mem_to_heap, 9, "benches/data/bin");
 
 
-#[bench]
-fn compress_fast(b: &mut Bencher) {
-    let input = get_test_data();
+compress_bench!(compress_code_lvl_1_oxide, tdefl_compress_mem_to_heap, 1, "benches/data/code");
+compress_bench!(compress_code_lvl_6_oxide, tdefl_compress_mem_to_heap, 6, "benches/data/code");
+compress_bench!(compress_code_lvl_9_oxide, tdefl_compress_mem_to_heap, 9, "benches/data/code");
 
-    b.iter(|| compress_to_vec(input.as_slice(), 1));
-}
+compress_bench!(compress_code_lvl_1_miniz, c_tdefl_compress_mem_to_heap, 1, "benches/data/code");
+compress_bench!(compress_code_lvl_6_miniz, c_tdefl_compress_mem_to_heap, 6, "benches/data/code");
+compress_bench!(compress_code_lvl_9_miniz, c_tdefl_compress_mem_to_heap, 9, "benches/data/code");
 
-#[bench]
-fn compress_mem_to_heap_fast_oxide(b: &mut Bencher) {
-    let input = get_test_data();
 
-    let mut out_len: usize = 0;
-    let flags = create_comp_flags_from_zip_params(1, -15, 0) as i32;
-    b.iter(|| unsafe {
-        w(tdefl_compress_mem_to_heap(
-            input.as_ptr() as *mut c_void,
-            input.len(),
-            &mut out_len,
-            flags,
-        ))
-    });
-}
+compress_bench!(compress_compressed_lvl_1_oxide, tdefl_compress_mem_to_heap, 1, "benches/data/compressed");
+compress_bench!(compress_compressed_lvl_6_oxide, tdefl_compress_mem_to_heap, 6, "benches/data/compressed");
+compress_bench!(compress_compressed_lvl_9_oxide, tdefl_compress_mem_to_heap, 9, "benches/data/compressed");
 
-#[bench]
-fn compress_mem_to_heap_default_oxide(b: &mut Bencher) {
-    let input = get_test_data();
+compress_bench!(compress_compressed_lvl_1_miniz, c_tdefl_compress_mem_to_heap, 1, "benches/data/compressed");
+compress_bench!(compress_compressed_lvl_6_miniz, c_tdefl_compress_mem_to_heap, 6, "benches/data/compressed");
+compress_bench!(compress_compressed_lvl_9_miniz, c_tdefl_compress_mem_to_heap, 9, "benches/data/compressed");
 
-    let mut out_len: usize = 0;
-    let flags = create_comp_flags_from_zip_params(6, -15, 0) as i32;
-    b.iter(|| unsafe {
-        w(tdefl_compress_mem_to_heap(
-            input.as_ptr() as *mut c_void,
-            input.len(),
-            &mut out_len,
-            flags,
-        ))
-    });
-}
 
-#[bench]
-fn compress_mem_to_heap_high_oxide(b: &mut Bencher) {
-    let input = get_test_data();
 
-    let mut out_len: usize = 0;
-    let flags = create_comp_flags_from_zip_params(9, -15, 0) as i32;
-    b.iter(|| unsafe {
-        w(tdefl_compress_mem_to_heap(
-            input.as_ptr() as *mut c_void,
-            input.len(),
-            &mut out_len,
-            flags,
-        ))
-    });
-}
+decompress_bench!(decompress_bin_lvl_1_oxide, tinfl_decompress_mem_to_heap, 1, "benches/data/bin");
+decompress_bench!(decompress_bin_lvl_6_oxide, tinfl_decompress_mem_to_heap, 6, "benches/data/bin");
+decompress_bench!(decompress_bin_lvl_9_oxide, tinfl_decompress_mem_to_heap, 9, "benches/data/bin");
 
-#[bench]
-fn compress_mem_to_heap_fast_miniz(b: &mut Bencher) {
-    let input = get_test_data();
+decompress_bench!(decompress_bin_lvl_1_miniz, c_tinfl_decompress_mem_to_heap, 1, "benches/data/bin");
+decompress_bench!(decompress_bin_lvl_6_miniz, c_tinfl_decompress_mem_to_heap, 6, "benches/data/bin");
+decompress_bench!(decompress_bin_lvl_9_miniz, c_tinfl_decompress_mem_to_heap, 9, "benches/data/bin");
 
-    let mut out_len: usize = 0;
-    let flags = create_comp_flags_from_zip_params(1, -15, 0) as i32;
-    b.iter(|| unsafe {
-        w(c_tdefl_compress_mem_to_heap(
-            input.as_ptr() as *mut c_void,
-            input.len(),
-            &mut out_len,
-            flags,
-        ))
-    });
-}
 
-#[bench]
-fn compress_mem_to_heap_default_miniz(b: &mut Bencher) {
-    let input = get_test_data();
+decompress_bench!(decompress_code_lvl_1_oxide, tinfl_decompress_mem_to_heap, 1, "benches/data/code");
+decompress_bench!(decompress_code_lvl_6_oxide, tinfl_decompress_mem_to_heap, 6, "benches/data/code");
+decompress_bench!(decompress_code_lvl_9_oxide, tinfl_decompress_mem_to_heap, 9, "benches/data/code");
 
-    let mut out_len: usize = 0;
-    let flags = create_comp_flags_from_zip_params(6, -15, 0) as i32;
-    b.iter(|| unsafe {
-        w(c_tdefl_compress_mem_to_heap(
-            input.as_ptr() as *mut c_void,
-            input.len(),
-            &mut out_len,
-            flags,
-        ))
-    });
-}
+decompress_bench!(decompress_code_lvl_1_miniz, c_tinfl_decompress_mem_to_heap, 1, "benches/data/code");
+decompress_bench!(decompress_code_lvl_6_miniz, c_tinfl_decompress_mem_to_heap, 6, "benches/data/code");
+decompress_bench!(decompress_code_lvl_9_miniz, c_tinfl_decompress_mem_to_heap, 9, "benches/data/code");
 
-#[bench]
-fn compress_mem_to_heap_high_miniz(b: &mut Bencher) {
-    let input = get_test_data();
 
-    let mut out_len: usize = 0;
-    let flags = create_comp_flags_from_zip_params(9, -15, 0) as i32;
-    b.iter(|| unsafe {
-        w(c_tdefl_compress_mem_to_heap(
-            input.as_ptr() as *mut c_void,
-            input.len(),
-            &mut out_len,
-            flags,
-        ))
-    });
-}
+decompress_bench!(decompress_compressed_lvl_1_oxide, tinfl_decompress_mem_to_heap, 1, "benches/data/compressed");
+decompress_bench!(decompress_compressed_lvl_6_oxide, tinfl_decompress_mem_to_heap, 6, "benches/data/compressed");
+decompress_bench!(decompress_compressed_lvl_9_oxide, tinfl_decompress_mem_to_heap, 9, "benches/data/compressed");
 
-#[bench]
-fn zlib_compress_fast(b: &mut Bencher) {
-    let input = get_test_data();
-
-    b.iter(|| compress_to_vec_zlib(input.as_slice(), 1));
-}
-
-#[bench]
-fn compress_default(b: &mut Bencher) {
-    let input = get_test_data();
-
-    b.iter(|| compress_to_vec(input.as_slice(), 6));
-}
-
-#[bench]
-fn compress_high(b: &mut Bencher) {
-    let input = get_test_data();
-
-    b.iter(|| compress_to_vec(input.as_slice(), 9));
-}
-
+decompress_bench!(decompress_compressed_lvl_1_miniz, c_tinfl_decompress_mem_to_heap, 1, "benches/data/compressed");
+decompress_bench!(decompress_compressed_lvl_6_miniz, c_tinfl_decompress_mem_to_heap, 6, "benches/data/compressed");
+decompress_bench!(decompress_compressed_lvl_9_miniz, c_tinfl_decompress_mem_to_heap, 9, "benches/data/compressed");
 
 #[bench]
 fn create_compressor(b: &mut Bencher) {
