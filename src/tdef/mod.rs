@@ -194,7 +194,8 @@ pub unsafe extern "C" fn tdefl_compress_mem_to_heap(
                 Some(output_buffer_putter),
                 &mut buffer_user as *mut BufferUser as *mut c_void,
                 flags,
-            ) {
+            )
+            {
                 ptr::null_mut()
             } else {
                 *len = buffer_user.size;
@@ -228,7 +229,8 @@ pub unsafe extern "C" fn tdefl_compress_mem_to_mem(
         Some(output_buffer_putter),
         &mut buffer_user as *mut BufferUser as *mut c_void,
         flags,
-    ) {
+    )
+    {
         buffer_user.size
     } else {
         0

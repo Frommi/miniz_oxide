@@ -3,10 +3,10 @@ use std::io::Cursor;
 
 use libc::{self, c_char, c_int, c_uint, c_ulong, c_void, size_t};
 
-use deflate::{compress, create_comp_flags_from_zip_params, deflate_flags, CallbackOxide,
-              CompressionStrategy, CompressorOxide, TDEFLFlush, TDEFLStatus};
+use deflate::{CallbackOxide, CompressionStrategy, CompressorOxide, TDEFLFlush, TDEFLStatus,
+              compress, create_comp_flags_from_zip_params, deflate_flags};
 pub use deflate::CompressorOxide as tdefl_compressor;
-use inflate::{self, inflate_flags, tinfl_decompressor, TINFLStatus, TINFL_LZ_DICT_SIZE};
+use inflate::{self, TINFLStatus, TINFL_LZ_DICT_SIZE, inflate_flags, tinfl_decompressor};
 
 pub const MZ_DEFLATED: c_int = 8;
 pub const MZ_DEFAULT_WINDOW_BITS: c_int = 15;
@@ -69,8 +69,7 @@ pub enum MZError {
 #[allow(bad_style)]
 pub enum mz_internal_state {}
 #[allow(bad_style)]
-pub type mz_alloc_func = unsafe extern "C" fn(*mut c_void, size_t, size_t)
-    -> *mut c_void;
+pub type mz_alloc_func = unsafe extern "C" fn(*mut c_void, size_t, size_t) -> *mut c_void;
 #[allow(bad_style)]
 pub type mz_free_func = unsafe extern "C" fn(*mut c_void, *mut c_void);
 
@@ -220,10 +219,9 @@ pub struct StreamOxide<'io, ST: StateType> {
 
 impl<'io, ST: StateType> StreamOxide<'io, ST> {
     pub unsafe fn new(stream: &mut mz_stream) -> Self {
-        let in_slice = stream
-            .next_in
-            .as_ref()
-            .map(|ptr| slice::from_raw_parts(ptr, stream.avail_in as usize));
+        let in_slice = stream.next_in.as_ref().map(|ptr| {
+            slice::from_raw_parts(ptr, stream.avail_in as usize)
+        });
 
         let out_slice = stream.next_out.as_mut().map(|ptr| {
             slice::from_raw_parts_mut(ptr, stream.avail_out as usize)
@@ -241,17 +239,21 @@ impl<'io, ST: StateType> StreamOxide<'io, ST> {
 
     pub fn into_mz_stream(mut self) -> mz_stream {
         mz_stream {
-            next_in: self.next_in
-                .map_or(ptr::null(), |in_slice| in_slice.as_ptr()),
+            next_in: self.next_in.map_or(
+                ptr::null(),
+                |in_slice| in_slice.as_ptr(),
+            ),
             avail_in: self.next_in.map_or(0, |in_slice| in_slice.len() as c_uint),
             total_in: self.total_in,
 
-            next_out: self.next_out
-                .as_mut()
-                .map_or(ptr::null_mut(), |out_slice| out_slice.as_mut_ptr()),
-            avail_out: self.next_out
-                .as_mut()
-                .map_or(0, |out_slice| out_slice.len() as c_uint),
+            next_out: self.next_out.as_mut().map_or(
+                ptr::null_mut(),
+                |out_slice| out_slice.as_mut_ptr(),
+            ),
+            avail_out: self.next_out.as_mut().map_or(
+                0,
+                |out_slice| out_slice.len() as c_uint,
+            ),
             total_out: self.total_out,
 
             msg: ptr::null(),
@@ -478,8 +480,8 @@ fn push_dict_out(state: &mut inflate_state, next_out: &mut &mut [u8]) -> c_ulong
     );
     *next_out = &mut mem::replace(next_out, &mut [])[n..];
     state.m_dict_avail -= n as c_uint;
-    state.m_dict_ofs =
-        (state.m_dict_ofs + (n as c_uint)) & ((inflate::TINFL_LZ_DICT_SIZE - 1) as c_uint);
+    state.m_dict_ofs = (state.m_dict_ofs + (n as c_uint)) &
+        ((inflate::TINFL_LZ_DICT_SIZE - 1) as c_uint);
     n as c_ulong
 }
 
@@ -547,7 +549,9 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, flush: c_
 
     if state.m_dict_avail != 0 {
         stream_oxide.total_out += push_dict_out(state, next_out);
-        return if (state.m_last_status == inflate::TINFLStatus::Done) && (state.m_dict_avail == 0) {
+        return if (state.m_last_status == inflate::TINFLStatus::Done) &&
+            (state.m_dict_avail == 0)
+        {
             Ok(MZStatus::StreamEnd)
         } else {
             Ok(MZStatus::Ok)
@@ -613,9 +617,10 @@ pub fn mz_uncompress2_oxide(
     let status = mz_inflate_oxide(stream_oxide, MZFlush::Finish as c_int);
     mz_inflate_end_oxide(stream_oxide)?;
 
-    let empty_in = stream_oxide
-        .next_in
-        .map_or(true, |next_in| next_in.is_empty());
+    let empty_in = stream_oxide.next_in.map_or(
+        true,
+        |next_in| next_in.is_empty(),
+    );
     match (status, empty_in) {
         (Ok(MZStatus::StreamEnd), _) => {
             *dest_len = stream_oxide.total_out;

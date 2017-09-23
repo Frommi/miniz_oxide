@@ -99,59 +99,239 @@ macro_rules! compress_bench {
     };
 }
 
-compress_bench!(compress_bin_lvl_1_oxide, tdefl_compress_mem_to_heap, 1, "benches/data/bin");
-compress_bench!(compress_bin_lvl_6_oxide, tdefl_compress_mem_to_heap, 6, "benches/data/bin");
-compress_bench!(compress_bin_lvl_9_oxide, tdefl_compress_mem_to_heap, 9, "benches/data/bin");
+compress_bench!(
+    compress_bin_lvl_1_oxide,
+    tdefl_compress_mem_to_heap,
+    1,
+    "benches/data/bin"
+);
+compress_bench!(
+    compress_bin_lvl_6_oxide,
+    tdefl_compress_mem_to_heap,
+    6,
+    "benches/data/bin"
+);
+compress_bench!(
+    compress_bin_lvl_9_oxide,
+    tdefl_compress_mem_to_heap,
+    9,
+    "benches/data/bin"
+);
 
-compress_bench!(compress_bin_lvl_1_miniz, c_tdefl_compress_mem_to_heap, 1, "benches/data/bin");
-compress_bench!(compress_bin_lvl_6_miniz, c_tdefl_compress_mem_to_heap, 6, "benches/data/bin");
-compress_bench!(compress_bin_lvl_9_miniz, c_tdefl_compress_mem_to_heap, 9, "benches/data/bin");
-
-
-compress_bench!(compress_code_lvl_1_oxide, tdefl_compress_mem_to_heap, 1, "benches/data/code");
-compress_bench!(compress_code_lvl_6_oxide, tdefl_compress_mem_to_heap, 6, "benches/data/code");
-compress_bench!(compress_code_lvl_9_oxide, tdefl_compress_mem_to_heap, 9, "benches/data/code");
-
-compress_bench!(compress_code_lvl_1_miniz, c_tdefl_compress_mem_to_heap, 1, "benches/data/code");
-compress_bench!(compress_code_lvl_6_miniz, c_tdefl_compress_mem_to_heap, 6, "benches/data/code");
-compress_bench!(compress_code_lvl_9_miniz, c_tdefl_compress_mem_to_heap, 9, "benches/data/code");
-
-
-compress_bench!(compress_compressed_lvl_1_oxide, tdefl_compress_mem_to_heap, 1, "benches/data/compressed");
-compress_bench!(compress_compressed_lvl_6_oxide, tdefl_compress_mem_to_heap, 6, "benches/data/compressed");
-compress_bench!(compress_compressed_lvl_9_oxide, tdefl_compress_mem_to_heap, 9, "benches/data/compressed");
-
-compress_bench!(compress_compressed_lvl_1_miniz, c_tdefl_compress_mem_to_heap, 1, "benches/data/compressed");
-compress_bench!(compress_compressed_lvl_6_miniz, c_tdefl_compress_mem_to_heap, 6, "benches/data/compressed");
-compress_bench!(compress_compressed_lvl_9_miniz, c_tdefl_compress_mem_to_heap, 9, "benches/data/compressed");
-
-
-
-decompress_bench!(decompress_bin_lvl_1_oxide, tinfl_decompress_mem_to_heap, 1, "benches/data/bin");
-decompress_bench!(decompress_bin_lvl_6_oxide, tinfl_decompress_mem_to_heap, 6, "benches/data/bin");
-decompress_bench!(decompress_bin_lvl_9_oxide, tinfl_decompress_mem_to_heap, 9, "benches/data/bin");
-
-decompress_bench!(decompress_bin_lvl_1_miniz, c_tinfl_decompress_mem_to_heap, 1, "benches/data/bin");
-decompress_bench!(decompress_bin_lvl_6_miniz, c_tinfl_decompress_mem_to_heap, 6, "benches/data/bin");
-decompress_bench!(decompress_bin_lvl_9_miniz, c_tinfl_decompress_mem_to_heap, 9, "benches/data/bin");
-
-
-decompress_bench!(decompress_code_lvl_1_oxide, tinfl_decompress_mem_to_heap, 1, "benches/data/code");
-decompress_bench!(decompress_code_lvl_6_oxide, tinfl_decompress_mem_to_heap, 6, "benches/data/code");
-decompress_bench!(decompress_code_lvl_9_oxide, tinfl_decompress_mem_to_heap, 9, "benches/data/code");
-
-decompress_bench!(decompress_code_lvl_1_miniz, c_tinfl_decompress_mem_to_heap, 1, "benches/data/code");
-decompress_bench!(decompress_code_lvl_6_miniz, c_tinfl_decompress_mem_to_heap, 6, "benches/data/code");
-decompress_bench!(decompress_code_lvl_9_miniz, c_tinfl_decompress_mem_to_heap, 9, "benches/data/code");
+compress_bench!(
+    compress_bin_lvl_1_miniz,
+    c_tdefl_compress_mem_to_heap,
+    1,
+    "benches/data/bin"
+);
+compress_bench!(
+    compress_bin_lvl_6_miniz,
+    c_tdefl_compress_mem_to_heap,
+    6,
+    "benches/data/bin"
+);
+compress_bench!(
+    compress_bin_lvl_9_miniz,
+    c_tdefl_compress_mem_to_heap,
+    9,
+    "benches/data/bin"
+);
 
 
-decompress_bench!(decompress_compressed_lvl_1_oxide, tinfl_decompress_mem_to_heap, 1, "benches/data/compressed");
-decompress_bench!(decompress_compressed_lvl_6_oxide, tinfl_decompress_mem_to_heap, 6, "benches/data/compressed");
-decompress_bench!(decompress_compressed_lvl_9_oxide, tinfl_decompress_mem_to_heap, 9, "benches/data/compressed");
+compress_bench!(
+    compress_code_lvl_1_oxide,
+    tdefl_compress_mem_to_heap,
+    1,
+    "benches/data/code"
+);
+compress_bench!(
+    compress_code_lvl_6_oxide,
+    tdefl_compress_mem_to_heap,
+    6,
+    "benches/data/code"
+);
+compress_bench!(
+    compress_code_lvl_9_oxide,
+    tdefl_compress_mem_to_heap,
+    9,
+    "benches/data/code"
+);
 
-decompress_bench!(decompress_compressed_lvl_1_miniz, c_tinfl_decompress_mem_to_heap, 1, "benches/data/compressed");
-decompress_bench!(decompress_compressed_lvl_6_miniz, c_tinfl_decompress_mem_to_heap, 6, "benches/data/compressed");
-decompress_bench!(decompress_compressed_lvl_9_miniz, c_tinfl_decompress_mem_to_heap, 9, "benches/data/compressed");
+compress_bench!(
+    compress_code_lvl_1_miniz,
+    c_tdefl_compress_mem_to_heap,
+    1,
+    "benches/data/code"
+);
+compress_bench!(
+    compress_code_lvl_6_miniz,
+    c_tdefl_compress_mem_to_heap,
+    6,
+    "benches/data/code"
+);
+compress_bench!(
+    compress_code_lvl_9_miniz,
+    c_tdefl_compress_mem_to_heap,
+    9,
+    "benches/data/code"
+);
+
+
+compress_bench!(
+    compress_compressed_lvl_1_oxide,
+    tdefl_compress_mem_to_heap,
+    1,
+    "benches/data/compressed"
+);
+compress_bench!(
+    compress_compressed_lvl_6_oxide,
+    tdefl_compress_mem_to_heap,
+    6,
+    "benches/data/compressed"
+);
+compress_bench!(
+    compress_compressed_lvl_9_oxide,
+    tdefl_compress_mem_to_heap,
+    9,
+    "benches/data/compressed"
+);
+
+compress_bench!(
+    compress_compressed_lvl_1_miniz,
+    c_tdefl_compress_mem_to_heap,
+    1,
+    "benches/data/compressed"
+);
+compress_bench!(
+    compress_compressed_lvl_6_miniz,
+    c_tdefl_compress_mem_to_heap,
+    6,
+    "benches/data/compressed"
+);
+compress_bench!(
+    compress_compressed_lvl_9_miniz,
+    c_tdefl_compress_mem_to_heap,
+    9,
+    "benches/data/compressed"
+);
+
+
+
+decompress_bench!(
+    decompress_bin_lvl_1_oxide,
+    tinfl_decompress_mem_to_heap,
+    1,
+    "benches/data/bin"
+);
+decompress_bench!(
+    decompress_bin_lvl_6_oxide,
+    tinfl_decompress_mem_to_heap,
+    6,
+    "benches/data/bin"
+);
+decompress_bench!(
+    decompress_bin_lvl_9_oxide,
+    tinfl_decompress_mem_to_heap,
+    9,
+    "benches/data/bin"
+);
+
+decompress_bench!(
+    decompress_bin_lvl_1_miniz,
+    c_tinfl_decompress_mem_to_heap,
+    1,
+    "benches/data/bin"
+);
+decompress_bench!(
+    decompress_bin_lvl_6_miniz,
+    c_tinfl_decompress_mem_to_heap,
+    6,
+    "benches/data/bin"
+);
+decompress_bench!(
+    decompress_bin_lvl_9_miniz,
+    c_tinfl_decompress_mem_to_heap,
+    9,
+    "benches/data/bin"
+);
+
+
+decompress_bench!(
+    decompress_code_lvl_1_oxide,
+    tinfl_decompress_mem_to_heap,
+    1,
+    "benches/data/code"
+);
+decompress_bench!(
+    decompress_code_lvl_6_oxide,
+    tinfl_decompress_mem_to_heap,
+    6,
+    "benches/data/code"
+);
+decompress_bench!(
+    decompress_code_lvl_9_oxide,
+    tinfl_decompress_mem_to_heap,
+    9,
+    "benches/data/code"
+);
+
+decompress_bench!(
+    decompress_code_lvl_1_miniz,
+    c_tinfl_decompress_mem_to_heap,
+    1,
+    "benches/data/code"
+);
+decompress_bench!(
+    decompress_code_lvl_6_miniz,
+    c_tinfl_decompress_mem_to_heap,
+    6,
+    "benches/data/code"
+);
+decompress_bench!(
+    decompress_code_lvl_9_miniz,
+    c_tinfl_decompress_mem_to_heap,
+    9,
+    "benches/data/code"
+);
+
+
+decompress_bench!(
+    decompress_compressed_lvl_1_oxide,
+    tinfl_decompress_mem_to_heap,
+    1,
+    "benches/data/compressed"
+);
+decompress_bench!(
+    decompress_compressed_lvl_6_oxide,
+    tinfl_decompress_mem_to_heap,
+    6,
+    "benches/data/compressed"
+);
+decompress_bench!(
+    decompress_compressed_lvl_9_oxide,
+    tinfl_decompress_mem_to_heap,
+    9,
+    "benches/data/compressed"
+);
+
+decompress_bench!(
+    decompress_compressed_lvl_1_miniz,
+    c_tinfl_decompress_mem_to_heap,
+    1,
+    "benches/data/compressed"
+);
+decompress_bench!(
+    decompress_compressed_lvl_6_miniz,
+    c_tinfl_decompress_mem_to_heap,
+    6,
+    "benches/data/compressed"
+);
+decompress_bench!(
+    decompress_compressed_lvl_9_miniz,
+    c_tinfl_decompress_mem_to_heap,
+    9,
+    "benches/data/compressed"
+);
 
 #[bench]
 fn create_compressor(b: &mut Bencher) {

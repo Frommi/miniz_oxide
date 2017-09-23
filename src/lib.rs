@@ -25,12 +25,8 @@ pub use miniz_oxide::lib_oxide::{mz_alloc_func, mz_free_func};
 
 
 mod tinfl;
-pub use tinfl::{
-    tinfl_decompress,
-    tinfl_decompress_mem_to_heap,
-    tinfl_decompress_mem_to_mem,
-    tinfl_decompressor
-};
+pub use tinfl::{tinfl_decompress, tinfl_decompress_mem_to_heap, tinfl_decompress_mem_to_mem,
+                tinfl_decompressor};
 
 mod tdef;
 pub use tdef::{tdefl_compress, tdefl_compress_buffer, tdefl_compress_mem_to_heap,
@@ -211,9 +207,9 @@ pub unsafe extern "C" fn mz_compress2(
     source_len: c_ulong,
     level: c_int,
 ) -> c_int {
-    dest_len
-        .as_mut()
-        .map_or(MZError::Param as c_int, |dest_len| {
+    dest_len.as_mut().map_or(
+        MZError::Param as c_int,
+        |dest_len| {
             if buffer_too_large(source_len, *dest_len) {
                 return MZError::Param as c_int;
             }
@@ -228,7 +224,8 @@ pub unsafe extern "C" fn mz_compress2(
 
             let mut stream_oxide = StreamOxide::new(&mut stream);
             as_c_return_code(mz_compress2_oxide(&mut stream_oxide, level, dest_len))
-        })
+        },
+    )
 }
 
 #[no_mangle]
@@ -254,9 +251,9 @@ pub unsafe extern "C" fn mz_uncompress(
     source: *const u8,
     source_len: c_ulong,
 ) -> c_int {
-    dest_len
-        .as_mut()
-        .map_or(MZError::Param as c_int, |dest_len| {
+    dest_len.as_mut().map_or(
+        MZError::Param as c_int,
+        |dest_len| {
             if buffer_too_large(source_len, *dest_len) {
                 return MZError::Param as c_int;
             }
@@ -271,7 +268,8 @@ pub unsafe extern "C" fn mz_uncompress(
 
             let mut stream_oxide = StreamOxide::new(&mut stream);
             as_c_return_code(mz_uncompress2_oxide(&mut stream_oxide, dest_len))
-        })
+        },
+    )
 }
 
 #[no_mangle]

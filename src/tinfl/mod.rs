@@ -46,12 +46,13 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_mem(
     let flags = flags as u32;
     let mut decomp = tinfl_decompressor::with_init_state_only();
 
-    let (status, _, out_consumed) = decompress_oxide(
-        &mut decomp,
-        slice::from_raw_parts(p_src_buf as *const u8, src_buf_len),
-        &mut Cursor::new(slice::from_raw_parts_mut(p_out_buf as *mut u8, out_buf_len)),
-        ((flags & !TINFL_FLAG_HAS_MORE_INPUT) | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF),
-    );
+    let (status, _, out_consumed) =
+        decompress_oxide(
+            &mut decomp,
+            slice::from_raw_parts(p_src_buf as *const u8, src_buf_len),
+            &mut Cursor::new(slice::from_raw_parts_mut(p_out_buf as *mut u8, out_buf_len)),
+            ((flags & !TINFL_FLAG_HAS_MORE_INPUT) | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF),
+        );
 
     if status != TINFLStatus::Done {
         TINFL_DECOMPRESS_MEM_TO_MEM_FAILED as size_t
@@ -93,15 +94,16 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_heap(
             out_buf_capacity,
         ));
         out_cur.set_position(*p_out_len as u64);
-        let (status, in_consumed, out_consumed) = decompress_oxide(
-            &mut decomp,
-            slice::from_raw_parts(
-                p_src_buf.offset(src_buf_ofs as isize) as *const u8,
-                src_buf_len - src_buf_ofs,
-            ),
-            &mut out_cur,
-            ((flags & !TINFL_FLAG_HAS_MORE_INPUT) | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF),
-        );
+        let (status, in_consumed, out_consumed) =
+            decompress_oxide(
+                &mut decomp,
+                slice::from_raw_parts(
+                    p_src_buf.offset(src_buf_ofs as isize) as *const u8,
+                    src_buf_len - src_buf_ofs,
+                ),
+                &mut out_cur,
+                ((flags & !TINFL_FLAG_HAS_MORE_INPUT) | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF),
+            );
 
         // If decompression fails or we don't have any input, bail out.
         if (status as i32) < 0 || status == TINFLStatus::NeedsMoreInput {

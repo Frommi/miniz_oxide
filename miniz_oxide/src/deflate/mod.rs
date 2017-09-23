@@ -3,8 +3,7 @@ use libc::{c_int, c_void};
 mod tdef_oxide;
 pub use self::tdef_oxide::*;
 
-pub type PutBufFuncPtrNotNull = unsafe extern "C" fn(*const c_void, c_int, *mut c_void)
-    -> bool;
+pub type PutBufFuncPtrNotNull = unsafe extern "C" fn(*const c_void, c_int, *mut c_void) -> bool;
 pub type PutBufFuncPtr = Option<PutBufFuncPtrNotNull>;
 
 pub mod deflate_flags {
@@ -144,11 +143,12 @@ fn compress_to_vec_inner(input: &[u8], level: u8, with_zlib: bool) -> Vec<u8> {
     let mut in_pos = 0;
     let mut out_pos = 0;
     loop {
-        let (status, bytes_in, bytes_out) = compress(
-            &mut compressor,
-            &mut CallbackOxide::new_callback_buf(&input[in_pos..], &mut output[out_pos..]),
-            TDEFLFlush::Finish,
-        );
+        let (status, bytes_in, bytes_out) =
+            compress(
+                &mut compressor,
+                &mut CallbackOxide::new_callback_buf(&input[in_pos..], &mut output[out_pos..]),
+                TDEFLFlush::Finish,
+            );
 
         out_pos += bytes_out;
         in_pos += bytes_in;
