@@ -1,3 +1,5 @@
+//! This module mainly contains functionality replicating the miniz higher level API.
+
 use std::{cmp, mem, ptr, slice, usize};
 use std::io::Cursor;
 
@@ -35,6 +37,9 @@ pub enum MZFlush {
 }
 
 impl MZFlush {
+    /// Create a Flush instance from an integer value.
+    ///
+    /// Returns `MZError::Param` on invalid values.
     pub fn new(flush: c_int) -> Result<Self, MZError> {
         match flush {
             0 => Ok(MZFlush::None),
@@ -66,34 +71,54 @@ pub enum MZError {
     Param = -10_000,
 }
 
+/// Unused opaque pointer.
 #[allow(bad_style)]
 pub enum mz_internal_state {}
+/// Signature of function used to allocate the compressor/decompressor structs.
 #[allow(bad_style)]
 pub type mz_alloc_func = unsafe extern "C" fn(*mut c_void, size_t, size_t) -> *mut c_void;
+/// Signature of function used to free the compressor/decompressor structs.
 #[allow(bad_style)]
 pub type mz_free_func = unsafe extern "C" fn(*mut c_void, *mut c_void);
 
+/// Inner stream state containing pointers to the used buffers and internal state.
 #[repr(C)]
 #[derive(Debug)]
 #[allow(bad_style)]
 pub struct mz_stream {
+    /// Pointer to the current start of the input buffer.
     pub next_in: *const u8,
+    /// Length of the input buffer.
     pub avail_in: c_uint,
+    /// The total number of input bytes consumed so far.
     pub total_in: c_ulong,
 
+    /// Pointer to the current start of the output buffer.
     pub next_out: *mut u8,
+    /// Space in the output buffer.
     pub avail_out: c_uint,
+    /// The total number of bytes output so far.
     pub total_out: c_ulong,
 
     pub msg: *const c_char,
+    /// Unused
     pub state: *mut mz_internal_state,
 
+    /// Allocation function to use for allocating the internal compressor/decompressor.
+    /// Uses `mz_default_alloc_func` if set to `None`.
     pub zalloc: Option<mz_alloc_func>,
+    /// Free function to use for allocating the internal compressor/decompressor.
+    /// Uses `mz_default_free_func` if `None`.
     pub zfree: Option<mz_free_func>,
+    /// Extra data to provide the allocation/deallocation functions.
+    /// (Not used for the default ones)
     pub opaque: *mut c_void,
 
+    // TODO: Not sure
     pub data_type: c_int,
+    /// Adler32 checksum of the data that has been compressed or uncompressed.
     pub adler: c_ulong,
+    /// Reserved
     pub reserved: c_ulong,
 }
 
@@ -125,6 +150,7 @@ impl Default for mz_stream {
 
 pub type MZResult = Result<MZStatus, MZError>;
 
+/// Default allocation function using `malloc`.
 pub unsafe extern "C" fn def_alloc_func(
     _opaque: *mut c_void,
     items: size_t,
@@ -133,10 +159,12 @@ pub unsafe extern "C" fn def_alloc_func(
     libc::malloc(items * size)
 }
 
+/// Default free function using `free`.
 pub unsafe extern "C" fn def_free_func(_opaque: *mut c_void, address: *mut c_void) {
     libc::free(address)
 }
 
+/// Default realloc function using `realloc`.
 pub unsafe extern "C" fn def_realloc_func(
     _opaque: *mut c_void,
     address: *mut c_void,
@@ -146,10 +174,12 @@ pub unsafe extern "C" fn def_realloc_func(
     libc::realloc(address, items * size)
 }
 
+/// Trait used for states that can be carried by BoxedState.
 pub trait StateType {}
 impl StateType for CompressorOxide {}
 impl StateType for inflate_state {}
 
+/// Wrapper for a heap-allocated compressor/decompressor that frees the stucture on drop.
 pub struct BoxedState<ST: StateType> {
     pub inner: *mut ST,
     pub alloc: mz_alloc_func,
@@ -270,6 +300,7 @@ impl<'io, ST: StateType> StreamOxide<'io, ST> {
     }
 }
 
+/// Returns true if the window_bits parameter is valid.
 pub fn invalid_window_bits(window_bits: c_int) -> bool {
     (window_bits != MZ_DEFAULT_WINDOW_BITS) && (-window_bits != MZ_DEFAULT_WINDOW_BITS)
 }
@@ -294,6 +325,9 @@ pub fn mz_compress2_oxide(
 }
 
 
+/// Initialize the wrapped compressor with the requested level (0-10) and default settings.
+///
+/// The compression level will be set to 6 (default) if the requested level is not available.
 pub fn mz_deflate_init_oxide(
     stream_oxide: &mut StreamOxide<tdefl_compressor>,
     level: c_int,
@@ -308,6 +342,19 @@ pub fn mz_deflate_init_oxide(
     )
 }
 
+/// Initialize the compressor with the requested parameters.
+///
+/// # Params
+/// stream_oxide: The stream to be initialized.
+/// level: Compression level (0-10).
+/// method: Compression method. Only `MZ_DEFLATED` is accepted.
+/// window_bits: Number of bits used to represent the compression sliding window.
+///              Only `MZ_DEFAULT_WINDOW_BITS` is currently supported.
+///              A negative value, i.e `-MZ_DEFAULT_WINDOW_BITS` indicates that the stream
+///              should be wrapped in a zlib wrapper.
+/// mem_level: Currently unused. Only values from 1 to and including 9 are accepted.
+/// strategy: Compression strategy. See `deflate::CompressionStrategy` for accepted options.
+///           The default, which is used in most cases, is 0.
 pub fn mz_deflate_init2_oxide(
     stream_oxide: &mut StreamOxide<tdefl_compressor>,
     level: c_int,
@@ -409,12 +456,18 @@ pub fn mz_deflate_oxide(
     }
 }
 
+/// Free the inner compression state.
+///
+/// Currently always returns `MZStatus::Ok`.
 pub fn mz_deflate_end_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) -> MZResult {
     stream_oxide.state.free_state();
     Ok(MZStatus::Ok)
 }
 
 
+/// Reset the compressor, so it can be used to compress a new set of data.
+///
+/// Returns `MZError::Stream` if the inner stream is missing, otherwise `MZStatus::Ok`.
 // TODO: probably not covered by tests
 pub fn mz_deflate_reset_oxide(stream_oxide: &mut StreamOxide<CompressorOxide>) -> MZResult {
     let state = stream_oxide.state.as_mut().ok_or(MZError::Stream)?;
