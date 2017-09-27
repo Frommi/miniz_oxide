@@ -522,7 +522,7 @@ pub struct SavedOutputBufferOxide {
     pub local: bool,
 }
 
-pub struct BitBuffer {
+struct BitBuffer {
     pub bit_buffer: u64,
     pub bits_in: u32,
 }
@@ -553,7 +553,7 @@ impl BitBuffer {
 /// NOTE: Only the literal/lengths have enough symbols to actually use
 /// the full array. It's unclear why it's defined like this in miniz,
 /// it could be for cache/alignment reasons.
-pub struct HuffmanOxide {
+struct HuffmanOxide {
     /// Number of occurrences of each symbol.
     pub count: [[u16; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
     /// The bits of the huffman code assigned to the symbol
@@ -988,7 +988,7 @@ impl HuffmanOxide {
     }
 }
 
-pub struct DictOxide {
+struct DictOxide {
     pub max_probes: [u32; 2],
     pub dict: [u8; TDEFL_LZ_DICT_SIZE + TDEFL_MAX_MATCH_LEN - 1],
     pub next: [u16; TDEFL_LZ_DICT_SIZE],
@@ -1153,7 +1153,7 @@ impl ParamsOxide {
     }
 }
 
-pub struct LZOxide {
+struct LZOxide {
     pub codes: [u8; TDEFL_LZ_CODE_BUF_SIZE],
     pub code_position: usize,
     pub flag_position: usize,
@@ -1205,7 +1205,7 @@ impl LZOxide {
     }
 }
 
-pub fn compress_lz_codes(
+fn compress_lz_codes(
     huff: &mut HuffmanOxide,
     output: &mut OutputBufferOxide,
     lz_code_buf: &[u8],
@@ -1296,7 +1296,7 @@ pub fn compress_lz_codes(
     Ok(true)
 }
 
-pub fn compress_block(
+fn compress_block(
     huff: &mut HuffmanOxide,
     output: &mut OutputBufferOxide,
     lz: &LZOxide,
@@ -1311,7 +1311,7 @@ pub fn compress_block(
     compress_lz_codes(huff, output, &lz.codes[..lz.code_position])
 }
 
-pub fn flush_block(
+fn flush_block(
     d: &mut CompressorOxide,
     callback: &mut CallbackOxide,
     flush: TDEFLFlush,
@@ -1413,7 +1413,7 @@ pub fn flush_block(
     Ok(callback.flush_output(saved_buffer, &mut d.params))
 }
 
-pub fn record_literal(h: &mut HuffmanOxide, lz: &mut LZOxide, lit: u8) {
+fn record_literal(h: &mut HuffmanOxide, lz: &mut LZOxide, lit: u8) {
     lz.total_bytes += 1;
     lz.write_code(lit);
 
@@ -1423,7 +1423,7 @@ pub fn record_literal(h: &mut HuffmanOxide, lz: &mut LZOxide, lit: u8) {
     h.count[0][lit as usize] += 1;
 }
 
-pub fn record_match(
+fn record_match(
     h: &mut HuffmanOxide,
     lz: &mut LZOxide,
     mut match_len: u32,
@@ -1453,7 +1453,7 @@ pub fn record_match(
     h.count[0][TDEFL_LEN_SYM[match_len as usize] as usize] += 1;
 }
 
-pub fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool {
+fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool {
     let mut src_pos = d.params.src_pos;
     let in_buf = match callback.in_buf {
         None => return true,
@@ -1642,7 +1642,7 @@ pub fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) ->
 
 const TDEFL_COMP_FAST_LOOKAHEAD_SIZE: u32 = 4096;
 
-pub fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool {
+fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool {
     let mut src_pos = d.params.src_pos;
     let mut lookahead_size = d.dict.lookahead_size;
     let mut lookahead_pos = d.dict.lookahead_pos;
@@ -1861,6 +1861,12 @@ pub fn flush_output_buffer(
     res
 }
 
+/// Main compression function.
+///
+/// # Returns
+/// Returns a tuple containing the current status of the compressor, the current position
+/// in the input buffer, and if using a buffer as a callback, the current position in the output
+/// buffer.
 pub fn compress(
     d: &mut CompressorOxide,
     callback: &mut CallbackOxide,
@@ -1948,6 +1954,7 @@ pub fn compress(
     res
 }
 
+/// Create a set of compression flags using parameters used by zlib and other compressors.
 pub fn create_comp_flags_from_zip_params(level: i32, window_bits: i32, strategy: i32) -> u32 {
     let num_probes = (if level >= 0 {
                           cmp::min(10, level)

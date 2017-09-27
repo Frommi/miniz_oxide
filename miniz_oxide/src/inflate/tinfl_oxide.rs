@@ -764,6 +764,8 @@ fn decompress_fast(
 /// returns a tuple containing the status of the compressor, the number of input bytes read, and the
 /// number of bytes output to out_cur.
 /// This currently will not update out_cur with the new position.
+///
+/// This function shouldn't panic pending any bugs.
 pub fn decompress_oxide(
     r: &mut tinfl_decompressor,
     in_buf: &[u8],
@@ -780,7 +782,9 @@ pub fn decompress_oxide(
     // Ensure the output buffer's size is a power of 2, unless the output buffer
     // is large enough to hold the entire output file (in which case it doesn't
     // matter).
-    if (out_buf_size_mask.wrapping_add(1) & out_buf_size_mask) != 0 {
+    // Also make sure that the output buffer position is not past the end of the output buffer.
+    if (out_buf_size_mask.wrapping_add(1) & out_buf_size_mask) != 0  ||
+        out_cur.position() > out_cur.get_ref().len() as u64 {
         return (TINFLStatus::BadParam, 0, 0);
     }
 
@@ -839,6 +843,7 @@ pub fn decompress_oxide(
             })
             }
 
+            // Read the block header and jump to the relevant section depending on the block type.
             ReadBlockHeader => {
                 generate_state!(state, 'state_machine, {
                 read_bits(&mut l, 3, &mut in_iter, flags, |l, bits| {
@@ -861,6 +866,7 @@ pub fn decompress_oxide(
             })
             }
 
+            // Raw/Stored/uncompressed block.
             BlockTypeNoCompression => {
                 generate_state!(state, 'state_machine, {
                 pad_to_bytes(&mut l, &mut in_iter, flags, |l| {
@@ -870,6 +876,7 @@ pub fn decompress_oxide(
             })
             }
 
+            // Check that the raw block header is correct.
             RawHeader1 | RawHeader2 => {
                 generate_state!(state, 'state_machine, {
                 if l.counter < 4 {
@@ -897,16 +904,21 @@ pub fn decompress_oxide(
                     if !valid {
                         Action::Jump(BadRawLength)
                     } else if l.counter == 0 {
+                        // Empty raw block. Sometimes used for syncronization.
                         Action::Jump(BlockDone)
                     } else if l.num_bits != 0 {
+                        // There is some data in the bit buffer, so we need to write that first.
                         Action::Jump(RawReadFirstByte)
                     } else {
+                        // The bit buffer is empty, so memcpy the rest of the uncompressed data from
+                        // the block.
                         Action::Jump(RawMemcpy1)
                     }
                 }
             })
             }
 
+            // Read the byte from the bit buffer.
             RawReadFirstByte => {
                 generate_state!(state, 'state_machine, {
                 read_bits(&mut l, 8, &mut in_iter, flags, |l, bits| {
@@ -916,6 +928,7 @@ pub fn decompress_oxide(
             })
             }
 
+            // Write the byte we just read to the output buffer.
             RawStoreFirstByte => {
                 generate_state!(state, 'state_machine, {
                 if out_buf.bytes_left() == 0 {
@@ -926,7 +939,11 @@ pub fn decompress_oxide(
                     if l.counter == 0 || l.num_bits == 0 {
                         Action::Jump(RawMemcpy1)
                     } else {
-                        Action::Jump(RawStoreFirstByte)
+                        // There is still some data left in the bit buffer that needs to be output.
+                        // TODO: Changed this to jump to `RawReadfirstbyte` rather than
+                        // `RawStoreFirstByte` as that seemed to be the correct path, but this
+                        // needs testing.
+                        Action::Jump(RawReadFirstByte)
                     }
                 }
             })
@@ -947,7 +964,7 @@ pub fn decompress_oxide(
             RawMemcpy2 => {
                 generate_state!(state, 'state_machine, {
                 if in_iter.len() > 0 {
-                    // Copy as many raw bytes as possible from the input to the output.
+                    // Copy as many raw bytes as possible from the input to the output using memcpy.
                     // Raw block lengths are limited to 64 * 1024, so casting through usize and u32
                     // is not an issue.
                     let space_left = out_buf.bytes_left();
@@ -968,6 +985,7 @@ pub fn decompress_oxide(
             })
             }
 
+            // Read how many huffman codes/symbols are used for each table.
             ReadTableSizes => {
                 generate_state!(state, 'state_machine, {
                 if l.counter < 3 {
@@ -986,10 +1004,15 @@ pub fn decompress_oxide(
             })
             }
 
+            // Read the 3-bit lengths of the huffman codes describing the huffman code lengths used
+            // to decode the lengths of the main tables.
             ReadHufflenTableCodeSize => {
                 generate_state!(state, 'state_machine, {
                 if l.counter < r.table_sizes[HUFFLEN_TABLE] {
                     read_bits(&mut l, 3, &mut in_iter, flags, |l, bits| {
+                        // These lengths are not stored in a normal ascending order, but rather one
+                        // specified by the deflate specification intended to put the most used
+                        // values at the front as trailing zero lengths do not have to be stored.
                         r.tables[HUFFLEN_TABLE]
                             .code_size[HUFFMAN_LENGTH_ORDER[l.counter as usize] as usize]
                             = bits as u8;
@@ -1504,7 +1527,7 @@ mod test {
         assert_eq!(b_status.0, TINFLStatus::Done);
     }
 
-    fn masked_lookup(table: &tinfl_huff_table, bit_buf: BitBuffer) -> (i32, u32) {
+    fn masked_lookup(table: &HuffmanTable, bit_buf: BitBuffer) -> (i32, u32) {
         let ret = table.lookup(bit_buf);
         (ret.0 & 511, ret.1)
     }
