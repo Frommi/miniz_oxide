@@ -1,10 +1,10 @@
 #[cfg(not(feature = "build_orig_miniz"))]
-extern crate gcc;
+extern crate cc;
 
 #[cfg(not(feature = "build_orig_miniz"))]
 fn main() {
     //    panic!("only stub");
-    gcc::Build::new()
+    cc::Build::new()
         .files(
             &[
                 "miniz_stub/miniz.c",
