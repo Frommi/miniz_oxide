@@ -20,7 +20,7 @@ pub mod deflate_flags {
     pub const TDEFL_NONDETERMINISTIC_PARSING_FLAG: u32 = 0x0000_8000;
     /// Only look for matches with a distance of 0.
     pub const TDEFL_RLE_MATCHES: u32 = 0x0001_0000;
-    /// Only use matches that are at least 5 bytes long.
+    /// Only use matches that are at least 6 bytes long.
     pub const TDEFL_FILTER_MATCHES: u32 = 0x0002_0000;
     /// Force the compressor to only output static blocks. (Blocks using the default huffman codes
     /// specified in the deflate specification.)

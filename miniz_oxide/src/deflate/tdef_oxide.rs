@@ -283,6 +283,9 @@ impl CallbackFunc {
         saved_output: SavedOutputBufferOxide,
         params: &mut ParamsOxide,
     ) -> i32 {
+        // TODO: As this could be unsafe since
+        // we can't verify the function pointer
+        // this whole function should maybe be unsafe as well.
         let call_success = unsafe {
             (self.put_buf_func)(
                 &params.local_buf[0] as *const u8 as *const c_void,
@@ -529,6 +532,7 @@ struct BitBuffer {
 
 impl BitBuffer {
     pub fn put_fast(&mut self, bits: u64, len: u32) {
+        // TODO: Big endian
         self.bit_buffer |= bits << self.bits_in;
         self.bits_in += len;
     }
@@ -536,7 +540,10 @@ impl BitBuffer {
     pub fn flush(&mut self, output: &mut OutputBufferOxide) -> io::Result<()> {
         let pos = output.inner.position() as usize;
         let inner = &mut ((*output.inner.get_mut())[pos]) as *mut u8 as *mut u64;
+        // # Unsafe
+        // TODO: check unsafety
         unsafe {
+            // TODO: Big endian
             ptr::write_unaligned(inner, self.bit_buffer);
         }
         output.inner.seek(
@@ -1015,14 +1022,20 @@ impl DictOxide {
         }
     }
 
-    fn read_unaligned<T>(&self, pos: isize) -> T {
-        unsafe {
-            ptr::read_unaligned((&self.dict as *const [u8] as *const u8).offset(pos) as
-                *const T)
-        }
+    /// Do an unaligned read of the data at `pos` in the dictionary and treat it as if it was of
+    /// type T.
+    ///
+    /// Unsafe due to reading without bounds checking and type casting.
+    unsafe fn read_unaligned<T>(&self, pos: isize) -> T {
+        ptr::read_unaligned((&self.dict as *const [u8] as *const u8).offset(pos) as
+                            *const T)
     }
 
-    pub fn find_match(
+    /// Try to find a match for the data at lookahead_pos in the dictionary that is
+    /// longer than `match_len`.
+    /// Returns a tuple containing (match_distance, match_length). Will be equal to the input
+    /// values if no better matches were found.
+    fn find_match(
         &self,
         lookahead_pos: u32,
         max_dist: u32,
@@ -1030,23 +1043,44 @@ impl DictOxide {
         mut match_dist: u32,
         mut match_len: u32,
     ) -> (u32, u32) {
-        assert!(max_match_len as usize <= TDEFL_MAX_MATCH_LEN);
+        // Clamp the match len and max_match_len to be valid. (It should be when this is called, but
+        // do it for now just in case for safety reasons.)
+        // This should normally end up as at worst conditional moves,
+        // so it shouldn't slow us down much.
+        // TODO: Statically verify these so we don't need to do this.
+        let max_match_len = cmp::min(TDEFL_MAX_MATCH_LEN as u32, max_match_len);
+        match_len = cmp::max(match_len, 1);
 
         let pos = lookahead_pos & TDEFL_LZ_DICT_SIZE_MASK;
         let mut probe_pos = pos;
+        // Number of probes into the hash chains.
         let mut num_probes_left = self.max_probes[(match_len >= 32) as usize];
 
-        let mut c01: u16 = self.read_unaligned((pos + match_len - 1) as isize);
-        let s01: u16 = self.read_unaligned(pos as isize);
-
+        // If we already have a match of the full length don't bother searching for another one.
         if max_match_len <= match_len {
             return (match_dist, match_len);
         }
+
+        // Read the last byte of the current match, and the next one, used to compare matches.
+        // # Unsafe
+        // `pos` is masked by `LZ_DICT_SIZE_MASK`
+        // `match_len` is clamped be at least 1.
+        // If it is larger or equal to the maximum length, this statement won't be reached.
+        // As the size of self.dict is LZ_DICT_SIZE + TDEFL_MAX_MATCH_LEN - 1 + DICT_PADDING,
+        // this will not go out of bounds.
+        let mut c01: u16 = unsafe {self.read_unaligned((pos + match_len - 1) as isize)};
+        // Read the two bytes at the end position of the current match.
+        // # Unsafe
+        // See previous.
+        let s01: u16 = unsafe {self.read_unaligned(pos as isize)};
+
         'outer: loop {
             let mut dist;
             'found: loop {
                 num_probes_left -= 1;
                 if num_probes_left == 0 {
+                    // We have done as many probes in the hash chain as the current compression
+                    // settings allow, so return the best match we found, if any.
                     return (match_dist, match_len);
                 }
 
@@ -1055,12 +1089,24 @@ impl DictOxide {
 
                     dist = ((lookahead_pos - next_probe_pos) & 0xFFFF) as u32;
                     if next_probe_pos == 0 || dist > max_dist {
+                        // We reached the end of the hash chain, or the next value is further away
+                        // than the maximum allowed distance, so return the best match we found, if
+                        // any.
                         return (match_dist, match_len);
                     }
 
+                    // Mask the position value to get the position in the hash chain of the next
+                    // position to match against.
                     probe_pos = next_probe_pos & TDEFL_LZ_DICT_SIZE_MASK;
-                    if self.read_unaligned::<u16>((probe_pos + match_len - 1) as isize) == c01 {
-                        break 'found;
+                    // # Unsafe
+                    // See the beginning of this function.
+                    // probe_pos and match_length are still both bounded.
+                    unsafe {
+                        // The first two bytes, last byte and the next byte matched, so
+                        // check the match further.
+                        if self.read_unaligned::<u16>((probe_pos + match_len - 1) as isize) == c01 {
+                            break 'found;
+                        }
                     }
                 }
             }
@@ -1068,20 +1114,33 @@ impl DictOxide {
             if dist == 0 {
                 return (match_dist, match_len);
             }
-            if self.read_unaligned::<u16>(probe_pos as isize) != s01 {
-                continue;
+            // # Unsafe
+            // See the beginning of this function.
+            // probe_pos is bounded by masking with TDEFL_LZ_DICT_SIZE_MASK.
+            unsafe {
+                if self.read_unaligned::<u16>(probe_pos as isize) != s01 {
+                    continue;
+                }
             }
 
             let mut p = pos + 2;
             let mut q = probe_pos + 2;
+            // Check the length of the match.
             for _ in 0..32 {
-                let p_data: u64 = self.read_unaligned(p as isize);
-                let q_data: u64 = self.read_unaligned(q as isize);
+                // # Unsafe
+                // This loop has a fixed counter, so p_data and q_data will never be
+                // increased beyond 250 bytes past the initial values.
+                // Both pos and probe_pos are bounded by masking with TDEFL_LZ_DICT_SIZE_MASK,
+                // so {pos|probe_pos} + 258 will never exceed dict.len().
+                let p_data: u64 = unsafe {self.read_unaligned(p as isize)};
+                let q_data: u64 = unsafe {self.read_unaligned(q as isize)};
+                // Compare of 8 bytes at a time by using unaligned loads of 64-bit integers.
                 let xor_data = p_data ^ q_data;
                 if xor_data == 0 {
                     p += 8;
                     q += 8;
                 } else {
+                    // If not all of the last 8 bytes matched, check how may of them did.
                     let trailing = xor_data.trailing_zeros();
 
                     let probe_len = p - pos + (trailing >> 3);
@@ -1091,7 +1150,11 @@ impl DictOxide {
                         if match_len == max_match_len {
                             return (match_dist, match_len);
                         }
-                        c01 = self.read_unaligned((pos + match_len - 1) as isize);
+                        // # Unsafe
+                        // pos is bounded by masking.
+                        unsafe {
+                            c01 = self.read_unaligned((pos + match_len - 1) as isize);
+                        }
                     }
                     continue 'outer;
                 }
@@ -1216,6 +1279,8 @@ fn compress_lz_codes(
         bits_in: output.bits_in,
     };
 
+    assert!(lz_code_buf.len() >= 4);
+
     let mut i: usize = 0;
     while i < lz_code_buf.len() {
         if flags == 1 {
@@ -1223,6 +1288,7 @@ fn compress_lz_codes(
             i += 1;
         }
 
+        // The lz code was a length code
         if flags & 1 == 1 {
             flags >>= 1;
 
@@ -1230,6 +1296,9 @@ fn compress_lz_codes(
             let num_extra_bits;
 
             let match_len = lz_code_buf[i] as usize;
+            // # Unsafe
+            // TODO: Two bytes containing the distance should always follow here
+            // but we're not statically enforcing it at the moment.
             let match_dist = unsafe {
                 ptr::read_unaligned::<u16>(
                     lz_code_buf.get_unchecked(i + 1) as *const u8 as *const u16,
@@ -1237,7 +1306,7 @@ fn compress_lz_codes(
             };
             i += 3;
 
-            assert!(huff.code_sizes[0][TDEFL_LEN_SYM[match_len] as usize] != 0);
+            debug_assert!(huff.code_sizes[0][TDEFL_LEN_SYM[match_len] as usize] != 0);
             bb.put_fast(
                 huff.codes[0][TDEFL_LEN_SYM[match_len] as usize] as u64,
                 huff.code_sizes[0][TDEFL_LEN_SYM[match_len] as usize] as u32,
@@ -1255,19 +1324,20 @@ fn compress_lz_codes(
                 num_extra_bits = TDEFL_LARGE_DIST_EXTRA[(match_dist >> 8) as usize] as usize;
             }
 
-            assert!(huff.code_sizes[1][sym] != 0);
+            debug_assert!(huff.code_sizes[1][sym] != 0);
             bb.put_fast(huff.codes[1][sym] as u64, huff.code_sizes[1][sym] as u32);
             bb.put_fast(
                 match_dist as u64 & MZ_BITMASKS[num_extra_bits as usize] as u64,
                 num_extra_bits as u32,
             );
         } else {
+            // The lz code was a literal
             for _ in 0..3 {
                 flags >>= 1;
                 let lit = lz_code_buf[i];
                 i += 1;
 
-                assert!(huff.code_sizes[0][lit as usize] != 0);
+                debug_assert!(huff.code_sizes[0][lit as usize] != 0);
                 bb.put_fast(
                     huff.codes[0][lit as usize] as u64,
                     huff.code_sizes[0][lit as usize] as u32,
@@ -1653,6 +1723,8 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
         Some(in_buf) => in_buf,
     };
 
+    assert!(d.lz.code_position < TDEFL_LZ_CODE_BUF_SIZE - 2);
+
     while src_pos < in_buf.len() || (d.params.flush != TDEFLFlush::None && lookahead_size > 0) {
         let mut dst_pos = ((lookahead_pos + lookahead_size) & TDEFL_LZ_DICT_SIZE_MASK) as usize;
         let mut num_bytes_to_process = cmp::min(
@@ -1683,23 +1755,38 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
 
         while lookahead_size >= 4 {
             let mut cur_match_len = 1;
-            let first_trigram = d.dict.read_unaligned::<u32>(cur_pos as isize) & 0xFF_FFFF;
+            // # Unsafe
+            // cur_pos is always masked when assigned to.
+            let first_trigram = unsafe {
+                d.dict.read_unaligned::<u32>(cur_pos as isize) & 0xFF_FFFF
+            };
             let hash = (first_trigram ^ (first_trigram >> (24 - (TDEFL_LZ_HASH_BITS - 8)))) &
                 TDEFL_LEVEL1_HASH_SIZE_MASK;
+
             let mut probe_pos = d.dict.hash[hash as usize] as u32;
             d.dict.hash[hash as usize] = lookahead_pos as u16;
 
             let mut cur_match_dist = (lookahead_pos - probe_pos) as u16;
             if cur_match_dist as u32 <= d.dict.size {
                 probe_pos &= TDEFL_LZ_DICT_SIZE_MASK;
-                let trigram = d.dict.read_unaligned::<u32>(probe_pos as isize) & 0xFF_FFFF;
+                // # Unsafe
+                // probe_pos was just masked so it can't exceed the dictionary size + max_match_len.
+                let trigram = unsafe {
+                    d.dict.read_unaligned::<u32>(probe_pos as isize) & 0xFF_FFFF
+                };
                 if first_trigram == trigram {
-                    let mut p = (cur_pos + 3) as isize;
-                    let mut q = (probe_pos + 3) as isize;
+                    let mut p = (cur_pos + 2) as isize;
+                    let mut q = (probe_pos + 2) as isize;
                     cur_match_len = 'find_match: loop {
                         for _ in 0..32 {
-                            let p_data: u64 = d.dict.read_unaligned(p as isize);
-                            let q_data: u64 = d.dict.read_unaligned(q as isize);
+                            // # Unsafe
+                            // This loop has a fixed counter, so p_data and q_data will never be
+                            // increased beyond 250 bytes past the initial values.
+                            // Both pos and probe_pos are bounded by masking with
+                            // TDEFL_LZ_DICT_SIZE_MASK,
+                            // so {pos|probe_pos} + 258 will never exceed dict.len().
+                            let p_data: u64 = unsafe {d.dict.read_unaligned(p as isize)};
+                            let q_data: u64 = unsafe {d.dict.read_unaligned(q as isize)};
                             let xor_data = p_data ^ q_data;
                             if xor_data == 0 {
                                 p += 8;
@@ -1726,12 +1813,15 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
                         d.huff.count[0][first_trigram as u8 as usize] += 1;
                     } else {
                         cur_match_len = cmp::min(cur_match_len, lookahead_size);
-                        assert!(cur_match_len >= TDEFL_MIN_MATCH_LEN);
-                        assert!(cur_match_dist >= 1);
-                        assert!(cur_match_dist as usize <= TDEFL_LZ_DICT_SIZE);
+                        debug_assert!(cur_match_len >= TDEFL_MIN_MATCH_LEN);
+                        debug_assert!(cur_match_dist >= 1);
+                        debug_assert!(cur_match_dist as usize <= TDEFL_LZ_DICT_SIZE);
                         cur_match_dist -= 1;
 
                         d.lz.write_code((cur_match_len - TDEFL_MIN_MATCH_LEN) as u8);
+                        // # Unsafe
+                        // code_position is checked to be smaller than the lz buffer size
+                        // at the start of this function and on every loop iteration.
                         unsafe {
                             ptr::write_unaligned(
                                 (&mut d.lz.codes[0] as *mut u8).offset(
@@ -1788,6 +1878,7 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
                         d.params.src_pos = src_pos;
                         return n > 0;
                     }
+                    assert!(d.lz.code_position < TDEFL_LZ_CODE_BUF_SIZE - 2);
 
                     lookahead_size = d.dict.lookahead_size;
                     lookahead_pos = d.dict.lookahead_pos;
