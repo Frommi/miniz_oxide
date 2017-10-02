@@ -898,9 +898,11 @@ pub fn decompress_oxide(
                     // Check if the length value of a raw block is correct.
                     // The 2 first (2-byte) words in a raw header are the length and the
                     // ones complement of the length.
-                    l.counter = r.raw_header[0] as u32 | ((r.raw_header[1] as u32) << 8);
+                    let length = r.raw_header[0] as u16 | ((r.raw_header[1] as u16) << 8);
                     let check = (r.raw_header[2] as u16) | ((r.raw_header[3] as u16) << 8);
-                    let valid = l.counter == !check as u32;
+                    let valid = length == !check;
+                    l.counter = length.into();
+
                     if !valid {
                         Action::Jump(BadRawLength)
                     } else if l.counter == 0 {
@@ -1489,7 +1491,7 @@ mod test {
 
         let text = b"Hello, zlib!";
         let encoded = {
-            let len = text.len().to_le();
+            let len = text.len();
             let notlen = !len;
             let mut encoded =
                 vec![1, len as u8, (len >> 8) as u8, notlen as u8, (notlen >> 8) as u8];
