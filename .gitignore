@@ -6,6 +6,7 @@ amalgamation/
 example?
 miniz_tester
 test_scratch
+benchout
 
 miniz_oxide.iml
 CMakeCache.txt
