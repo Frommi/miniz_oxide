@@ -13,12 +13,11 @@ crate-type = ['staticlib', 'rlib']
 
 [dependencies]
 libc = "0.2.22"
-adler32 = "1.0.2"
 crc = "^1.0.0"
 miniz_oxide = { path = "miniz_oxide" }
 
 [build-dependencies]
-gcc = "0.3"
+cc = "1.0"
 
 [features]
 default = ["build_orig_miniz"]
