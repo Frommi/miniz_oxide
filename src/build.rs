@@ -3,7 +3,6 @@ extern crate gcc;
 
 #[cfg(not(feature = "build_orig_miniz"))]
 fn main() {
-    //    panic!("only stub");
     gcc::Build::new()
         .files(
             &[
@@ -18,7 +17,6 @@ fn main() {
 
 #[cfg(feature = "build_orig_miniz")]
 fn main() {
-    //    panic!("old fuzzy pushover");
     use std::process::Command;
 
     Command::new("./build_orig_miniz.sh").status().unwrap();

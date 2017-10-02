@@ -163,7 +163,7 @@ mod test {
             tinfl_decompress_mem_to_mem(
                 dest.as_mut_ptr() as *mut c_void,
                 dest_len,
-                source.as_mut_ptr() as *mut c_void,
+                source.as_mut_ptr() as *const c_void,
                 source_len,
                 flags,
             )
@@ -222,26 +222,8 @@ mod test {
     #[test]
     fn mem_to_mem() {
         let mut encoded = [
-            120,
-            156,
-            243,
-            72,
-            205,
-            201,
-            201,
-            215,
-            81,
-            168,
-            202,
-            201,
-            76,
-            82,
-            4,
-            0,
-            27,
-            101,
-            4,
-            19,
+            120, 156, 243, 72, 205, 201, 201, 215, 81, 168,
+            202, 201,  76, 82,   4,   0,  27, 101,  4,  19,
         ];
         let mut out_buf = vec![0; 50];
         let flags = TINFL_FLAG_COMPUTE_ADLER32 | TINFL_FLAG_PARSE_ZLIB_HEADER;
@@ -256,26 +238,8 @@ mod test {
     #[test]
     fn mem_to_heap() {
         let mut encoded = [
-            120,
-            156,
-            243,
-            72,
-            205,
-            201,
-            201,
-            215,
-            81,
-            168,
-            202,
-            201,
-            76,
-            82,
-            4,
-            0,
-            27,
-            101,
-            4,
-            19,
+            120, 156, 243, 72, 205, 201, 201, 215, 81, 168,
+            202, 201,  76, 82,   4,   0,  27, 101,  4,  19,
         ];
         let flags = TINFL_FLAG_COMPUTE_ADLER32 | TINFL_FLAG_PARSE_ZLIB_HEADER;
         let out_buf = tinfl_decompress_mem_to_heap_wrapper(&mut encoded[..], flags as i32).unwrap();

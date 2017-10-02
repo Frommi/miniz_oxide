@@ -649,7 +649,7 @@ fn decompress_fast(
                     }
                 },
             ) {
-                Action::Jump(j) if j == ReadExtraBitsDistance => {
+                Action::Jump(to) if to == ReadExtraBitsDistance => {
                     state.begin(ReadExtraBitsDistance);
                     let num_extra = l.num_extra;
                     try_read!(read_bits(
@@ -1458,26 +1458,8 @@ mod test {
     #[test]
     fn decompress_zlib() {
         let encoded = [
-            120,
-            156,
-            243,
-            72,
-            205,
-            201,
-            201,
-            215,
-            81,
-            168,
-            202,
-            201,
-            76,
-            82,
-            4,
-            0,
-            27,
-            101,
-            4,
-            19,
+            120, 156, 243, 72, 205, 201, 201, 215, 81, 168,
+            202, 201,  76,  82,  4,   0,  27, 101,  4,  19,
         ];
         let flags = TINFL_FLAG_COMPUTE_ADLER32 | TINFL_FLAG_PARSE_ZLIB_HEADER;
 

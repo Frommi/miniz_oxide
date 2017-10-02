@@ -8,9 +8,6 @@ use crc::{Hasher32, crc32};
 
 use libc::{c_int, c_uint, c_ulong, c_void, size_t};
 
-//mod lib_oxide;
-//pub use lib_oxide::*;
-
 use miniz_oxide::lib_oxide::{MZError, MZResult};
 #[allow(bad_style)]
 pub type tdefl_compressor = miniz_oxide::deflate::CompressorOxide;
