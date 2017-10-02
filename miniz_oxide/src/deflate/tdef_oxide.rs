@@ -1776,26 +1776,35 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
                     d.dict.read_unaligned::<u32>(probe_pos as isize) & 0xFF_FFFF
                 };
                 if first_trigram == trigram {
-                    let mut p = (cur_pos + 2) as isize;
-                    let mut q = (probe_pos + 2) as isize;
+                    // Trigram was tested, so we can start with "+ 3" displacement.
+                    let mut p = (cur_pos + 3) as isize;
+                    let mut q = (probe_pos + 3) as isize;
                     cur_match_len = 'find_match: loop {
-                        for _ in 0..32 {
-                            // # Unsafe
-                            // This loop has a fixed counter, so p_data and q_data will never be
-                            // increased beyond 250 bytes past the initial values.
-                            // Both pos and probe_pos are bounded by masking with
-                            // TDEFL_LZ_DICT_SIZE_MASK,
-                            // so {pos|probe_pos} + 258 will never exceed dict.len().
-                            let p_data: u64 = unsafe {d.dict.read_unaligned(p as isize)};
-                            let q_data: u64 = unsafe {d.dict.read_unaligned(q as isize)};
-                            let xor_data = p_data ^ q_data;
-                            if xor_data == 0 {
-                                p += 8;
-                                q += 8;
-                            } else {
-                                let trailing = xor_data.trailing_zeros();
-                                break 'find_match p as u32 - cur_pos + (trailing >> 3);
+                        for _ in 0..2 {
+                            for _ in 0..16 {
+                                // # Unsafe
+                                // This loop has a fixed counter, so p_data and q_data will never be
+                                // increased beyond 250 bytes past the initial values.
+                                // Both pos and probe_pos are bounded by masking with
+                                // TDEFL_LZ_DICT_SIZE_MASK,
+                                // so {pos|probe_pos} + 258 will never exceed dict.len().
+                                let p_data: u64 = unsafe {d.dict.read_unaligned(p as isize)};
+                                let q_data: u64 = unsafe {d.dict.read_unaligned(q as isize)};
+                                let xor_data = p_data ^ q_data;
+                                if xor_data == 0 {
+                                    p += 8;
+                                    q += 8;
+                                } else {
+                                    let trailing = xor_data.trailing_zeros();
+                                    break 'find_match p as u32 - cur_pos + (trailing >> 3);
+                                }
                             }
+                            // - 1 to ensure that p and q are bounded by dict.len():
+                            // pos + 3 + 16 * 8 - 1 + 16 * 8 = pos + 258
+                            // 16 * 8 - 1 + 16 * 8 instead of 31 * 8 - 1 + 8 is to not disturb
+                            // compiler optimizations with non-power-of-two numbers.
+                            p -= 1;
+                            q -= 1;
                         }
 
                         break 'find_match if cur_match_dist == 0 {
