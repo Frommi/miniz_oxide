@@ -149,19 +149,19 @@ fn tdefl_compress_mem_to_mem(
 
 /// Compress the input data to a vector, using the specified compression level (0-10).
 pub fn compress_to_vec(input: &[u8], level: u8) -> Vec<u8> {
-    compress_to_vec_inner(input, level, false)
+    compress_to_vec_inner(input, level, 0, 0)
 }
 
 /// Compress the input data to a vector, using the specified compression level (0-10), and with a
 /// zlib wrapper.
 pub fn compress_to_vec_zlib(input: &[u8], level: u8) -> Vec<u8> {
-    compress_to_vec_inner(input, level, true)
+    compress_to_vec_inner(input, level, 1, 0)
 }
 
 /// Simple function to compress data to a vec.
-fn compress_to_vec_inner(input: &[u8], level: u8, with_zlib: bool) -> Vec<u8> {
+fn compress_to_vec_inner(input: &[u8], level: u8, window_bits: i32, strategy: i32) -> Vec<u8> {
     // The comp flags function sets the zlib flag if the window_bits parameter is > 0.
-    let flags = create_comp_flags_from_zip_params(level.into(), with_zlib as i32, 0);
+    let flags = create_comp_flags_from_zip_params(level.into(), window_bits, strategy);
     let mut compressor = CompressorOxide::new(None, flags);
     let mut output = Vec::with_capacity(input.len() / 2);
     // # Unsafe
@@ -213,7 +213,8 @@ fn compress_to_vec_inner(input: &[u8], level: u8, with_zlib: bool) -> Vec<u8> {
 
 #[cfg(test)]
 mod test {
-    use super::compress_to_vec;
+    use super::{compress_to_vec, compress_to_vec_inner, CompressionStrategy};
+    use inflate::decompress_to_vec;
 
     /// Test deflate example.
     ///
@@ -224,7 +225,36 @@ mod test {
         let test_data = b"Deflate late";
         let check = [0x73, 0x49, 0x4d, 0xcb, 0x49, 0x2c, 0x49, 0x55, 0x00, 0x11, 0x00];
 
+        let res = compress_to_vec(test_data, 1);
+        assert_eq!(&check[..], res.as_slice());
+
         let res = compress_to_vec(test_data, 9);
         assert_eq!(&check[..], res.as_slice());
+    }
+
+    #[test]
+    fn compress_huff_only() {
+        let test_data = b"Deflate late";
+
+        let res = compress_to_vec_inner(test_data, 1, 0, CompressionStrategy::HuffmanOnly as i32);
+        let d = decompress_to_vec(res.as_slice()).expect("Failed to decompress!");
+        assert_eq!(test_data, d.as_slice());
+    }
+
+    /// Test that a raw block compresses fine.
+    #[test]
+    fn compress_raw() {
+        let text = b"Hello, zlib!";
+        let encoded = {
+            let len = text.len();
+            let notlen = !len;
+            let mut encoded =
+                vec![1, len as u8, (len >> 8) as u8, notlen as u8, (notlen >> 8) as u8];
+            encoded.extend_from_slice(&text[..]);
+            encoded
+        };
+
+        let res = compress_to_vec(text, 0);
+        assert_eq!(encoded, res.as_slice());
     }
 }

@@ -235,6 +235,58 @@ fn memset<T: Copy>(slice: &mut [T], val: T) {
     }
 }
 
+#[cfg(all(target_endian = "little", test))]
+#[inline]
+fn write_u16_le(val: u16, slice: &mut [u8], pos: usize) {
+    assert!(pos + 1 < slice.len());
+    assert!(pos < slice.len());
+    // # Unsafe
+    // We just checked that there is space.
+    unsafe {
+        ptr::write_unaligned(slice.as_mut_ptr() as *mut u16, val);
+    }
+}
+
+#[cfg(all(target_endian = "big", test))]
+#[inline]
+fn write_u16_le(val: u16, slice: &mut [u8], pos: usize) {
+    slice[pos] = val as u8;
+    slice[pos + 1] = (val >> 8) as u8;
+}
+
+#[cfg(target_endian = "little")]
+#[inline]
+unsafe fn write_u16_le_uc(val: u16, slice: &mut [u8], pos: usize) {
+    ptr::write_unaligned(slice.as_mut_ptr().offset(pos as isize) as *mut u16, val);
+}
+
+#[cfg(target_endian = "big")]
+#[inline]
+unsafe fn write_u16_le_uc(val: u16, slice: &mut [u8], pos: usize) {
+    *slice.as_mut_ptr().offset(pos as isize) = val as u8;
+    *slice.as_mut_ptr().offset(pos as isize + 1) = (val >> 8) as u8;
+}
+
+
+#[cfg(target_endian = "little")]
+#[inline]
+fn read_u16_le(slice: &[u8], pos: usize) -> u16{
+    assert!(pos + 1 < slice.len());
+    assert!(pos < slice.len());
+    // # Unsafe
+    // We just checked that there is space.
+    // We also make the assumption here that slice can't be longer than isize::max.
+    unsafe {
+        ptr::read_unaligned(slice.as_ptr().offset(pos as isize) as *mut u16)
+    }
+}
+
+#[cfg(target_endian = "big")]
+#[inline]
+fn read_u16_le(slice: &[u8], pos: usize) -> u16{
+    slice[pos] as u16 | ((slice[pos + 1] as u16) << 8)
+}
+
 pub struct CompressorOxide {
     lz: LZOxide,
     params: ParamsOxide,
@@ -543,8 +595,7 @@ impl BitBuffer {
         // # Unsafe
         // TODO: check unsafety
         unsafe {
-            // TODO: Big endian
-            ptr::write_unaligned(inner, self.bit_buffer);
+            ptr::write_unaligned(inner, self.bit_buffer.to_le());
         }
         output.inner.seek(
             SeekFrom::Current((self.bits_in >> 3) as i64),
@@ -1132,8 +1183,8 @@ impl DictOxide {
                 // increased beyond 250 bytes past the initial values.
                 // Both pos and probe_pos are bounded by masking with TDEFL_LZ_DICT_SIZE_MASK,
                 // so {pos|probe_pos} + 258 will never exceed dict.len().
-                let p_data: u64 = unsafe {self.read_unaligned(p as isize)};
-                let q_data: u64 = unsafe {self.read_unaligned(q as isize)};
+                let p_data: u64 = unsafe {u64::from_le(self.read_unaligned(p as isize))};
+                let q_data: u64 = unsafe {u64::from_le(self.read_unaligned(q as isize))};
                 // Compare of 8 bytes at a time by using unaligned loads of 64-bit integers.
                 let xor_data = p_data ^ q_data;
                 if xor_data == 0 {
@@ -1279,9 +1330,6 @@ fn compress_lz_codes(
         bits_in: output.bits_in,
     };
 
-    // TODO: with assert fails really fast at with ./test.sh
-    debug_assert!(lz_code_buf.len() >= 4);
-
     let mut i: usize = 0;
     while i < lz_code_buf.len() {
         if flags == 1 {
@@ -1297,14 +1345,10 @@ fn compress_lz_codes(
             let num_extra_bits;
 
             let match_len = lz_code_buf[i] as usize;
-            // # Unsafe
-            // TODO: Two bytes containing the distance should always follow here
-            // but we're not statically enforcing it at the moment.
-            let match_dist = unsafe {
-                ptr::read_unaligned::<u16>(
-                    lz_code_buf.get_unchecked(i + 1) as *const u8 as *const u16,
-                )
-            };
+
+            let match_dist =
+                read_u16_le(lz_code_buf, i + 1);
+
             i += 3;
 
             debug_assert!(huff.code_sizes[0][TDEFL_LEN_SYM[match_len] as usize] != 0);
@@ -1759,8 +1803,9 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
             // # Unsafe
             // cur_pos is always masked when assigned to.
             let first_trigram = unsafe {
-                d.dict.read_unaligned::<u32>(cur_pos as isize) & 0xFF_FFFF
+                u32::from_le(d.dict.read_unaligned::<u32>(cur_pos as isize)) & 0xFF_FFFF
             };
+
             let hash = (first_trigram ^ (first_trigram >> (24 - (TDEFL_LZ_HASH_BITS - 8)))) &
                 TDEFL_LEVEL1_HASH_SIZE_MASK;
 
@@ -1773,8 +1818,9 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
                 // # Unsafe
                 // probe_pos was just masked so it can't exceed the dictionary size + max_match_len.
                 let trigram = unsafe {
-                    d.dict.read_unaligned::<u32>(probe_pos as isize) & 0xFF_FFFF
+                    u32::from_le(d.dict.read_unaligned::<u32>(probe_pos as isize)) & 0xFF_FFFF
                 };
+
                 if first_trigram == trigram {
                     // Trigram was tested, so we can start with "+ 3" displacement.
                     let mut p = (cur_pos + 3) as isize;
@@ -1788,8 +1834,10 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
                                 // Both pos and probe_pos are bounded by masking with
                                 // TDEFL_LZ_DICT_SIZE_MASK,
                                 // so {pos|probe_pos} + 258 will never exceed dict.len().
-                                let p_data: u64 = unsafe {d.dict.read_unaligned(p as isize)};
-                                let q_data: u64 = unsafe {d.dict.read_unaligned(q as isize)};
+                                let p_data: u64 =
+                                    unsafe {u64::from_le(d.dict.read_unaligned(p as isize))};
+                                let q_data: u64 =
+                                    unsafe {u64::from_le(d.dict.read_unaligned(q as isize))};
                                 let xor_data = p_data ^ q_data;
                                 if xor_data == 0 {
                                     p += 8;
@@ -1817,10 +1865,11 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
                     if cur_match_len < TDEFL_MIN_MATCH_LEN ||
                         (cur_match_len == TDEFL_MIN_MATCH_LEN && cur_match_dist >= 8 * 1024)
                     {
+                        let lit = first_trigram as u8;
                         cur_match_len = 1;
-                        d.lz.write_code(first_trigram as u8);
+                        d.lz.write_code(lit);
                         *d.lz.get_flag() >>= 1;
-                        d.huff.count[0][first_trigram as u8 as usize] += 1;
+                        d.huff.count[0][lit as usize] += 1;
                     } else {
                         cur_match_len = cmp::min(cur_match_len, lookahead_size);
                         debug_assert!(cur_match_len >= TDEFL_MIN_MATCH_LEN);
@@ -1833,13 +1882,9 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
                         // code_position is checked to be smaller than the lz buffer size
                         // at the start of this function and on every loop iteration.
                         unsafe {
-                            ptr::write_unaligned(
-                                (&mut d.lz.codes[0] as *mut u8).offset(
-                                    d.lz.code_position as isize,
-                                ) as
-                                    *mut u16,
-                                cur_match_dist as u16,
-                            );
+                            write_u16_le_uc(cur_match_dist as u16,
+                                            &mut d.lz.codes,
+                                            d.lz.code_position);
                             d.lz.code_position += 2;
                         }
 
@@ -2086,4 +2131,26 @@ pub fn create_comp_flags_from_zip_params(level: i32, window_bits: i32, strategy:
     }
 
     comp_flags
+}
+
+
+#[cfg(test)]
+mod test {
+    use super::{write_u16_le, write_u16_le_uc, read_u16_le};
+
+    #[test]
+    fn u16_to_slice() {
+        let mut slice = [0, 0];
+        write_u16_le(2000, &mut slice, 0);
+        assert_eq!(slice, [208, 7]);
+        let mut slice = [0, 0];
+        unsafe {write_u16_le_uc(2000, &mut slice, 0)};
+        assert_eq!(slice, [208, 7]);
+    }
+
+    #[test]
+    fn u16_from_slice() {
+        let mut slice = [208, 7];
+        assert_eq!(read_u16_le(&mut slice, 0), 2000);
+    }
 }
