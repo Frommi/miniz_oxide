@@ -17,6 +17,8 @@
 //! #   let _ = decompressed;
 //! }
 //!
+//! # roundtrip(b"Test_data test data lalalal blabla");
+//!
 //! ```
 
 extern crate adler32;
