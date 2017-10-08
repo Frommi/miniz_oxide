@@ -3,9 +3,7 @@
 use libc::*;
 use std::{ptr, slice, usize};
 use std::io::Cursor;
-pub use miniz_oxide::inflate::{decompress, tinfl_decompressor, TINFLStatus};
-
-pub use miniz_oxide::inflate::inflate_flags::*;
+pub use miniz_oxide::inflate::core::{decompress, tinfl_decompressor, inflate_flags, TINFLStatus};
 
 pub const TINFL_DECOMPRESS_MEM_TO_MEM_FAILED: size_t = usize::MAX;
 

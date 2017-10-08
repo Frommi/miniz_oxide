@@ -29,9 +29,6 @@ pub mod deflate_flags {
     pub const TDEFL_FORCE_ALL_RAW_BLOCKS: u32 = 0x0008_0000;
 }
 
-pub use self::deflate_flags::*;
-
-
 /// How much processing the compressor should do to compress the data.
 /// `NoCompression` and `Bestspeed` have special meanings, the other levels determine the number
 /// of checks for matches in the hash chains and whether to use lazy or greedy parsing.
