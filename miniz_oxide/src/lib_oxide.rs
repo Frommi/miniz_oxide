@@ -301,7 +301,7 @@ impl<'io, ST: StateType> StreamOxide<'io, ST> {
 }
 
 /// Returns true if the window_bits parameter is valid.
-pub fn invalid_window_bits(window_bits: c_int) -> bool {
+fn invalid_window_bits(window_bits: c_int) -> bool {
     (window_bits != MZ_DEFAULT_WINDOW_BITS) && (-window_bits != MZ_DEFAULT_WINDOW_BITS)
 }
 

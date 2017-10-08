@@ -209,7 +209,7 @@ fn validate_zlib_header(cmf: u32, flg: u32, flags: u32, mask: usize) -> Action {
 }
 
 
-pub enum Action {
+enum Action {
     None,
     Jump(State),
     End(TINFLStatus),
@@ -511,7 +511,7 @@ macro_rules! generate_state {
 }
 
 #[derive(Copy, Clone)]
-pub struct LocalVars {
+struct LocalVars {
     pub bit_buf: BitBuffer,
     pub num_bits: u32,
     pub dist: u32,

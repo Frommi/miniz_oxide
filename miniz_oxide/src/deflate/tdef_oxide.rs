@@ -8,8 +8,7 @@ use super::super::lib_oxide::*;
 use deflate::PutBufFuncPtrNotNull;
 use shared::{HUFFMAN_LENGTH_ORDER, MZ_ADLER32_INIT, update_adler32};
 
-pub const TDEFL_DEFAULT_MAX_PROBES: i32 = 128;
-pub const TDEFL_MAX_PROBES_MASK: i32 = 0xFFF;
+const TDEFL_MAX_PROBES_MASK: i32 = 0xFFF;
 
 const TDEFL_MAX_SUPPORTED_HUFF_CODESIZE: usize = 32;
 
@@ -150,7 +149,7 @@ const MZ_BITMASKS: [u32; 17] = [
 const TDEFL_NUM_PROBES: [u32; 11] = [0, 1, 6, 32, 16, 32, 128, 256, 512, 768, 1500];
 
 #[derive(Copy, Clone)]
-pub struct SymFreq {
+struct SymFreq {
     key: u16,
     sym_index: u16,
 }
@@ -278,7 +277,7 @@ pub struct CallbackFunc {
 }
 
 impl CallbackFunc {
-    pub fn flush_output(
+    fn flush_output(
         &mut self,
         saved_output: SavedOutputBufferOxide,
         params: &mut ParamsOxide,
@@ -308,7 +307,7 @@ pub struct CallbackBuf<'a> {
 }
 
 impl<'a> CallbackBuf<'a> {
-    pub fn flush_output(
+    fn flush_output(
         &mut self,
         saved_output: SavedOutputBufferOxide,
         params: &mut ParamsOxide,
@@ -340,7 +339,7 @@ pub enum CallbackOut<'a> {
 }
 
 impl<'a> CallbackOut<'a> {
-    pub fn new_output_buffer<'b>(
+    fn new_output_buffer<'b>(
         &'b mut self,
         local_buf: &'b mut [u8],
         out_buf_ofs: usize,
@@ -455,7 +454,7 @@ impl<'a> CallbackOxide<'a> {
         }
     }
 
-    pub fn flush_output(
+    fn flush_output(
         &mut self,
         saved_output: SavedOutputBufferOxide,
         params: &mut ParamsOxide,
@@ -472,7 +471,7 @@ impl<'a> CallbackOxide<'a> {
     }
 }
 
-pub struct OutputBufferOxide<'a> {
+struct OutputBufferOxide<'a> {
     pub inner: Cursor<&'a mut [u8]>,
     pub local: bool,
 
@@ -518,7 +517,7 @@ impl<'a> OutputBufferOxide<'a> {
     }
 }
 
-pub struct SavedOutputBufferOxide {
+struct SavedOutputBufferOxide {
     pub pos: u64,
     pub bit_buffer: u32,
     pub bits_in: u32,
@@ -531,13 +530,13 @@ struct BitBuffer {
 }
 
 impl BitBuffer {
-    pub fn put_fast(&mut self, bits: u64, len: u32) {
+    fn put_fast(&mut self, bits: u64, len: u32) {
         // TODO: Big endian
         self.bit_buffer |= bits << self.bits_in;
         self.bits_in += len;
     }
 
-    pub fn flush(&mut self, output: &mut OutputBufferOxide) -> io::Result<()> {
+    fn flush(&mut self, output: &mut OutputBufferOxide) -> io::Result<()> {
         let pos = output.inner.position() as usize;
         let inner = &mut ((*output.inner.get_mut())[pos]) as *mut u8 as *mut u64;
         // # Unsafe
@@ -642,7 +641,7 @@ impl RLE {
 }
 
 impl HuffmanOxide {
-    pub fn new() -> Self {
+    fn new() -> Self {
         HuffmanOxide {
             count: [[0; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
             codes: [[0; TDEFL_MAX_HUFF_SYMBOLS]; TDEFL_MAX_HUFF_TABLES],
@@ -650,7 +649,7 @@ impl HuffmanOxide {
         }
     }
 
-    pub fn radix_sort_symbols<'a>(
+    fn radix_sort_symbols<'a>(
         symbols0: &'a mut [SymFreq],
         symbols1: &'a mut [SymFreq],
     ) -> &'a mut [SymFreq] {
@@ -689,7 +688,7 @@ impl HuffmanOxide {
         current_symbols
     }
 
-    pub fn calculate_minimum_redundancy(symbols: &mut [SymFreq]) {
+    fn calculate_minimum_redundancy(symbols: &mut [SymFreq]) {
         match symbols.len() {
             0 => (),
             1 => symbols[0].key = 1,
@@ -745,7 +744,7 @@ impl HuffmanOxide {
         }
     }
 
-    pub fn enforce_max_code_size(
+    fn enforce_max_code_size(
         num_codes: &mut [i32],
         code_list_len: usize,
         max_code_size: usize,
@@ -773,7 +772,7 @@ impl HuffmanOxide {
         }
     }
 
-    pub fn optimize_table(
+    fn optimize_table(
         &mut self,
         table_num: usize,
         table_len: usize,
@@ -861,7 +860,7 @@ impl HuffmanOxide {
         }
     }
 
-    pub fn start_static_block(&mut self, output: &mut OutputBufferOxide) {
+    fn start_static_block(&mut self, output: &mut OutputBufferOxide) {
         memset(&mut self.code_sizes[LITLEN_TABLE][0..144], 8);
         memset(&mut self.code_sizes[LITLEN_TABLE][144..256], 9);
         memset(&mut self.code_sizes[LITLEN_TABLE][256..280], 7);
@@ -875,7 +874,7 @@ impl HuffmanOxide {
         output.put_bits(0b01, 2)
     }
 
-    pub fn start_dynamic_block(&mut self, output: &mut OutputBufferOxide) -> io::Result<()> {
+    fn start_dynamic_block(&mut self, output: &mut OutputBufferOxide) -> io::Result<()> {
         self.count[0][256] = 1;
 
         self.optimize_table(0, TDEFL_MAX_HUFF_SYMBOLS_0, 15, false);
@@ -1008,7 +1007,7 @@ struct DictOxide {
 }
 
 impl DictOxide {
-    pub fn new(flags: u32) -> Self {
+    fn new(flags: u32) -> Self {
         DictOxide {
             max_probes: [1 + ((flags & 0xFFF) + 2) / 3, 1 + (((flags & 0xFFF) >> 2) + 2) / 3],
             dict: [0; TDEFL_LZ_DICT_SIZE + TDEFL_MAX_MATCH_LEN - 1],
@@ -1165,7 +1164,7 @@ impl DictOxide {
     }
 }
 
-pub struct ParamsOxide {
+struct ParamsOxide {
     pub flags: u32,
     pub greedy_parsing: bool,
     pub block_index: u32,
@@ -1193,7 +1192,7 @@ pub struct ParamsOxide {
 }
 
 impl ParamsOxide {
-    pub fn new(flags: u32) -> Self {
+    fn new(flags: u32) -> Self {
         ParamsOxide {
             flags: flags,
             greedy_parsing: flags & TDEFL_GREEDY_PARSING_FLAG != 0,
@@ -1226,7 +1225,7 @@ struct LZOxide {
 }
 
 impl LZOxide {
-    pub fn new() -> Self {
+    fn new() -> Self {
         LZOxide {
             codes: [0; TDEFL_LZ_CODE_BUF_SIZE],
             code_position: 1,
@@ -1236,12 +1235,12 @@ impl LZOxide {
         }
     }
 
-    pub fn write_code(&mut self, val: u8) {
+    fn write_code(&mut self, val: u8) {
         self.codes[self.code_position] = val;
         self.code_position += 1;
     }
 
-    pub fn init_flag(&mut self) {
+    fn init_flag(&mut self) {
         if self.num_flags_left == 8 {
             *self.get_flag() = 0;
             self.code_position -= 1;
@@ -1250,16 +1249,16 @@ impl LZOxide {
         }
     }
 
-    pub fn get_flag(&mut self) -> &mut u8 {
+    fn get_flag(&mut self) -> &mut u8 {
         &mut self.codes[self.flag_position]
     }
 
-    pub fn plant_flag(&mut self) {
+    fn plant_flag(&mut self) {
         self.flag_position = self.code_position;
         self.code_position += 1;
     }
 
-    pub fn consume_flag(&mut self) {
+    fn consume_flag(&mut self) {
         self.num_flags_left -= 1;
         if self.num_flags_left == 0 {
             self.num_flags_left = 8;
@@ -1939,7 +1938,7 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
     true
 }
 
-pub fn flush_output_buffer(
+fn flush_output_buffer(
     c: &mut CallbackOxide,
     p: &mut ParamsOxide,
 ) -> (TDEFLStatus, usize, usize) {
