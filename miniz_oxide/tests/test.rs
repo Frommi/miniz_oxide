@@ -21,7 +21,7 @@ fn inf_issue_14() {
     let result = decompress_to_vec_zlib(data.as_slice());
     assert!(result.is_err());
     let error = result.unwrap_err();
-    assert_eq!(error.0, TINFLStatus::Failed);
+    assert_eq!(error, TINFLStatus::Failed);
 }
 
 fn get_test_data() -> Vec<u8> {

@@ -259,22 +259,11 @@ impl tinfl_decompressor {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum DecompressError {
-    /// The decompression went fine, but the adler32 checksum did not match the one
-    /// provided in the header.
-    Adler32Mismatch,
-    /// Failed to decompress due to invalid data.
-    Failed,
-    /// The decompressor needs more input data to continue decompressing.
-    NeedsMoreInput,
-}
-
 /// Decompress the deflate-encoded data in `input` to a vector.
 ///
 /// Returns a status and an integer representing where the decompressor failed on failure.
 #[inline]
-pub fn decompress_to_vec(input: &[u8]) -> Result<Vec<u8>, DecompressError> {
+pub fn decompress_to_vec(input: &[u8]) -> Result<Vec<u8>, TINFLStatus> {
     decompress_to_vec_inner(input, 0)
 }
 
@@ -282,11 +271,11 @@ pub fn decompress_to_vec(input: &[u8]) -> Result<Vec<u8>, DecompressError> {
 ///
 /// Returns a status and an integer representing where the decompressor failed on failure.
 #[inline]
-pub fn decompress_to_vec_zlib(input: &[u8]) -> Result<Vec<u8>, DecompressError> {
+pub fn decompress_to_vec_zlib(input: &[u8]) -> Result<Vec<u8>, TINFLStatus> {
     decompress_to_vec_inner(input, inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER)
 }
 
-fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>, DecompressError> {
+fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>, TINFLStatus> {
     let flags = flags | inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
     let mut ret = Vec::with_capacity(input.len() * 2);
 
@@ -330,11 +319,7 @@ fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>, Decompre
                 }
             },
 
-            TINFLStatus::Adler32Mismatch => return Err(DecompressError::Adler32Mismatch),
-            TINFLStatus::Failed => return Err(DecompressError::Failed),
-            TINFLStatus::NeedsMoreInput => return Err(DecompressError::NeedsMoreInput),
-            TINFLStatus::BadParam => unreachable!(),
-            TINFLStatus::FailedCannotMakeProgress => unreachable!(),
+            _ => return Err(status),
         }
     }
 }
