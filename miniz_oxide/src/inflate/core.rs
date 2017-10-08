@@ -102,51 +102,6 @@ pub mod inflate_flags {
 
 use self::inflate_flags::*;
 
-const TINFL_STATUS_FAILED_CANNOT_MAKE_PROGRESS: i32 = -4;
-const TINFL_STATUS_BAD_PARAM: i32 = -3;
-const TINFL_STATUS_ADLER32_MISMATCH: i32 = -2;
-const TINFL_STATUS_FAILED: i32 = -1;
-const TINFL_STATUS_DONE: i32 = 0;
-const TINFL_STATUS_NEEDS_MORE_INPUT: i32 = 1;
-const TINFL_STATUS_HAS_MORE_OUTPUT: i32 = 2;
-
-#[repr(i8)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum TINFLStatus {
-    /// More input data was expected, but the caller indicated that there was more data, so the
-    /// input stream is likely truncated.
-    FailedCannotMakeProgress = TINFL_STATUS_FAILED_CANNOT_MAKE_PROGRESS as i8,
-    /// One or more of the input parameters were invalid.
-    BadParam = TINFL_STATUS_BAD_PARAM as i8,
-    /// The decompression went fine, but the adler32 checksum did not match the one
-    /// provided in the header.
-    Adler32Mismatch = TINFL_STATUS_ADLER32_MISMATCH as i8,
-    /// Failed to decompress due to invalid data.
-    Failed = TINFL_STATUS_FAILED as i8,
-    /// Finished decomression without issues.
-    Done = TINFL_STATUS_DONE as i8,
-    /// The decompressor needs more input data to continue decompressing.
-    NeedsMoreInput = TINFL_STATUS_NEEDS_MORE_INPUT as i8,
-    /// There is still pending data that didn't fit in the output buffer.
-    HasMoreOutput = TINFL_STATUS_HAS_MORE_OUTPUT as i8,
-}
-
-impl TINFLStatus {
-    pub fn from_i32(value: i32) -> Option<TINFLStatus> {
-        use self::TINFLStatus::*;
-        match value {
-            TINFL_STATUS_FAILED_CANNOT_MAKE_PROGRESS => Some(FailedCannotMakeProgress),
-            TINFL_STATUS_BAD_PARAM => Some(BadParam),
-            TINFL_STATUS_ADLER32_MISMATCH => Some(Adler32Mismatch),
-            TINFL_STATUS_FAILED => Some(Failed),
-            TINFL_STATUS_DONE => Some(Done),
-            TINFL_STATUS_NEEDS_MORE_INPUT => Some(NeedsMoreInput),
-            TINFL_STATUS_HAS_MORE_OUTPUT => Some(HasMoreOutput),
-            _ => None,
-        }
-    }
-}
-
 const MIN_TABLE_SIZES: [u16; 3] = [257, 1, 4];
 
 #[cfg(target_pointer_width = "64")]

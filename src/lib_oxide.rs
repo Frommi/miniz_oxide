@@ -8,7 +8,8 @@ use libc::{self, c_char, c_int, c_uint, c_ulong, c_void, size_t};
 use miniz_oxide::deflate::{CallbackOxide, CompressionStrategy, CompressorOxide, TDEFLFlush, TDEFLStatus,
               compress, create_comp_flags_from_zip_params, deflate_flags};
 use miniz_oxide::deflate::CompressorOxide as tdefl_compressor;
-use miniz_oxide::inflate::core::{TINFLStatus, TINFL_LZ_DICT_SIZE, inflate_flags, tinfl_decompressor};
+use miniz_oxide::inflate::TINFLStatus;
+use miniz_oxide::inflate::core::{TINFL_LZ_DICT_SIZE, inflate_flags, tinfl_decompressor};
 
 const MZ_DEFLATED: c_int = 8;
 const MZ_DEFAULT_WINDOW_BITS: c_int = 15;

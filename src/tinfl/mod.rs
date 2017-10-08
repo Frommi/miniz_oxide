@@ -3,7 +3,8 @@
 use libc::*;
 use std::{ptr, slice, usize};
 use std::io::Cursor;
-pub use miniz_oxide::inflate::core::{decompress, tinfl_decompressor, inflate_flags, TINFLStatus};
+use miniz_oxide::inflate::TINFLStatus;
+pub use miniz_oxide::inflate::core::{decompress, tinfl_decompressor, inflate_flags};
 
 pub const TINFL_DECOMPRESS_MEM_TO_MEM_FAILED: size_t = usize::MAX;
 
@@ -144,6 +145,11 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_heap(
 
 #[cfg(test)]
 mod test {
+    use miniz_oxide::inflate::core::inflate_flags::{
+        TINFL_FLAG_COMPUTE_ADLER32,
+        TINFL_FLAG_PARSE_ZLIB_HEADER,
+    };
+
     use super::*;
     use libc::c_void;
     use std::{ops, slice};
