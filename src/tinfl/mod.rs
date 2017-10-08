@@ -3,7 +3,7 @@
 use libc::*;
 use std::{ptr, slice, usize};
 use std::io::Cursor;
-pub use miniz_oxide::inflate::{decompress_oxide, tinfl_decompressor, TINFLStatus};
+pub use miniz_oxide::inflate::{decompress, tinfl_decompressor, TINFLStatus};
 
 pub use miniz_oxide::inflate::inflate_flags::*;
 
@@ -23,7 +23,7 @@ pub unsafe extern "C" fn tinfl_decompress(
     let out_size = *out_buf_size + next_pos;
     let mut out_cursor = Cursor::new(slice::from_raw_parts_mut(out_buf_start, out_size));
     out_cursor.set_position(next_pos as u64);
-    let (status, in_consumed, out_consumed) = decompress_oxide(
+    let (status, in_consumed, out_consumed) = decompress(
         r.as_mut().expect("bad decompressor pointer"),
         slice::from_raw_parts(in_buf, *in_buf_size),
         &mut out_cursor,
@@ -47,7 +47,7 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_mem(
     let mut decomp = tinfl_decompressor::with_init_state_only();
 
     let (status, _, out_consumed) =
-        decompress_oxide(
+        decompress(
             &mut decomp,
             slice::from_raw_parts(p_src_buf as *const u8, src_buf_len),
             &mut Cursor::new(slice::from_raw_parts_mut(p_out_buf as *mut u8, out_buf_len)),
@@ -95,7 +95,7 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_heap(
         ));
         out_cur.set_position(*p_out_len as u64);
         let (status, in_consumed, out_consumed) =
-            decompress_oxide(
+            decompress(
                 &mut decomp,
                 slice::from_raw_parts(
                     p_src_buf.offset(src_buf_ofs as isize) as *const u8,

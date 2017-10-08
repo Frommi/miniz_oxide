@@ -8,18 +8,15 @@ use crc::{Hasher32, crc32};
 
 use libc::{c_int, c_uint, c_ulong, c_void, size_t};
 
-use miniz_oxide::lib_oxide::{MZError, MZResult};
+use miniz_oxide::{MZError, MZResult};
 #[allow(bad_style)]
 pub type tdefl_compressor = miniz_oxide::deflate::CompressorOxide;
 
-use miniz_oxide::lib_oxide::{mz_deflate_end_oxide, mz_deflate_oxide, mz_deflate_reset_oxide,
-                             mz_inflate_end_oxide, mz_inflate_oxide, mz_stream, StreamOxide,
-                             mz_compress2_oxide, mz_deflate_init2_oxide, mz_inflate_init2_oxide,
-                             mz_uncompress2_oxide};
+pub use miniz_oxide::mz_adler32_oxide;
+pub use miniz_oxide::{mz_alloc_func, mz_free_func};
 
-pub use miniz_oxide::lib_oxide::mz_adler32_oxide;
-pub use miniz_oxide::lib_oxide::{mz_alloc_func, mz_free_func};
-
+mod lib_oxide;
+use lib_oxide::*;
 
 mod tinfl;
 pub use tinfl::{tinfl_decompress, tinfl_decompress_mem_to_heap, tinfl_decompress_mem_to_mem,

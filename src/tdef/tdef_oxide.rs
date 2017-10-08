@@ -1,7 +1,7 @@
 use super::*;
 use std::io::{Write, Seek};
 
-pub fn memset<T : Clone>(slice: &mut [T], val: T) {
+fn memset<T : Clone>(slice: &mut [T], val: T) {
     for x in slice { *x = val.clone() }
 }
 

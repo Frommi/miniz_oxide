@@ -1,5 +1,5 @@
 //! This module contains functionality for decompression.
-//! `decompress_oxide` is the main decompression function.
+//! `decompress` is the main decompression function.
 
 use std::{mem, usize};
 use std::io::Cursor;
@@ -105,13 +105,13 @@ pub mod inflate_flags {
 
 use self::inflate_flags::*;
 
-pub const TINFL_STATUS_FAILED_CANNOT_MAKE_PROGRESS: i32 = -4;
-pub const TINFL_STATUS_BAD_PARAM: i32 = -3;
-pub const TINFL_STATUS_ADLER32_MISMATCH: i32 = -2;
-pub const TINFL_STATUS_FAILED: i32 = -1;
-pub const TINFL_STATUS_DONE: i32 = 0;
-pub const TINFL_STATUS_NEEDS_MORE_INPUT: i32 = 1;
-pub const TINFL_STATUS_HAS_MORE_OUTPUT: i32 = 2;
+const TINFL_STATUS_FAILED_CANNOT_MAKE_PROGRESS: i32 = -4;
+const TINFL_STATUS_BAD_PARAM: i32 = -3;
+const TINFL_STATUS_ADLER32_MISMATCH: i32 = -2;
+const TINFL_STATUS_FAILED: i32 = -1;
+const TINFL_STATUS_DONE: i32 = 0;
+const TINFL_STATUS_NEEDS_MORE_INPUT: i32 = 1;
+const TINFL_STATUS_HAS_MORE_OUTPUT: i32 = 2;
 
 #[repr(i8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -259,11 +259,22 @@ impl tinfl_decompressor {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum DecompressError {
+    /// The decompression went fine, but the adler32 checksum did not match the one
+    /// provided in the header.
+    Adler32Mismatch,
+    /// Failed to decompress due to invalid data.
+    Failed,
+    /// The decompressor needs more input data to continue decompressing.
+    NeedsMoreInput,
+}
+
 /// Decompress the deflate-encoded data in `input` to a vector.
 ///
 /// Returns a status and an integer representing where the decompressor failed on failure.
 #[inline]
-pub fn decompress_to_vec(input: &[u8]) -> Result<Vec<u8>, (TINFLStatus, u32)> {
+pub fn decompress_to_vec(input: &[u8]) -> Result<Vec<u8>, DecompressError> {
     decompress_to_vec_inner(input, 0)
 }
 
@@ -271,16 +282,16 @@ pub fn decompress_to_vec(input: &[u8]) -> Result<Vec<u8>, (TINFLStatus, u32)> {
 ///
 /// Returns a status and an integer representing where the decompressor failed on failure.
 #[inline]
-pub fn decompress_to_vec_zlib(input: &[u8]) -> Result<Vec<u8>, (TINFLStatus, u32)> {
+pub fn decompress_to_vec_zlib(input: &[u8]) -> Result<Vec<u8>, DecompressError> {
     decompress_to_vec_inner(input, inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER)
 }
 
-fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>, (TINFLStatus, u32)> {
+fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>, DecompressError> {
     let flags = flags | inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
     let mut ret = Vec::with_capacity(input.len() * 2);
 
     // # Unsafe
-    // We trust decompress_oxide to not read the unitialized bytes as it's wrapped
+    // We trust decompress to not read the unitialized bytes as it's wrapped
     // in a cursor that's position is set to the end of the initialized data.
     unsafe {
         let cap = ret.capacity();
@@ -296,7 +307,7 @@ fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>, (TINFLSt
             // decompressed data for matches.
             let mut c = Cursor::new(ret.as_mut_slice());
             c.set_position(out_pos as u64);
-            decompress_oxide(&mut decomp, &input[in_pos..], &mut c, flags)
+            decompress(&mut decomp, &input[in_pos..], &mut c, flags)
         };
         in_pos += in_consumed;
         out_pos += out_consumed;
@@ -305,20 +316,25 @@ fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>, (TINFLSt
             TINFLStatus::Done => {
                 ret.truncate(out_pos);
                 return Ok(ret);
-            }
+            },
+
             TINFLStatus::HasMoreOutput => {
                 // We need more space so extend the buffer.
                 ret.reserve(out_pos);
                 // # Unsafe
-                // We trust decompress_oxide to not read the unitialized bytes as it's wrapped
+                // We trust decompress to not read the unitialized bytes as it's wrapped
                 // in a cursor that's position is set to the end of the initialized data.
                 unsafe {
                     let cap = ret.capacity();
                     ret.set_len(cap);
                 }
-            }
-            // TODO: Return enum directly.
-            _ => return Err((status, decomp.state as u32)),
+            },
+
+            TINFLStatus::Adler32Mismatch => return Err(DecompressError::Adler32Mismatch),
+            TINFLStatus::Failed => return Err(DecompressError::Failed),
+            TINFLStatus::NeedsMoreInput => return Err(DecompressError::NeedsMoreInput),
+            TINFLStatus::BadParam => unreachable!(),
+            TINFLStatus::FailedCannotMakeProgress => unreachable!(),
         }
     }
 }

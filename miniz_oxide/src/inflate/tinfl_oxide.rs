@@ -97,7 +97,7 @@ const BASE_EXTRA_MASK: usize = 32 - 1;
 
 /// Sets the value of all the elements of the slice to `val`.
 #[inline]
-pub fn memset<T: Copy>(slice: &mut [T], val: T) {
+fn memset<T: Copy>(slice: &mut [T], val: T) {
     for x in slice {
         *x = val
     }
@@ -766,7 +766,7 @@ fn decompress_fast(
 /// This currently will not update out_cur with the new position.
 ///
 /// This function shouldn't panic pending any bugs.
-pub fn decompress_oxide(
+pub fn decompress(
     r: &mut tinfl_decompressor,
     in_buf: &[u8],
     out_cur: &mut Cursor<&mut [u8]>,
@@ -1453,7 +1453,7 @@ mod test {
         flags: u32,
     ) -> (TINFLStatus, &'i [u8], usize) {
         let (status, in_pos, out_pos) =
-            decompress_oxide(r, input_buffer, &mut Cursor::new(output_buffer), flags);
+            decompress(r, input_buffer, &mut Cursor::new(output_buffer), flags);
         (status, &input_buffer[in_pos..], out_pos)
     }
 
@@ -1557,7 +1557,7 @@ mod test {
             0
         } | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
         let (d_status, _in_bytes, _out_bytes) =
-            decompress_oxide(&mut r, input, &mut out_cursor, flags);
+            decompress(&mut r, input, &mut out_cursor, flags);
         assert_eq!(r.state, expected_state);
         assert_eq!(status, d_status);
     }

@@ -4,7 +4,7 @@ use std::io::{self, Cursor, Seek, SeekFrom, Write};
 
 use super::{CompressionLevel, CompressionStrategy};
 use super::deflate_flags::*;
-use super::super::lib_oxide::*;
+use super::super::*;
 use deflate::PutBufFuncPtrNotNull;
 use shared::{HUFFMAN_LENGTH_ORDER, MZ_ADLER32_INIT, update_adler32};
 
