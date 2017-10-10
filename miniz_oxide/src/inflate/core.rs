@@ -968,11 +968,24 @@ fn decompress_fast(
 ///
 /// # Returns
 /// returns a tuple containing the status of the compressor, the number of input bytes read, and the
-/// number of bytes output to out_cur.
-/// This currently will not update out_cur with the new position.
+/// number of bytes output to `out_cur`.
+/// Updates `out_cur` with new position.
 ///
 /// This function shouldn't panic pending any bugs.
 pub fn decompress(
+    r: &mut DecompressorOxide,
+    in_buf: &[u8],
+    out_cur: &mut Cursor<&mut [u8]>,
+    flags: u32,
+) -> (TINFLStatus, usize, usize) {
+    let res = decompress_inner(r, in_buf, out_cur, flags);
+    let new_pos = out_cur.position() + res.2 as u64;
+    out_cur.set_position(new_pos);
+    res
+}
+
+#[inline]
+fn decompress_inner(
     r: &mut DecompressorOxide,
     in_buf: &[u8],
     out_cur: &mut Cursor<&mut [u8]>,
