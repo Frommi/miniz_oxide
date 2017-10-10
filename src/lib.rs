@@ -10,7 +10,7 @@ use libc::{c_int, c_uint, c_ulong, c_void, size_t};
 
 use miniz_oxide::{MZError, MZResult};
 #[allow(bad_style)]
-pub type tdefl_compressor = miniz_oxide::deflate::CompressorOxide;
+pub use tdef::tdefl_compressor;
 
 pub use miniz_oxide::mz_adler32_oxide;
 pub use miniz_oxide::{mz_alloc_func, mz_free_func};

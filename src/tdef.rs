@@ -1,50 +1,109 @@
 use libc::*;
-use std::mem;
-use std::cmp;
-use std::ptr;
+use std::{mem, cmp, ptr, slice};
 
-use miniz_oxide::deflate::{compress, create_comp_flags_from_zip_params, CallbackFunc,
-                           CallbackOxide, CompressorOxide, PutBufFuncPtr, TDEFLFlush, TDEFLStatus};
+use miniz_oxide::deflate::core::{compress, compress_to_output, create_comp_flags_from_zip_params,
+                           CallbackFunc, CompressorOxide, PutBufFuncPtr, TDEFLFlush, TDEFLStatus};
+
+#[repr(C)]
+#[allow(bad_style)]
+pub struct tdefl_compressor {
+    pub inner: CompressorOxide,
+    pub callback: Option<CallbackFunc>,
+}
+
+impl tdefl_compressor {
+    pub(crate) fn new(flags: u32) -> Self {
+        tdefl_compressor {
+            inner: CompressorOxide::new(flags),
+            callback: None,
+        }
+    }
+
+    pub(crate) fn new_with_callback(flags: u32, func: CallbackFunc) -> Self {
+        tdefl_compressor {
+            inner: CompressorOxide::new(flags),
+            callback: Some(func),
+        }
+    }
+
+    pub fn adler32(&self) -> u32 {
+        self.inner.adler32()
+    }
+
+    pub fn prev_return_status(&self) -> TDEFLStatus {
+        self.inner.prev_return_status()
+    }
+
+    pub fn flags(&self) -> i32 {
+        self.inner.flags()
+    }
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn tdefl_compress(
-    d: Option<&mut CompressorOxide>,
+    d: Option<&mut tdefl_compressor>,
     in_buf: *const c_void,
     in_size: Option<&mut usize>,
     out_buf: *mut c_void,
     out_size: Option<&mut usize>,
     flush: TDEFLFlush,
 ) -> TDEFLStatus {
-    let res = match d {
+    match d {
         None => {
             in_size.map(|size| *size = 0);
             out_size.map(|size| *size = 0);
-            (TDEFLStatus::BadParam, 0, 0)
-        }
+            TDEFLStatus::BadParam
+        },
         Some(compressor) => {
-            let callback_res = CallbackOxide::new(
-                compressor.callback_func().cloned(),
-                in_buf,
-                in_size,
-                out_buf,
-                out_size,
-            );
+            let in_buf_size = in_size.as_ref().map_or(0, |size| **size);
+            let out_buf_size = out_size.as_ref().map_or(0, |size| **size);
 
-            if let Ok(mut callback) = callback_res {
-                let res = compress(compressor, &mut callback, flush);
-                callback.update_size(Some(res.1), Some(res.2));
-                res
-            } else {
-                (TDEFLStatus::BadParam, 0, 0)
+            if in_buf_size > 0 && in_buf.is_null() {
+                in_size.map(|size| *size = 0);
+                out_size.map(|size| *size = 0);
+                return TDEFLStatus::BadParam;
             }
+
+            let in_slice = (in_buf as *const u8).as_ref().map_or(&[][..],|in_buf| {
+                slice::from_raw_parts(in_buf, in_buf_size)
+            });
+
+            let res = match compressor.callback {
+                None => {
+                    match (out_buf as *mut u8).as_mut() {
+                        Some(out_buf) => compress(
+                            &mut compressor.inner,
+                            in_slice,
+                            slice::from_raw_parts_mut(out_buf, out_buf_size),
+                            flush,
+                        ),
+                        None => {
+                            in_size.map(|size| *size = 0);
+                            out_size.map(|size| *size = 0);
+                            return TDEFLStatus::BadParam;
+                        }
+                    }
+                },
+                Some(func) => {
+                    if out_buf_size > 0 || !out_buf.is_null() {
+                        in_size.map(|size| *size = 0);
+                        out_size.map(|size| *size = 0);
+                        return TDEFLStatus::BadParam;
+                    }
+                    compress_to_output(&mut compressor.inner, in_slice, func, flush)
+                },
+            };
+
+            in_size.map(|size| *size = res.1);
+            out_size.map(|size| *size = res.2);
+            res.0
         }
-    };
-    res.0
+    }
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn tdefl_compress_buffer(
-    d: Option<&mut CompressorOxide>,
+    d: Option<&mut tdefl_compressor>,
     in_buf: *const c_void,
     mut in_size: usize,
     flush: TDEFLFlush,
@@ -54,21 +113,18 @@ pub unsafe extern "C" fn tdefl_compress_buffer(
 
 #[no_mangle]
 pub unsafe extern "C" fn tdefl_init(
-    d: Option<&mut CompressorOxide>,
+    d: Option<&mut tdefl_compressor>,
     put_buf_func: PutBufFuncPtr,
     put_buf_user: *mut c_void,
     flags: c_int,
 ) -> TDEFLStatus {
     if let Some(d) = d {
-        *d = CompressorOxide::new(
-            put_buf_func.map(|func| {
-                CallbackFunc {
-                    put_buf_func: func,
-                    put_buf_user: put_buf_user,
-                }
-            }),
-            flags as u32,
-        );
+        *d = put_buf_func.map_or(tdefl_compressor::new(flags as u32), |f| {
+            tdefl_compressor::new_with_callback(flags as u32, CallbackFunc {
+                put_buf_func: f,
+                put_buf_user: put_buf_user,
+            })
+        });
         TDEFLStatus::Okay
     } else {
         TDEFLStatus::BadParam
@@ -77,14 +133,14 @@ pub unsafe extern "C" fn tdefl_init(
 
 #[no_mangle]
 pub unsafe extern "C" fn tdefl_get_prev_return_status(
-    d: Option<&mut CompressorOxide>,
+    d: Option<&mut tdefl_compressor>,
 ) -> TDEFLStatus {
-    d.map_or(TDEFLStatus::Okay, |d| d.prev_return_status())
+    d.map_or(TDEFLStatus::Okay, |d| d.inner.prev_return_status())
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn tdefl_get_adler32(d: Option<&mut CompressorOxide>) -> c_uint {
-    d.map_or(::MZ_ADLER32_INIT as u32, |d| d.adler32())
+pub unsafe extern "C" fn tdefl_get_adler32(d: Option<&mut tdefl_compressor>) -> c_uint {
+    d.map_or(::MZ_ADLER32_INIT as u32, |d| d.inner.adler32())
 }
 
 #[no_mangle]
@@ -96,17 +152,16 @@ pub unsafe extern "C" fn tdefl_compress_mem_to_output(
     flags: c_int,
 ) -> bool {
     if let Some(put_buf_func) = put_buf_func {
-        let compressor =
-            ::miniz_def_alloc_func(ptr::null_mut(), 1, mem::size_of::<CompressorOxide>()) as
-                *mut CompressorOxide;
+        let compressor = ::miniz_def_alloc_func(
+            ptr::null_mut(),
+            1,
+            mem::size_of::<CompressorOxide>(),
+        ) as *mut tdefl_compressor;
 
-        *compressor = CompressorOxide::new(
-            Some(CallbackFunc {
-                put_buf_func: put_buf_func,
-                put_buf_user: put_buf_user,
-            }),
-            flags as u32,
-        );
+        *compressor = tdefl_compressor::new_with_callback(flags as u32, CallbackFunc {
+            put_buf_func: put_buf_func,
+            put_buf_user: put_buf_user,
+        });
 
         let res = tdefl_compress_buffer(compressor.as_mut(), buf, buf_len, TDEFLFlush::Finish) ==
             TDEFLStatus::Done;

@@ -5,9 +5,9 @@ use std::io::Cursor;
 
 use libc::{self, c_char, c_int, c_uint, c_ulong, c_void, size_t};
 
-use miniz_oxide::deflate::{CallbackOxide, CompressionStrategy, CompressorOxide, TDEFLFlush, TDEFLStatus,
+use miniz_oxide::deflate::core::{CompressionStrategy, TDEFLFlush, TDEFLStatus,
               compress, create_comp_flags_from_zip_params, deflate_flags};
-use miniz_oxide::deflate::CompressorOxide as tdefl_compressor;
+use tdef::tdefl_compressor;
 use miniz_oxide::inflate::TINFLStatus;
 use miniz_oxide::inflate::core::{TINFL_LZ_DICT_SIZE, inflate_flags, tinfl_decompressor};
 
@@ -110,7 +110,7 @@ pub unsafe extern "C" fn def_free_func(_opaque: *mut c_void, address: *mut c_voi
 
 /// Trait used for states that can be carried by BoxedState.
 pub trait StateType {}
-impl StateType for CompressorOxide {}
+impl StateType for tdefl_compressor {}
 impl StateType for inflate_state {}
 
 /// Wrapper for a heap-allocated compressor/decompressor that frees the stucture on drop.
@@ -312,7 +312,7 @@ pub fn mz_deflate_init2_oxide(
     }
 
     match stream_oxide.state.as_mut() {
-        Some(state) => *state = tdefl_compressor::new(None, comp_flags),
+        Some(state) => *state = tdefl_compressor::new(comp_flags),
         None => unreachable!(),
     }
 
@@ -348,8 +348,7 @@ pub fn mz_deflate_oxide(
         let in_bytes;
         let out_bytes;
         let defl_status = {
-            let mut callback = CallbackOxide::new_callback_buf(*next_in, *next_out);
-            let res = compress(state, &mut callback, TDEFLFlush::from(flush));
+            let res = compress(&mut state.inner, *next_in, *next_out, TDEFLFlush::from(flush));
             in_bytes = res.1;
             out_bytes = res.2;
             res.0
@@ -399,11 +398,11 @@ pub fn mz_deflate_end_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) ->
 ///
 /// Returns `MZError::Stream` if the inner stream is missing, otherwise `MZStatus::Ok`.
 // TODO: probably not covered by tests
-pub fn mz_deflate_reset_oxide(stream_oxide: &mut StreamOxide<CompressorOxide>) -> MZResult {
+pub fn mz_deflate_reset_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) -> MZResult {
     let state = stream_oxide.state.as_mut().ok_or(MZError::Stream)?;
     stream_oxide.total_in = 0;
     stream_oxide.total_out = 0;
-    *state = CompressorOxide::new(None, state.flags() as u32);
+    *state = tdefl_compressor::new(state.flags() as u32);
     Ok(MZStatus::Ok)
 }
 

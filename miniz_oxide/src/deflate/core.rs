@@ -1,11 +1,9 @@
-use libc::{c_int, c_void};
-use std::{cmp, mem, ptr, slice};
+use std::{cmp, mem, ptr};
 use std::io::{self, Cursor, Seek, SeekFrom, Write};
 
-use super::{CompressionLevel, CompressionStrategy};
+use super::CompressionLevel;
 use super::deflate_flags::*;
 use super::super::*;
-use deflate::PutBufFuncPtrNotNull;
 use shared::{HUFFMAN_LENGTH_ORDER, MZ_ADLER32_INIT, update_adler32};
 
 const TDEFL_MAX_PROBES_MASK: i32 = 0xFFF;
@@ -154,6 +152,46 @@ struct SymFreq {
     sym_index: u16,
 }
 
+pub type PutBufFuncPtrNotNull = unsafe extern "C" fn(*const c_void, c_int, *mut c_void) -> bool;
+pub type PutBufFuncPtr = Option<PutBufFuncPtrNotNull>;
+
+pub mod deflate_flags {
+    /// Whether to use a zlib wrapper.
+    pub const TDEFL_WRITE_ZLIB_HEADER: u32 = 0x0000_1000;
+    /// Should we compute the adler32 checksum.
+    pub const TDEFL_COMPUTE_ADLER32: u32 = 0x0000_2000;
+    /// Should we use greedy parsing (as opposed to lazy parsing where look ahead one or more
+    /// bytes to check for better matches.)
+    pub const TDEFL_GREEDY_PARSING_FLAG: u32 = 0x0000_4000;
+    /// TODO
+    pub const TDEFL_NONDETERMINISTIC_PARSING_FLAG: u32 = 0x0000_8000;
+    /// Only look for matches with a distance of 0.
+    pub const TDEFL_RLE_MATCHES: u32 = 0x0001_0000;
+    /// Only use matches that are at least 6 bytes long.
+    pub const TDEFL_FILTER_MATCHES: u32 = 0x0002_0000;
+    /// Force the compressor to only output static blocks. (Blocks using the default huffman codes
+    /// specified in the deflate specification.)
+    pub const TDEFL_FORCE_ALL_STATIC_BLOCKS: u32 = 0x0004_0000;
+    /// Force the compressor to only output raw/uncompressed blocks.
+    pub const TDEFL_FORCE_ALL_RAW_BLOCKS: u32 = 0x0008_0000;
+}
+
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum CompressionStrategy {
+    /// Don't use any of the special strategies.
+    Default = 0,
+    /// Only use matches that are at least 5 bytes long.
+    Filtered = 1,
+    /// Don't look for matches, only huffman encode the literals.
+    HuffmanOnly = 2,
+    /// Only look for matches with a distance of 1, i.e do run-length encoding only.
+    RLE = 3,
+    /// Only use static/fixed blocks. (Blocks using the default huffman codes
+    /// specified in the deflate specification.)
+    Fixed = 4,
+}
+
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TDEFLFlush {
@@ -289,24 +327,18 @@ fn read_u16_le(slice: &[u8], pos: usize) -> u16{
 pub struct CompressorOxide {
     lz: LZOxide,
     params: ParamsOxide,
-    callback_func: Option<CallbackFunc>,
     huff: HuffmanOxide,
     dict: DictOxide,
 }
 
 impl CompressorOxide {
-    pub fn new(callback_func: Option<CallbackFunc>, flags: u32) -> Self {
+    pub fn new(flags: u32) -> Self {
         CompressorOxide {
-            callback_func: callback_func,
             lz: LZOxide::new(),
             params: ParamsOxide::new(flags),
             huff: HuffmanOxide::new(),
             dict: DictOxide::new(flags),
         }
-    }
-
-    pub fn callback_func(&self) -> Option<&CallbackFunc> {
-        self.callback_func.as_ref()
     }
 
     pub fn adler32(&self) -> u32 {
@@ -354,7 +386,7 @@ impl CallbackFunc {
     }
 }
 
-pub struct CallbackBuf<'a> {
+struct CallbackBuf<'a> {
     pub out_buf: &'a mut [u8],
 }
 
@@ -385,7 +417,7 @@ impl<'a> CallbackBuf<'a> {
     }
 }
 
-pub enum CallbackOut<'a> {
+enum CallbackOut<'a> {
     Func(CallbackFunc),
     Buf(CallbackBuf<'a>),
 }
@@ -420,15 +452,15 @@ impl<'a> CallbackOut<'a> {
     }
 }
 
-pub struct CallbackOxide<'a> {
-    pub in_buf: Option<&'a [u8]>,
-    pub in_buf_size: Option<&'a mut usize>,
-    pub out_buf_size: Option<&'a mut usize>,
-    pub out: CallbackOut<'a>,
+struct CallbackOxide<'a> {
+    in_buf: Option<&'a [u8]>,
+    in_buf_size: Option<&'a mut usize>,
+    out_buf_size: Option<&'a mut usize>,
+    out: CallbackOut<'a>,
 }
 
 impl<'a> CallbackOxide<'a> {
-    pub fn new_callback_buf(in_buf: &'a [u8], out_buf: &'a mut [u8]) -> Self {
+    fn new_callback_buf(in_buf: &'a [u8], out_buf: &'a mut [u8]) -> Self {
         CallbackOxide {
             in_buf: Some(in_buf),
             in_buf_size: None,
@@ -437,66 +469,16 @@ impl<'a> CallbackOxide<'a> {
         }
     }
 
-    pub fn new_callback_func(in_buf: &'a [u8], d: &mut CompressorOxide) -> Option<Self> {
-        d.callback_func.map(|func| {
-            CallbackOxide {
-                in_buf: Some(in_buf),
-                in_buf_size: None,
-                out_buf_size: None,
-                out: CallbackOut::Func(func),
-            }
-        })
-    }
-
-    pub unsafe fn new(
-        callback_func: Option<CallbackFunc>,
-        in_buf: *const c_void,
-        in_size: Option<&'a mut usize>,
-        out_buf: *mut c_void,
-        out_size: Option<&'a mut usize>,
-    ) -> Result<Self, TDEFLStatus> {
-        let in_buf_size = in_size.as_ref().map_or(0, |size| **size);
-        let out_buf_size = out_size.as_ref().map_or(0, |size| **size);
-        let out = match callback_func {
-            None => {
-                match (out_buf as *mut u8).as_mut() {
-                    Some(out_buf) => CallbackOut::Buf(CallbackBuf {
-                        out_buf: slice::from_raw_parts_mut(out_buf, out_buf_size),
-                    }),
-                    None => {
-                        in_size.map(|size| *size = 0);
-                        out_size.map(|size| *size = 0);
-                        return Err(TDEFLStatus::BadParam);
-                    }
-                }
-            }
-            Some(func) => {
-                if out_buf_size > 0 || !out_buf.is_null() {
-                    in_size.map(|size| *size = 0);
-                    out_size.map(|size| *size = 0);
-                    return Err(TDEFLStatus::BadParam);
-                }
-                CallbackOut::Func(func)
-            }
-        };
-
-        if in_buf_size > 0 && in_buf.is_null() {
-            in_size.map(|size| *size = 0);
-            out_size.map(|size| *size = 0);
-            return Err(TDEFLStatus::BadParam);
+    fn new_callback_func(in_buf: &'a [u8], callback_func: CallbackFunc) -> Self {
+        CallbackOxide {
+            in_buf: Some(in_buf),
+            in_buf_size: None,
+            out_buf_size: None,
+            out: CallbackOut::Func(callback_func),
         }
-
-        Ok(CallbackOxide {
-            in_buf: (in_buf as *const u8).as_ref().map(|in_buf| {
-                slice::from_raw_parts(in_buf, in_buf_size)
-            }),
-            in_buf_size: in_size,
-            out_buf_size: out_size,
-            out: out,
-        })
     }
 
-    pub fn update_size(&mut self, in_size: Option<usize>, out_size: Option<usize>) {
+    fn update_size(&mut self, in_size: Option<usize>, out_size: Option<usize>) {
         if let Some(in_size) = in_size {
             self.in_buf_size.as_mut().map(|size| **size = in_size);
         }
@@ -2006,13 +1988,31 @@ fn flush_output_buffer(
     res
 }
 
+pub fn compress(
+    d: &mut CompressorOxide,
+    in_buf: &[u8],
+    out_buf: &mut [u8],
+    flush: TDEFLFlush,
+) -> (TDEFLStatus, usize, usize) {
+    compress_inner(d, &mut CallbackOxide::new_callback_buf(in_buf, out_buf), flush)
+}
+
+pub fn compress_to_output(
+    d: &mut CompressorOxide,
+    in_buf: &[u8],
+    callback_func: CallbackFunc,
+    flush: TDEFLFlush,
+) -> (TDEFLStatus, usize, usize) {
+    compress_inner(d, &mut CallbackOxide::new_callback_func(in_buf, callback_func), flush)
+}
+
 /// Main compression function.
 ///
 /// # Returns
 /// Returns a tuple containing the current status of the compressor, the current position
 /// in the input buffer, and if using a buffer as a callback, the current position in the output
 /// buffer.
-pub fn compress(
+fn compress_inner(
     d: &mut CompressorOxide,
     callback: &mut CallbackOxide,
     flush: TDEFLFlush,

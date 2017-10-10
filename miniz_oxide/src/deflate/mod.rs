@@ -1,33 +1,7 @@
 //! This module contains functionality for compressing data.
 
-use libc::{c_int, c_void};
-
-mod tdef_oxide;
-pub use self::tdef_oxide::*;
-
-pub type PutBufFuncPtrNotNull = unsafe extern "C" fn(*const c_void, c_int, *mut c_void) -> bool;
-pub type PutBufFuncPtr = Option<PutBufFuncPtrNotNull>;
-
-pub mod deflate_flags {
-    /// Whether to use a zlib wrapper.
-    pub const TDEFL_WRITE_ZLIB_HEADER: u32 = 0x0000_1000;
-    /// Should we compute the adler32 checksum.
-    pub const TDEFL_COMPUTE_ADLER32: u32 = 0x0000_2000;
-    /// Should we use greedy parsing (as opposed to lazy parsing where look ahead one or more
-    /// bytes to check for better matches.)
-    pub const TDEFL_GREEDY_PARSING_FLAG: u32 = 0x0000_4000;
-    /// TODO
-    pub const TDEFL_NONDETERMINISTIC_PARSING_FLAG: u32 = 0x0000_8000;
-    /// Only look for matches with a distance of 0.
-    pub const TDEFL_RLE_MATCHES: u32 = 0x0001_0000;
-    /// Only use matches that are at least 6 bytes long.
-    pub const TDEFL_FILTER_MATCHES: u32 = 0x0002_0000;
-    /// Force the compressor to only output static blocks. (Blocks using the default huffman codes
-    /// specified in the deflate specification.)
-    pub const TDEFL_FORCE_ALL_STATIC_BLOCKS: u32 = 0x0004_0000;
-    /// Force the compressor to only output raw/uncompressed blocks.
-    pub const TDEFL_FORCE_ALL_RAW_BLOCKS: u32 = 0x0008_0000;
-}
+pub mod core;
+use self::core::*;
 
 /// How much processing the compressor should do to compress the data.
 /// `NoCompression` and `Bestspeed` have special meanings, the other levels determine the number
@@ -47,22 +21,6 @@ pub enum CompressionLevel {
     DefaultLevel = 6,
     /// Use the default compression level.
     DefaultCompression = -1,
-}
-
-#[repr(i32)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum CompressionStrategy {
-    /// Don't use any of the special strategies.
-    Default = 0,
-    /// Only use matches that are at least 5 bytes long.
-    Filtered = 1,
-    /// Don't look for matches, only huffman encode the literals.
-    HuffmanOnly = 2,
-    /// Only look for matches with a distance of 1, i.e do run-length encoding only.
-    RLE = 3,
-    /// Only use static/fixed blocks. (Blocks using the default huffman codes
-    /// specified in the deflate specification.)
-    Fixed = 4,
 }
 
 
@@ -159,7 +117,7 @@ pub fn compress_to_vec_zlib(input: &[u8], level: u8) -> Vec<u8> {
 fn compress_to_vec_inner(input: &[u8], level: u8, window_bits: i32, strategy: i32) -> Vec<u8> {
     // The comp flags function sets the zlib flag if the window_bits parameter is > 0.
     let flags = create_comp_flags_from_zip_params(level.into(), window_bits, strategy);
-    let mut compressor = CompressorOxide::new(None, flags);
+    let mut compressor = CompressorOxide::new(flags);
     let mut output = Vec::with_capacity(input.len() / 2);
     // # Unsafe
     // We trust compress to not read the uninitialized bytes.
@@ -173,7 +131,8 @@ fn compress_to_vec_inner(input: &[u8], level: u8, window_bits: i32, strategy: i3
         let (status, bytes_in, bytes_out) =
             compress(
                 &mut compressor,
-                &mut CallbackOxide::new_callback_buf(&input[in_pos..], &mut output[out_pos..]),
+                &input[in_pos..],
+                &mut output[out_pos..],
                 TDEFLFlush::Finish,
             );
 
