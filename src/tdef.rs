@@ -155,7 +155,7 @@ pub unsafe extern "C" fn tdefl_compress_mem_to_output(
         let compressor = ::miniz_def_alloc_func(
             ptr::null_mut(),
             1,
-            mem::size_of::<CompressorOxide>(),
+            mem::size_of::<tdefl_compressor>(),
         ) as *mut tdefl_compressor;
 
         *compressor = tdefl_compressor::new_with_callback(flags as u32, CallbackFunc {
@@ -249,8 +249,7 @@ pub unsafe extern "C" fn tdefl_compress_mem_to_heap(
                 Some(output_buffer_putter),
                 &mut buffer_user as *mut BufferUser as *mut c_void,
                 flags,
-            )
-            {
+            ) {
                 ptr::null_mut()
             } else {
                 *len = buffer_user.size;
