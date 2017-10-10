@@ -1,8 +1,15 @@
 [package]
 name = "miniz_oxide"
+authors = ["Frommi <daniil.liferenko@gmail.com>"]
 version = "0.1.0"
 license = "MIT"
-authors = ["Frommi <daniil.liferenko@gmail.com>"]
+readme = "Readme.md"
+keywords = ["zlib", "miniz", "deflate", "encoding"]
+categories = ["compression"]
+repository = "https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide"
+homepage = "https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide"
+documentation = "https://docs.rs/miniz_oxide"
+description = "DEFLATE compression and decompression library rewritten in Rust based on miniz"
 
 [lib]
 name = "miniz_oxide"
