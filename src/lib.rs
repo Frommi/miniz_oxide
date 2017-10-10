@@ -13,7 +13,6 @@ use miniz_oxide::{MZError, MZResult};
 pub use tdef::tdefl_compressor;
 
 pub use miniz_oxide::mz_adler32_oxide;
-pub use miniz_oxide::{mz_alloc_func, mz_free_func};
 
 mod lib_oxide;
 use lib_oxide::*;

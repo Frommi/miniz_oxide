@@ -31,18 +31,7 @@ mod shared;
 pub use shared::update_adler32 as mz_adler32_oxide;
 pub use shared::MZ_ADLER32_INIT;
 
-use libc::{c_int, c_void, size_t};
-
-
-/// Unused opaque pointer.
-#[allow(bad_style)]
-pub enum mz_internal_state {}
-/// Signature of function used to allocate the compressor/decompressor structs.
-#[allow(bad_style)]
-pub type mz_alloc_func = unsafe extern "C" fn(*mut c_void, size_t, size_t) -> *mut c_void;
-/// Signature of function used to free the compressor/decompressor structs.
-#[allow(bad_style)]
-pub type mz_free_func = unsafe extern "C" fn(*mut c_void, *mut c_void);
+use libc::{c_int, c_void};
 
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]

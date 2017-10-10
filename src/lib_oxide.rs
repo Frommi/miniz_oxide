@@ -16,6 +16,16 @@ const MZ_DEFAULT_WINDOW_BITS: c_int = 15;
 
 use miniz_oxide::*;
 
+/// Unused opaque pointer.
+#[allow(bad_style)]
+pub enum mz_internal_state {}
+/// Signature of function used to allocate the compressor/decompressor structs.
+#[allow(bad_style)]
+pub type mz_alloc_func = unsafe extern "C" fn(*mut c_void, size_t, size_t) -> *mut c_void;
+/// Signature of function used to free the compressor/decompressor structs.
+#[allow(bad_style)]
+pub type mz_free_func = unsafe extern "C" fn(*mut c_void, *mut c_void);
+
 // Only used for zip stuff in miniz, so not sure if we need it for the non-C api parts.
 /* pub const MZ_CRC32_INIT: c_ulong = 0;
 
