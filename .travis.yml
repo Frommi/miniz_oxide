@@ -7,6 +7,7 @@ compiler:
 rust: nightly
 script:
   - cargo test
+  - cargo test -p miniz_oxide
   - ./test.sh
 after_success:
   - ./travis-after-success.sh
