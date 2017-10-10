@@ -1,9 +1,16 @@
 [package]
 name = "miniz_oxide_c_api"
+authors = ["Frommi <daniil.liferenko@gmail.com>"]
 version = "0.1.0"
 build = "src/build.rs"
 license = "MIT"
-authors = ["Frommi <daniil.liferenko@gmail.com>"]
+readme = "README.md"
+keywords = ["zlib", "miniz", "deflate", "encoding"]
+categories = ["compression"]
+repository = "https://github.com/Frommi/miniz_oxide"
+homepage = "https://github.com/Frommi/miniz_oxide/"
+documentation = "https://docs.rs/miniz_oxide_c_api"
+description = "DEFLATE compression and decompression API designed to be Rust drop-in replacement for miniz"
 
 [workspace]
 
@@ -13,7 +20,7 @@ crate-type = ['rlib']
 
 [dependencies]
 libc = "0.2.22"
-crc = "^1.0.0"
+crc = "1.0.0"
 miniz_oxide = { path = "miniz_oxide" }
 
 [build-dependencies]
@@ -32,3 +39,6 @@ panic = "abort"
 
 [profile.release]
 panic = "abort"
+
+[badges]
+travis-ci = { repository = "Frommi/miniz_oxide" }
