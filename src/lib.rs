@@ -16,7 +16,7 @@ pub use miniz_oxide::mz_adler32_oxide;
 use miniz_oxide::deflate::CompressionLevel;
 use miniz_oxide::deflate::core::CompressionStrategy;
 
-mod lib_oxide;
+pub mod lib_oxide;
 use lib_oxide::*;
 
 mod tinfl;
@@ -27,6 +27,8 @@ pub use tdef::{tdefl_compress, tdefl_compress_buffer, tdefl_compress_mem_to_heap
                tdefl_compress_mem_to_mem, tdefl_compress_mem_to_output,
                tdefl_create_comp_flags_from_zip_params, tdefl_get_prev_return_status, tdefl_init,
                tdefl_get_adler32};
+pub use tdef::flush_modes::*;
+pub use tdef::strategy::*;
 
 pub fn mz_crc32_oxide(crc32: c_uint, data: &[u8]) -> c_uint {
     let mut digest = crc32::Digest::new_with_initial(crc32::IEEE, crc32);

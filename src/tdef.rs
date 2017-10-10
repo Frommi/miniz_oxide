@@ -4,6 +4,30 @@ use std::{mem, cmp, ptr, slice};
 use miniz_oxide::deflate::core::{compress, compress_to_output, create_comp_flags_from_zip_params,
                            CallbackFunc, CompressorOxide, PutBufFuncPtr, TDEFLFlush, TDEFLStatus};
 
+/// Deflate flush modes.
+pub mod flush_modes {
+    use libc::c_int;
+    use miniz_oxide::deflate::core::TDEFLFlush;
+    pub const MZ_NO_FLUSH: c_int = TDEFLFlush::None as c_int;
+    // TODO: This is simply sync flush for now, miniz also treats it as such.
+    pub const MZ_PARTIAL_FLUSH: c_int = 1;
+    pub const MZ_SYNC_FLUSH: c_int = TDEFLFlush::Sync as c_int;
+    pub const MZ_FULL_FLUSH: c_int = TDEFLFlush::Full as c_int;
+    pub const MZ_FINISH: c_int = TDEFLFlush::Finish as c_int;
+    // TODO: Doesn't seem to be implemented by miniz.
+    pub const MZ_BLOCK: c_int = 5;
+}
+
+pub mod strategy {
+    use libc::c_int;
+    use miniz_oxide::deflate::core::CompressionStrategy::*;
+    pub const MZ_DEFAULT_STRATEGY: c_int = Default as c_int;
+    pub const MZ_FILTERED: c_int = Filtered as c_int;
+    pub const MZ_HUFFMAN_ONLY: c_int = HuffmanOnly as c_int;
+    pub const MZ_RLE: c_int = RLE as c_int;
+    pub const MZ_FIXED: c_int = Fixed as c_int;
+}
+
 /// Main compression struct. Not the same as `CompressorOxide`
 #[repr(C)]
 #[allow(bad_style)]

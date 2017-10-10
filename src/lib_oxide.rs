@@ -11,10 +11,28 @@ use tdef::tdefl_compressor;
 use miniz_oxide::inflate::TINFLStatus;
 use miniz_oxide::inflate::core::{TINFL_LZ_DICT_SIZE, inflate_flags, DecompressorOxide};
 
+use miniz_oxide::*;
+
 const MZ_DEFLATED: c_int = 8;
 const MZ_DEFAULT_WINDOW_BITS: c_int = 15;
 
-use miniz_oxide::*;
+pub mod return_status {
+    use MZError::*;
+    use miniz_oxide::MZStatus;
+    use libc::c_int;
+    pub const MZ_ERRNO: c_int = ErrNo as c_int;
+    pub const MZ_STREAM_ERROR: c_int = Stream as c_int;
+    pub const MZ_DATA_ERROR: c_int = Data as c_int;
+    pub const MZ_BUF_ERROR: c_int = Buf as c_int;
+    pub const MZ_VERSION_ERROR: c_int = Version as c_int;
+    pub const MZ_PARAM_ERROR: c_int = Param as c_int;
+
+    pub const MZ_OK: c_int = MZStatus::Ok as c_int;
+    pub const MZ_STREAM_END: c_int = MZStatus::StreamEnd as c_int;
+    pub const MZ_NEED_DICT: c_int = MZStatus::NeedDict as c_int;
+}
+
+pub use self::return_status::*;
 
 /// Unused opaque pointer.
 #[allow(bad_style)]
