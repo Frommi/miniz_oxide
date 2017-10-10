@@ -9,7 +9,7 @@ authors = ["Frommi <daniil.liferenko@gmail.com>"]
 
 [lib]
 name = "miniz_oxide_c_api"
-crate-type = ['staticlib', 'rlib']
+crate-type = ['rlib']
 
 [dependencies]
 libc = "0.2.22"
