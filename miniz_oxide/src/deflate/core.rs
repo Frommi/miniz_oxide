@@ -2001,8 +2001,7 @@ fn flush_output_buffer(
 ///
 /// # Returns
 /// Returns a tuple containing the current status of the compressor, the current position
-/// in the input buffer, and if using a buffer as a callback, the current position in the output
-/// buffer.
+/// in the input buffer and the current position in the output buffer.
 pub fn compress(
     d: &mut CompressorOxide,
     in_buf: &[u8],
@@ -2016,15 +2015,20 @@ pub fn compress(
 ///
 /// # Returns
 /// Returns a tuple containing the current status of the compressor, the current position
-/// in the input buffer, and if using a buffer as a callback, the current position in the output
-/// buffer.
+/// in the input buffer.
 pub fn compress_to_output(
     d: &mut CompressorOxide,
     in_buf: &[u8],
     callback_func: CallbackFunc,
     flush: TDEFLFlush,
-) -> (TDEFLStatus, usize, usize) {
-    compress_inner(d, &mut CallbackOxide::new_callback_func(in_buf, callback_func), flush)
+) -> (TDEFLStatus, usize) {
+    let res = compress_inner(
+        d,
+        &mut CallbackOxide::new_callback_func(in_buf, callback_func),
+        flush
+    );
+
+    (res.0, res.1)
 }
 
 fn compress_inner(

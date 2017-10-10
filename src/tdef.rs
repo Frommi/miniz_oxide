@@ -91,7 +91,8 @@ pub unsafe extern "C" fn tdefl_compress(
                         out_size.map(|size| *size = 0);
                         return TDEFLStatus::BadParam;
                     }
-                    compress_to_output(&mut compressor.inner, in_slice, func, flush)
+                    let res = compress_to_output(&mut compressor.inner, in_slice, func, flush);
+                    (res.0, res.1, 0)
                 },
             };
 
