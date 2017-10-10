@@ -1,4 +1,4 @@
-//! This module contains functionality for compressing data.
+//! This module contains functionality for compression.
 
 pub mod core;
 use self::core::*;

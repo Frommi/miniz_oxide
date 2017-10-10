@@ -9,7 +9,7 @@ use miniz_oxide::deflate::core::{CompressionStrategy, TDEFLFlush, TDEFLStatus,
               compress, create_comp_flags_from_zip_params, deflate_flags};
 use tdef::tdefl_compressor;
 use miniz_oxide::inflate::TINFLStatus;
-use miniz_oxide::inflate::core::{TINFL_LZ_DICT_SIZE, inflate_flags, tinfl_decompressor};
+use miniz_oxide::inflate::core::{TINFL_LZ_DICT_SIZE, inflate_flags, DecompressorOxide};
 
 const MZ_DEFLATED: c_int = 8;
 const MZ_DEFAULT_WINDOW_BITS: c_int = 15;
@@ -421,7 +421,7 @@ pub fn mz_deflate_reset_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) 
 #[repr(C)]
 #[allow(bad_style)]
 pub struct inflate_state {
-    pub m_decomp: tinfl_decompressor,
+    pub m_decomp: DecompressorOxide,
 
     pub m_dict_ofs: c_uint,
     pub m_dict_avail: c_uint,

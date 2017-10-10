@@ -1,3 +1,5 @@
+//! Streaming decompression functionality.
+
 use super::*;
 use shared::{HUFFMAN_LENGTH_ORDER, update_adler32};
 
@@ -115,7 +117,7 @@ type BitBuffer = u32;
 /// This is repr(C) to be usable in the C API.
 #[repr(C)]
 #[allow(bad_style)]
-pub struct tinfl_decompressor {
+pub struct DecompressorOxide {
     /// Current state of the decompressor.
     state: core::State,
     /// Number of bits in the bit buffer.
@@ -152,15 +154,15 @@ pub struct tinfl_decompressor {
     len_codes: [u8; TINFL_MAX_HUFF_SYMBOLS_0 + TINFL_MAX_HUFF_SYMBOLS_1 + 137],
 }
 
-impl tinfl_decompressor {
+impl DecompressorOxide {
     /// Create a new tinfl_decompressor with all fields set to 0.
-    pub fn new() -> tinfl_decompressor {
-        tinfl_decompressor::default()
+    pub fn new() -> DecompressorOxide {
+        DecompressorOxide::default()
     }
 
     /// Create a new tinfl_decompressor with all fields set to 0.
-    pub fn default() -> tinfl_decompressor {
-        tinfl_decompressor {
+    pub fn default() -> DecompressorOxide {
+        DecompressorOxide {
             state: core::State::Start,
             num_bits: 0,
             z_header0: 0,
@@ -192,8 +194,8 @@ impl tinfl_decompressor {
     ///
     /// This is how it's created in miniz. Unsafe due to uninitialized values.
     #[inline]
-    pub unsafe fn with_init_state_only() -> tinfl_decompressor {
-        let mut decomp: tinfl_decompressor = mem::uninitialized();
+    pub unsafe fn with_init_state_only() -> DecompressorOxide {
+        let mut decomp: DecompressorOxide = mem::uninitialized();
         decomp.state = core::State::Start;
         decomp
     }
@@ -213,14 +215,13 @@ impl tinfl_decompressor {
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[repr(C)]
-pub enum State {
+enum State {
     Start = 0,
     ReadZlibCmf,
     ReadZlibFlg,
     ReadBlockHeader,
     BlockTypeNoCompression,
-    RawHeader1,
-    RawHeader2,
+    RawHeader,
     RawMemcpy1,
     RawMemcpy2,
     ReadTableSizes,
@@ -250,7 +251,6 @@ pub enum State {
     DistanceOutOfBounds,
     BadRawLength,
     BadCodeSizeDistPrevLookup,
-    InternalError,
 }
 
 impl State {
@@ -428,7 +428,7 @@ enum Action {
 /// The specified action returned from `f` on success,
 /// `Action::End` if there are not enough data left to decode a symbol.
 fn decode_huffman_code<F>(
-    r: &mut tinfl_decompressor,
+    r: &mut DecompressorOxide,
     l: &mut LocalVars,
     table: usize,
     flags: u32,
@@ -436,7 +436,7 @@ fn decode_huffman_code<F>(
     f: F,
 ) -> Action
 where
-    F: FnOnce(&mut tinfl_decompressor, &mut LocalVars, i32) -> Action,
+    F: FnOnce(&mut DecompressorOxide, &mut LocalVars, i32) -> Action,
 {
     // As the huffman codes can be up to 15 bits long we need at least 15 bits
     // ready in the bit buffer to start decoding the next huffman code.
@@ -600,7 +600,7 @@ fn undo_bytes(l: &mut LocalVars, max: u32) -> u32 {
     res
 }
 
-fn start_static_table(r: &mut tinfl_decompressor) {
+fn start_static_table(r: &mut DecompressorOxide) {
     r.table_sizes[LITLEN_TABLE] = 288;
     r.table_sizes[DIST_TABLE] = 32;
     memset(&mut r.tables[LITLEN_TABLE].code_size[0..144], 8);
@@ -610,7 +610,7 @@ fn start_static_table(r: &mut tinfl_decompressor) {
     memset(&mut r.tables[DIST_TABLE].code_size[0..32], 5);
 }
 
-fn init_tree(r: &mut tinfl_decompressor, l: &mut LocalVars) -> Action {
+fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Action {
     loop {
         let table = &mut r.tables[r.block_type as usize];
         let table_size = r.table_sizes[r.block_type as usize] as usize;
@@ -746,7 +746,7 @@ macro_rules! try_read {
 /// big match loop on each state change(as rust does not have fallthrough or gotos at the moment),
 /// and already improves decompression speed a fair bit.
 fn decompress_fast(
-    r: &mut tinfl_decompressor,
+    r: &mut DecompressorOxide,
     mut in_iter: &mut slice::Iter<u8>,
     out_buf: &mut OutputBuffer,
     flags: u32,
@@ -973,7 +973,7 @@ fn decompress_fast(
 ///
 /// This function shouldn't panic pending any bugs.
 pub fn decompress(
-    r: &mut tinfl_decompressor,
+    r: &mut DecompressorOxide,
     in_buf: &[u8],
     out_cur: &mut Cursor<&mut [u8]>,
     flags: u32,
@@ -1077,13 +1077,13 @@ pub fn decompress(
                 generate_state!(state, 'state_machine, {
                 pad_to_bytes(&mut l, &mut in_iter, flags, |l| {
                     l.counter = 0;
-                    Action::Jump(RawHeader1)
+                    Action::Jump(RawHeader)
                 })
             })
             }
 
             // Check that the raw block header is correct.
-            RawHeader1 | RawHeader2 => {
+            RawHeader => {
                 generate_state!(state, 'state_machine, {
                 if l.counter < 4 {
                     // Read block length and block length check.
@@ -1653,7 +1653,7 @@ mod test {
     //TODO: Fix these.
 
     fn tinfl_decompress_oxide<'i>(
-        r: &mut tinfl_decompressor,
+        r: &mut DecompressorOxide,
         input_buffer: &'i [u8],
         output_buffer: &mut [u8],
         flags: u32,
@@ -1671,7 +1671,7 @@ mod test {
         ];
         let flags = TINFL_FLAG_COMPUTE_ADLER32 | TINFL_FLAG_PARSE_ZLIB_HEADER;
 
-        let mut b = tinfl_decompressor::new();
+        let mut b = DecompressorOxide::new();
         const LEN: usize = 32;
         let mut b_buf = vec![0; LEN];
 
@@ -1682,7 +1682,7 @@ mod test {
 
         let flags = flags | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
 
-        b = tinfl_decompressor::new();
+        b = DecompressorOxide::new();
 
         // With TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF set this should no longer fail.
         let b_status = tinfl_decompress_oxide(&mut b, &encoded[..], b_buf.as_mut_slice(), flags);
@@ -1708,7 +1708,7 @@ mod test {
         //let flags = TINFL_FLAG_COMPUTE_ADLER32 | TINFL_FLAG_PARSE_ZLIB_HEADER |
         let flags = TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
 
-        let mut b = tinfl_decompressor::new();
+        let mut b = DecompressorOxide::new();
 
         let mut b_buf = vec![0; LEN];
 
@@ -1724,7 +1724,7 @@ mod test {
 
     #[test]
     fn fixed_table_lookup() {
-        let mut d = tinfl_decompressor::new();
+        let mut d = DecompressorOxide::new();
         d.block_type = 1;
         start_static_table(&mut d);
         let mut l = LocalVars {
@@ -1754,7 +1754,7 @@ mod test {
     }
 
     fn check_result(input: &[u8], status: TINFLStatus, expected_state: State, zlib: bool) {
-        let mut r = unsafe { tinfl_decompressor::with_init_state_only() };
+        let mut r = unsafe { DecompressorOxide::with_init_state_only() };
         let mut output_buf = vec![0; 1024 * 32];
         let mut out_cursor = Cursor::new(output_buf.as_mut_slice());
         let flags = if zlib {

@@ -1,3 +1,5 @@
+//! Streaming compression functionality.
+
 use std::{cmp, mem, ptr};
 use std::io::{self, Cursor, Seek, SeekFrom, Write};
 
@@ -152,7 +154,9 @@ struct SymFreq {
     sym_index: u16,
 }
 
+/// Compression callback function type.
 pub type PutBufFuncPtrNotNull = unsafe extern "C" fn(*const c_void, c_int, *mut c_void) -> bool;
+/// `Option` alias for compression callback function type.
 pub type PutBufFuncPtr = Option<PutBufFuncPtrNotNull>;
 
 pub mod deflate_flags {
@@ -176,6 +180,7 @@ pub mod deflate_flags {
     pub const TDEFL_FORCE_ALL_RAW_BLOCKS: u32 = 0x0008_0000;
 }
 
+/// Used to generate deflate flags with `create_comp_flags_from_zip_params`.
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum CompressionStrategy {
@@ -192,6 +197,7 @@ pub enum CompressionStrategy {
     Fixed = 4,
 }
 
+/// A list of deflate flush types.
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TDEFLFlush {
@@ -225,6 +231,7 @@ impl TDEFLFlush {
     }
 }
 
+/// Return status codes.
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TDEFLStatus {
@@ -324,6 +331,7 @@ fn read_u16_le(slice: &[u8], pos: usize) -> u16{
     slice[pos] as u16 | ((slice[pos + 1] as u16) << 8)
 }
 
+/// Main compression struct.
 pub struct CompressorOxide {
     lz: LZOxide,
     params: ParamsOxide,
@@ -354,6 +362,7 @@ impl CompressorOxide {
     }
 }
 
+/// Callback function and user used in `compress_to_output`.
 #[derive(Copy, Clone)]
 pub struct CallbackFunc {
     pub put_buf_func: PutBufFuncPtrNotNull,
@@ -1988,6 +1997,12 @@ fn flush_output_buffer(
     res
 }
 
+/// Main compression function. Puts output into buffer.
+///
+/// # Returns
+/// Returns a tuple containing the current status of the compressor, the current position
+/// in the input buffer, and if using a buffer as a callback, the current position in the output
+/// buffer.
 pub fn compress(
     d: &mut CompressorOxide,
     in_buf: &[u8],
@@ -1997,6 +2012,12 @@ pub fn compress(
     compress_inner(d, &mut CallbackOxide::new_callback_buf(in_buf, out_buf), flush)
 }
 
+/// Main compression function. Callbacks output.
+///
+/// # Returns
+/// Returns a tuple containing the current status of the compressor, the current position
+/// in the input buffer, and if using a buffer as a callback, the current position in the output
+/// buffer.
 pub fn compress_to_output(
     d: &mut CompressorOxide,
     in_buf: &[u8],
@@ -2006,12 +2027,6 @@ pub fn compress_to_output(
     compress_inner(d, &mut CallbackOxide::new_callback_func(in_buf, callback_func), flush)
 }
 
-/// Main compression function.
-///
-/// # Returns
-/// Returns a tuple containing the current status of the compressor, the current position
-/// in the input buffer, and if using a buffer as a callback, the current position in the output
-/// buffer.
 fn compress_inner(
     d: &mut CompressorOxide,
     callback: &mut CallbackOxide,

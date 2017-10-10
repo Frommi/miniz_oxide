@@ -13,13 +13,14 @@ use miniz_oxide::{MZError, MZResult};
 pub use tdef::tdefl_compressor;
 
 pub use miniz_oxide::mz_adler32_oxide;
+use miniz_oxide::deflate::CompressionLevel;
+use miniz_oxide::deflate::core::CompressionStrategy;
 
 mod lib_oxide;
 use lib_oxide::*;
 
 mod tinfl;
-pub use tinfl::{tinfl_decompress, tinfl_decompress_mem_to_heap, tinfl_decompress_mem_to_mem,
-                tinfl_decompressor};
+pub use tinfl::{tinfl_decompress, tinfl_decompress_mem_to_heap, tinfl_decompress_mem_to_mem, tinfl_decompressor};
 
 mod tdef;
 pub use tdef::{tdefl_compress, tdefl_compress_buffer, tdefl_compress_mem_to_heap,
@@ -44,27 +45,6 @@ fn as_c_return_code(r: MZResult) -> c_int {
         Err(status) => status as c_int,
         Ok(status) => status as c_int,
     }
-}
-
-#[repr(i32)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum CompressionLevel {
-    NoCompression = 0,
-    BestSpeed = 1,
-    BestCompression = 9,
-    UberCompression = 10,
-    DefaultLevel = 6,
-    DefaultCompression = -1,
-}
-
-#[repr(i32)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum CompressionStrategy {
-    Default = 0,
-    Filtered = 1,
-    HuffmanOnly = 2,
-    RLE = 3,
-    Fixed = 4,
 }
 
 #[no_mangle]

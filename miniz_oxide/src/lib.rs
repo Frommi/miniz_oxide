@@ -33,6 +33,7 @@ pub use shared::MZ_ADLER32_INIT;
 
 use libc::{c_int, c_void};
 
+/// A list of flush types.
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum MZFlush {
@@ -59,6 +60,7 @@ impl MZFlush {
     }
 }
 
+/// A list of miniz successful status codes.
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum MZStatus {
@@ -67,6 +69,7 @@ pub enum MZStatus {
     NeedDict = 2,
 }
 
+/// A list of miniz failed status codes.
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum MZError {
@@ -79,4 +82,5 @@ pub enum MZError {
     Param = -10_000,
 }
 
+/// `Result` alias for all miniz status codes both successful and failed.
 pub type MZResult = Result<MZStatus, MZError>;

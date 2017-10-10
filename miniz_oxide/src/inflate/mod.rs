@@ -1,5 +1,4 @@
 //! This module contains functionality for decompression.
-//! `decompress` is the main decompression function.
 
 use std::{mem, usize};
 use std::io::Cursor;
@@ -16,6 +15,7 @@ const TINFL_STATUS_DONE: i32 = 0;
 const TINFL_STATUS_NEEDS_MORE_INPUT: i32 = 1;
 const TINFL_STATUS_HAS_MORE_OUTPUT: i32 = 2;
 
+/// Return status codes.
 #[repr(i8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TINFLStatus {
@@ -80,7 +80,7 @@ fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>, TINFLSta
         let cap = ret.capacity();
         ret.set_len(cap);
     };
-    let mut decomp = unsafe { tinfl_decompressor::with_init_state_only() };
+    let mut decomp = unsafe { DecompressorOxide::with_init_state_only() };
 
     let mut in_pos = 0;
     let mut out_pos = 0;

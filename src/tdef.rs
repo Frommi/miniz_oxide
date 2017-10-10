@@ -4,6 +4,7 @@ use std::{mem, cmp, ptr, slice};
 use miniz_oxide::deflate::core::{compress, compress_to_output, create_comp_flags_from_zip_params,
                            CallbackFunc, CompressorOxide, PutBufFuncPtr, TDEFLFlush, TDEFLStatus};
 
+/// Main compression struct. Not the same as `CompressorOxide`
 #[repr(C)]
 #[allow(bad_style)]
 pub struct tdefl_compressor {

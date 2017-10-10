@@ -4,7 +4,8 @@ use libc::*;
 use std::{ptr, slice, usize};
 use std::io::Cursor;
 use miniz_oxide::inflate::TINFLStatus;
-pub use miniz_oxide::inflate::core::{decompress, tinfl_decompressor, inflate_flags};
+pub use miniz_oxide::inflate::core::{decompress, inflate_flags};
+pub use miniz_oxide::inflate::core::DecompressorOxide as tinfl_decompressor;
 
 pub const TINFL_DECOMPRESS_MEM_TO_MEM_FAILED: size_t = usize::MAX;
 
