@@ -20,8 +20,9 @@ miniz_oxide = { path = "miniz_oxide" }
 cc = "1.0"
 
 [features]
-default = ["build_orig_miniz"]
+default = []
 fuzzing = ["build_orig_miniz"]
+benching = ["build_orig_miniz"]
 build_orig_miniz = []
 
 [profile.dev]

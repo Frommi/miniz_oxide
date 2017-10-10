@@ -11,12 +11,6 @@ The C API is intented to replicate the api exported from miniz.
 
 TODO
 
-### Building
-
-```bash
-$ ./build.sh
-```
-
 ### Testing
 
 ```bash
@@ -26,7 +20,11 @@ $ ./test.sh
 
 ### Benches
 ```bash
-$ cargo bench
+$ cargo bench --features=benching
+```
+or to compare to miniz
+```bash
+$ ./travis-after-success.sh
 ```
 
 ### Including in C/C++ projects

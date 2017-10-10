@@ -11,7 +11,8 @@ use std::io::Read;
 use std::{ops, ptr};
 use libc::{c_int, c_void};
 
-use miniz_oxide::deflate::{compress_to_vec, create_comp_flags_from_zip_params, CompressorOxide};
+use miniz_oxide::deflate::compress_to_vec;
+use miniz_oxide::deflate::core::{create_comp_flags_from_zip_params, CompressorOxide};
 
 use miniz_oxide_c_api::{miniz_def_free_func, tdefl_compress_mem_to_heap,
                         tinfl_decompress_mem_to_heap};
@@ -334,5 +335,5 @@ mod miniz {
 #[bench]
 fn create_compressor(b: &mut Bencher) {
     let flags = create_comp_flags_from_zip_params(6, true as i32, 0);
-    b.iter(|| CompressorOxide::new(None, flags));
+    b.iter(|| CompressorOxide::new(flags));
 }
