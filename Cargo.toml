@@ -21,9 +21,11 @@ cc = "1.0"
 
 [features]
 default = []
+miniz_zip = ["build_stub_miniz"]
 fuzzing = ["build_orig_miniz"]
 benching = ["build_orig_miniz"]
 build_orig_miniz = []
+build_stub_miniz = []
 
 [profile.dev]
 panic = "abort"
