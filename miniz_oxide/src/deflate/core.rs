@@ -1037,8 +1037,12 @@ impl HuffmanOxide {
 }
 
 struct DictOxide {
+    /// The maximum number of checks in the hash chain, for the initial,
+    /// and the lazy match respectively.
     pub max_probes: [u32; 2],
-    pub dict: [u8; TDEFL_LZ_DICT_SIZE + TDEFL_MAX_MATCH_LEN - 1],
+    /// Buffer of input data.
+    /// Padded with 1 byte to simplify matching code in `compress_fast`.
+    pub dict: [u8; TDEFL_LZ_DICT_SIZE + TDEFL_MAX_MATCH_LEN - 1 + 1],
     pub next: [u16; TDEFL_LZ_DICT_SIZE],
     pub hash: [u16; TDEFL_LZ_DICT_SIZE],
 
@@ -1052,7 +1056,7 @@ impl DictOxide {
     fn new(flags: u32) -> Self {
         DictOxide {
             max_probes: [1 + ((flags & 0xFFF) + 2) / 3, 1 + (((flags & 0xFFF) >> 2) + 2) / 3],
-            dict: [0; TDEFL_LZ_DICT_SIZE + TDEFL_MAX_MATCH_LEN - 1],
+            dict: [0; TDEFL_LZ_DICT_SIZE + TDEFL_MAX_MATCH_LEN - 1 + 1],
             next: [0; TDEFL_LZ_DICT_SIZE],
             hash: [0; TDEFL_LZ_DICT_SIZE],
 
@@ -1816,33 +1820,27 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
                     let mut p = (cur_pos + 3) as isize;
                     let mut q = (probe_pos + 3) as isize;
                     cur_match_len = 'find_match: loop {
-                        for _ in 0..2 {
-                            for _ in 0..16 {
-                                // # Unsafe
-                                // This loop has a fixed counter, so p_data and q_data will never be
-                                // increased beyond 250 bytes past the initial values.
-                                // Both pos and probe_pos are bounded by masking with
-                                // TDEFL_LZ_DICT_SIZE_MASK,
-                                // so {pos|probe_pos} + 258 will never exceed dict.len().
-                                let p_data: u64 =
-                                    unsafe {u64::from_le(d.dict.read_unaligned(p as isize))};
-                                let q_data: u64 =
-                                    unsafe {u64::from_le(d.dict.read_unaligned(q as isize))};
-                                let xor_data = p_data ^ q_data;
-                                if xor_data == 0 {
-                                    p += 8;
-                                    q += 8;
-                                } else {
-                                    let trailing = xor_data.trailing_zeros();
-                                    break 'find_match p as u32 - cur_pos + (trailing >> 3);
-                                }
+                        for _ in 0..32 {
+                            // # Unsafe
+                            // This loop has a fixed counter, so p_data and q_data will never be
+                            // increased beyond 251 bytes past the initial values.
+                            // Both pos and probe_pos are bounded by masking with
+                            // TDEFL_LZ_DICT_SIZE_MASK,
+                            // so {pos|probe_pos} + 258 will never exceed dict.len().
+                            // (As long as dict is padded by one additional byte to have
+                            // 259 bytes of lookahead since we start at cur_pos + 3.)
+                            let p_data: u64 =
+                                unsafe {u64::from_le(d.dict.read_unaligned(p as isize))};
+                            let q_data: u64 =
+                                unsafe {u64::from_le(d.dict.read_unaligned(q as isize))};
+                            let xor_data = p_data ^ q_data;
+                            if xor_data == 0 {
+                                p += 8;
+                                q += 8;
+                            } else {
+                                let trailing = xor_data.trailing_zeros();
+                                break 'find_match p as u32 - cur_pos + (trailing >> 3);
                             }
-                            // - 1 to ensure that p and q are bounded by dict.len():
-                            // pos + 3 + 16 * 8 - 1 + 16 * 8 = pos + 258
-                            // 16 * 8 - 1 + 16 * 8 instead of 31 * 8 - 1 + 8 is to not disturb
-                            // compiler optimizations with non-power-of-two numbers.
-                            p -= 1;
-                            q -= 1;
                         }
 
                         break 'find_match if cur_match_dist == 0 {
@@ -1861,6 +1859,8 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
                         *d.lz.get_flag() >>= 1;
                         d.huff.count[0][lit as usize] += 1;
                     } else {
+                        // Limit the match to the length of the lookahead so we don't create a match
+                        // that ends after the end of the input data.
                         cur_match_len = cmp::min(cur_match_len, lookahead_size);
                         debug_assert!(cur_match_len >= TDEFL_MIN_MATCH_LEN);
                         debug_assert!(cur_match_dist >= 1);
