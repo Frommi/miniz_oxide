@@ -40,7 +40,7 @@ impl HuffmanTable {
     /// fast lookup table and the full tree has to be traversed to find the code.
     #[inline]
     fn fast_lookup(&self, bit_buf: BitBuffer) -> i16 {
-        self.look_up[(bit_buf & (TINFL_FAST_LOOKUP_SIZE - 1) as BitBuffer) as usize]
+        self.look_up[(bit_buf & (FAST_LOOKUP_SIZE - 1) as BitBuffer) as usize]
     }
 
     /// Get the symbol and the code length from the huffman tree.
@@ -69,23 +69,23 @@ impl HuffmanTable {
             (symbol, (symbol >> 9) as u32)
         } else {
             // We didn't get a symbol from the fast lookup table, so check the tree instead.
-            self.tree_lookup(symbol.into(), bit_buf, TINFL_FAST_LOOKUP_BITS.into())
+            self.tree_lookup(symbol.into(), bit_buf, FAST_LOOKUP_BITS.into())
         }
     }
 }
 
 /// The number of huffman tables used.
-const TINFL_MAX_HUFF_TABLES: usize = 3;
+const MAX_HUFF_TABLES: usize = 3;
 /// The length of the first (literal/length) huffman table.
-const TINFL_MAX_HUFF_SYMBOLS_0: usize = 288;
+const MAX_HUFF_SYMBOLS_0: usize = 288;
 /// The length of the second (distance) huffman table.
-const TINFL_MAX_HUFF_SYMBOLS_1: usize = 32;
+const MAX_HUFF_SYMBOLS_1: usize = 32;
 /// The length of the last (huffman code length) huffman table.
-const _TINFL_MAX_HUFF_SYMBOLS_2: usize = 19;
+const _MAX_HUFF_SYMBOLS_2: usize = 19;
 /// The maximum length of a code that can be looked up in the fast lookup table.
-const TINFL_FAST_LOOKUP_BITS: u8 = 10;
+const FAST_LOOKUP_BITS: u8 = 10;
 /// The size of the fast lookup table.
-const TINFL_FAST_LOOKUP_SIZE: u32 = 1 << TINFL_FAST_LOOKUP_BITS;
+const FAST_LOOKUP_SIZE: u32 = 1 << FAST_LOOKUP_BITS;
 const LITLEN_TABLE: usize = 0;
 const DIST_TABLE: usize = 1;
 const HUFFLEN_TABLE: usize = 2;
@@ -141,17 +141,17 @@ pub struct DecompressorOxide {
     /// Number of extra bits for the last length or distance code.
     num_extra: u32,
     /// Number of entries in each huffman table.
-    table_sizes: [u32; TINFL_MAX_HUFF_TABLES],
+    table_sizes: [u32; MAX_HUFF_TABLES],
     /// Buffer of input data.
     bit_buf: BitBuffer,
     /// Position in the output buffer.
     dist_from_out_buf_start: usize,
     /// Huffman tables.
-    tables: [HuffmanTable; TINFL_MAX_HUFF_TABLES],
+    tables: [HuffmanTable; MAX_HUFF_TABLES],
     /// Raw block header.
     raw_header: [u8; 4],
     /// Huffman length codes.
-    len_codes: [u8; TINFL_MAX_HUFF_SYMBOLS_0 + TINFL_MAX_HUFF_SYMBOLS_1 + 137],
+    len_codes: [u8; MAX_HUFF_SYMBOLS_0 + MAX_HUFF_SYMBOLS_1 + 137],
 }
 
 impl DecompressorOxide {
@@ -174,13 +174,13 @@ impl DecompressorOxide {
             dist: 0,
             counter: 0,
             num_extra: 0,
-            table_sizes: [0; TINFL_MAX_HUFF_TABLES],
+            table_sizes: [0; MAX_HUFF_TABLES],
             bit_buf: 0,
             dist_from_out_buf_start: 0,
             // TODO:(oyvindln) Check that copies here are optimized out in release mode.
             tables: [HuffmanTable::new(), HuffmanTable::new(), HuffmanTable::new()],
             raw_header: [0; 4],
-            len_codes: [0; TINFL_MAX_HUFF_SYMBOLS_0 + TINFL_MAX_HUFF_SYMBOLS_1 + 137],
+            len_codes: [0; MAX_HUFF_SYMBOLS_0 + MAX_HUFF_SYMBOLS_1 + 137],
         }
     }
 
@@ -463,8 +463,8 @@ where
                     if (code_len != 0) && (l.num_bits >= code_len) {
                         break;
                     }
-                } else if l.num_bits > TINFL_FAST_LOOKUP_BITS.into() {
-                    let mut code_len = TINFL_FAST_LOOKUP_BITS as u32;
+                } else if l.num_bits > FAST_LOOKUP_BITS.into() {
+                    let mut code_len = FAST_LOOKUP_BITS as u32;
                     loop {
                         temp =
                             r.tables[table].tree[(!temp + ((l.bit_buf >> code_len) & 1) as i32) as
@@ -526,7 +526,7 @@ where
         // Mask out the length value.
         symbol &= 511;
     } else {
-        let res = r.tables[table].tree_lookup(symbol, l.bit_buf, TINFL_FAST_LOOKUP_BITS as u32);
+        let res = r.tables[table].tree_lookup(symbol, l.bit_buf, FAST_LOOKUP_BITS as u32);
         symbol = res.0;
         code_len = res.1 as u32;
     };
@@ -651,25 +651,25 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Action {
                 cur_code >>= 1;
             }
 
-            if code_size <= TINFL_FAST_LOOKUP_BITS {
+            if code_size <= FAST_LOOKUP_BITS {
                 let k = ((code_size as i16) << 9) | symbol_index as i16;
-                while rev_code < TINFL_FAST_LOOKUP_SIZE {
+                while rev_code < FAST_LOOKUP_SIZE {
                     table.look_up[rev_code as usize] = k;
                     rev_code += 1 << code_size;
                 }
                 continue;
             }
 
-            let mut tree_cur = table.look_up[(rev_code & (TINFL_FAST_LOOKUP_SIZE - 1)) as usize];
+            let mut tree_cur = table.look_up[(rev_code & (FAST_LOOKUP_SIZE - 1)) as usize];
             if tree_cur == 0 {
-                table.look_up[(rev_code & (TINFL_FAST_LOOKUP_SIZE - 1)) as usize] = tree_next as
+                table.look_up[(rev_code & (FAST_LOOKUP_SIZE - 1)) as usize] = tree_next as
                     i16;
                 tree_cur = tree_next;
                 tree_next -= 2;
             }
 
-            rev_code >>= TINFL_FAST_LOOKUP_BITS - 1;
-            for _ in TINFL_FAST_LOOKUP_BITS + 1..code_size {
+            rev_code >>= FAST_LOOKUP_BITS - 1;
+            for _ in FAST_LOOKUP_BITS + 1..code_size {
                 rev_code >>= 1;
                 tree_cur -= (rev_code & 1) as i16;
                 if table.tree[(-tree_cur - 1) as usize] == 0 {
