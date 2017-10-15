@@ -9,7 +9,7 @@ pub use miniz_oxide::inflate::core::DecompressorOxide as tinfl_decompressor;
 
 pub const TINFL_DECOMPRESS_MEM_TO_MEM_FAILED: size_t = usize::MAX;
 
-#[no_mangle]
+unmangle!(
 pub unsafe extern "C" fn tinfl_decompress(
     r: *mut tinfl_decompressor,
     in_buf: *const u8,
@@ -35,7 +35,6 @@ pub unsafe extern "C" fn tinfl_decompress(
     status as i32
 }
 
-#[no_mangle]
 pub unsafe extern "C" fn tinfl_decompress_mem_to_mem(
     p_out_buf: *mut c_void,
     out_buf_len: size_t,
@@ -61,7 +60,6 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_mem(
     }
 }
 
-#[no_mangle]
 /// Decompress data from `p_src_buf` to a continuously growing heap-allocated buffer.
 ///
 /// Sets `p_out_len` to the length of the returned buffer.
@@ -143,6 +141,7 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_heap(
 
     p_buf
 }
+);
 
 #[cfg(test)]
 mod test {

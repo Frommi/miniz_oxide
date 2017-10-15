@@ -5,7 +5,7 @@ set -e
 ./build.sh --release
 
 mkdir -p bin
-g++ tests/miniz_tester.cpp tests/timer.cpp -o bin/miniz_tester -I. -O2 -L. -lminiz_oxide -lutil -ldl -lrt -lpthread -lgcc_s -lc -lm -lrt -lpthread -lutil
+g++ tests/miniz_tester.cpp tests/timer.cpp -o bin/miniz_tester -I. -O2 -L. -lminiz_oxide_c_api -lutil -ldl -lrt -lpthread -lgcc_s -lc -lm -lrt -lpthread -lutil
 #g++ tests/miniz_tester.cpp tests/timer.cpp miniz/* -o bin/miniz_tester -I. -O2
 
 mkdir -p test_scratch

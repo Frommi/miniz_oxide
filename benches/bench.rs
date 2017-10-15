@@ -14,8 +14,7 @@ use libc::{c_int, c_void};
 use miniz_oxide::deflate::compress_to_vec;
 use miniz_oxide::deflate::core::{create_comp_flags_from_zip_params, CompressorOxide};
 
-use miniz_oxide_c_api::{miniz_def_free_func, tdefl_compress_mem_to_heap,
-                        tinfl_decompress_mem_to_heap};
+use miniz_oxide_c_api::miniz_def_free_func;
 
 /// Safe wrapper around a buffer.
 pub struct HeapBuf {
@@ -33,22 +32,6 @@ impl ops::Drop for HeapBuf {
 /// Wrap pointer in a buffer that frees the memory on exit.
 fn w(buf: *mut c_void) -> HeapBuf {
     HeapBuf { buf: buf }
-}
-
-extern "C" {
-    fn c_tinfl_decompress_mem_to_heap(
-        src_buf: *const c_void,
-        src_buf_len: usize,
-        out_len: *mut usize,
-        flags: c_int,
-    ) -> *mut c_void;
-
-    fn c_tdefl_compress_mem_to_heap(
-        src_buf: *const c_void,
-        src_buf_len: usize,
-        out_len: *mut usize,
-        flags: c_int,
-    ) -> *mut c_void;
 }
 
 fn get_test_file_data(name: &str) -> Vec<u8> {
@@ -69,7 +52,7 @@ macro_rules! decompress_bench {
 
             let mut out_len: usize = 0;
             b.iter(|| unsafe {
-                ::w(::$decompress_func(
+                ::w($decompress_func(
                     compressed.as_ptr() as *mut ::c_void,
                     compressed.len(),
                     &mut out_len,
@@ -89,7 +72,7 @@ macro_rules! compress_bench {
             let mut out_len: usize = 0;
             let flags = ::create_comp_flags_from_zip_params($level, -15, 0) as i32;
             b.iter(|| unsafe {
-                ::w(::$compress_func(
+                ::w($compress_func(
                     input.as_ptr() as *mut ::c_void,
                     input.len(),
                     &mut out_len,
@@ -101,6 +84,8 @@ macro_rules! compress_bench {
 }
 
 mod oxide {
+    use miniz_oxide_c_api::{tdefl_compress_mem_to_heap, tinfl_decompress_mem_to_heap};
+
     compress_bench!(
         compress_bin_lvl_1,
         tdefl_compress_mem_to_heap,
@@ -217,116 +202,139 @@ mod oxide {
 }
 
 mod miniz {
+    use libc::{c_void, c_int};
+
+    /// Functions from miniz
+    /// We add the link attribute to make sure
+    /// these are linked to the miniz ones rather than
+    /// picking up the rust versions (as they may be exported).
+    #[link(name = "miniz")]
+    extern "C" {
+        fn tinfl_decompress_mem_to_heap(
+            src_buf: *const c_void,
+            src_buf_len: usize,
+            out_len: *mut usize,
+            flags: c_int,
+        ) -> *mut c_void;
+
+        fn tdefl_compress_mem_to_heap(
+            src_buf: *const c_void,
+            src_buf_len: usize,
+            out_len: *mut usize,
+            flags: c_int,
+        ) -> *mut c_void;
+    }
+
     compress_bench!(
         compress_bin_lvl_1,
-        c_tdefl_compress_mem_to_heap,
+        tdefl_compress_mem_to_heap,
         1,
         "benches/data/bin"
     );
         compress_bench!(
         compress_bin_lvl_6,
-        c_tdefl_compress_mem_to_heap,
+        tdefl_compress_mem_to_heap,
         6,
         "benches/data/bin"
     );
         compress_bench!(
         compress_bin_lvl_9,
-        c_tdefl_compress_mem_to_heap,
+        tdefl_compress_mem_to_heap,
         9,
         "benches/data/bin"
     );
 
     compress_bench!(
         compress_code_lvl_1,
-        c_tdefl_compress_mem_to_heap,
+        tdefl_compress_mem_to_heap,
         1,
         "benches/data/code"
     );
     compress_bench!(
         compress_code_lvl_6,
-        c_tdefl_compress_mem_to_heap,
+        tdefl_compress_mem_to_heap,
         6,
         "benches/data/code"
     );
     compress_bench!(
         compress_code_lvl_9,
-        c_tdefl_compress_mem_to_heap,
+        tdefl_compress_mem_to_heap,
         9,
         "benches/data/code"
     );
 
     compress_bench!(
         compress_compressed_lvl_1,
-        c_tdefl_compress_mem_to_heap,
+        tdefl_compress_mem_to_heap,
         1,
         "benches/data/compressed"
     );
     compress_bench!(
         compress_compressed_lvl_6,
-        c_tdefl_compress_mem_to_heap,
+        tdefl_compress_mem_to_heap,
         6,
         "benches/data/compressed"
     );
     compress_bench!(
         compress_compressed_lvl_9,
-        c_tdefl_compress_mem_to_heap,
+        tdefl_compress_mem_to_heap,
         9,
         "benches/data/compressed"
     );
 
     decompress_bench!(
         decompress_bin_lvl_1,
-        c_tinfl_decompress_mem_to_heap,
+        tinfl_decompress_mem_to_heap,
         1,
         "benches/data/bin"
     );
     decompress_bench!(
         decompress_bin_lvl_6,
-        c_tinfl_decompress_mem_to_heap,
+        tinfl_decompress_mem_to_heap,
         6,
         "benches/data/bin"
     );
     decompress_bench!(
         decompress_bin_lvl_9,
-        c_tinfl_decompress_mem_to_heap,
+        tinfl_decompress_mem_to_heap,
         9,
         "benches/data/bin"
     );
 
     decompress_bench!(
         decompress_code_lvl_1,
-        c_tinfl_decompress_mem_to_heap,
+        tinfl_decompress_mem_to_heap,
         1,
         "benches/data/code"
     );
     decompress_bench!(
         decompress_code_lvl_6,
-        c_tinfl_decompress_mem_to_heap,
+        tinfl_decompress_mem_to_heap,
         6,
         "benches/data/code"
     );
     decompress_bench!(
         decompress_code_lvl_9,
-        c_tinfl_decompress_mem_to_heap,
+        tinfl_decompress_mem_to_heap,
         9,
         "benches/data/code"
     );
 
     decompress_bench!(
         decompress_compressed_lvl_1,
-        c_tinfl_decompress_mem_to_heap,
+        tinfl_decompress_mem_to_heap,
         1,
         "benches/data/compressed"
     );
     decompress_bench!(
         decompress_compressed_lvl_6,
-        c_tinfl_decompress_mem_to_heap,
+        tinfl_decompress_mem_to_heap,
         6,
         "benches/data/compressed"
     );
     decompress_bench!(
         decompress_compressed_lvl_9,
-        c_tinfl_decompress_mem_to_heap,
+        tinfl_decompress_mem_to_heap,
         9,
         "benches/data/compressed"
     );

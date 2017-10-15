@@ -64,7 +64,8 @@ impl tdefl_compressor {
     }
 }
 
-#[no_mangle]
+
+unmangle!(
 pub unsafe extern "C" fn tdefl_compress(
     d: Option<&mut tdefl_compressor>,
     in_buf: *const c_void,
@@ -127,7 +128,6 @@ pub unsafe extern "C" fn tdefl_compress(
     }
 }
 
-#[no_mangle]
 pub unsafe extern "C" fn tdefl_compress_buffer(
     d: Option<&mut tdefl_compressor>,
     in_buf: *const c_void,
@@ -137,7 +137,6 @@ pub unsafe extern "C" fn tdefl_compress_buffer(
     tdefl_compress(d, in_buf, Some(&mut in_size), ptr::null_mut(), None, flush)
 }
 
-#[no_mangle]
 pub unsafe extern "C" fn tdefl_init(
     d: Option<&mut tdefl_compressor>,
     put_buf_func: PutBufFuncPtr,
@@ -157,19 +156,16 @@ pub unsafe extern "C" fn tdefl_init(
     }
 }
 
-#[no_mangle]
 pub unsafe extern "C" fn tdefl_get_prev_return_status(
     d: Option<&mut tdefl_compressor>,
 ) -> TDEFLStatus {
     d.map_or(TDEFLStatus::Okay, |d| d.inner.prev_return_status())
 }
 
-#[no_mangle]
 pub unsafe extern "C" fn tdefl_get_adler32(d: Option<&mut tdefl_compressor>) -> c_uint {
     d.map_or(::MZ_ADLER32_INIT as u32, |d| d.inner.adler32())
 }
 
-#[no_mangle]
 pub unsafe extern "C" fn tdefl_compress_mem_to_output(
     buf: *const c_void,
     buf_len: usize,
@@ -197,6 +193,7 @@ pub unsafe extern "C" fn tdefl_compress_mem_to_output(
         false
     }
 }
+);
 
 struct BufferUser {
     pub size: usize,
@@ -250,7 +247,7 @@ pub unsafe extern "C" fn output_buffer_putter(
     }
 }
 
-#[no_mangle]
+unmangle!(
 pub unsafe extern "C" fn tdefl_compress_mem_to_heap(
     src_buf: *const c_void,
     src_buf_len: usize,
@@ -285,7 +282,6 @@ pub unsafe extern "C" fn tdefl_compress_mem_to_heap(
     }
 }
 
-#[no_mangle]
 pub unsafe extern "C" fn tdefl_compress_mem_to_mem(
     out_buf: *mut c_void,
     out_buf_len: usize,
@@ -317,7 +313,6 @@ pub unsafe extern "C" fn tdefl_compress_mem_to_mem(
     }
 }
 
-#[no_mangle]
 pub extern "C" fn tdefl_create_comp_flags_from_zip_params(
     level: c_int,
     window_bits: c_int,
@@ -325,3 +320,4 @@ pub extern "C" fn tdefl_create_comp_flags_from_zip_params(
 ) -> c_uint {
     create_comp_flags_from_zip_params(level, window_bits, strategy)
 }
+);

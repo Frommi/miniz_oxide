@@ -30,10 +30,11 @@ cc = "1.0"
 [features]
 default = []
 miniz_zip = ["build_stub_miniz"]
-fuzzing = ["build_orig_miniz"]
-benching = ["build_orig_miniz"]
+fuzzing = ["build_orig_miniz", "no_c_export"]
+benching = ["build_orig_miniz", "no_c_export"]
 build_orig_miniz = []
 build_stub_miniz = []
+no_c_export = []
 
 [profile.dev]
 panic = "abort"
