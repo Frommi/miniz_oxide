@@ -15,7 +15,7 @@ fn main() {
                 "miniz_stub/miniz_tdef.c",
             ],
         )
-        .compile("libminiz.a");
+        .compile("miniz");
 }
 
 #[cfg(feature = "build_orig_miniz")]
@@ -29,5 +29,5 @@ fn main() {
                 "miniz/miniz_tdef.c",
             ],
         )
-        .compile("libminiz.a");
+        .compile("miniz");
 }

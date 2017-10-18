@@ -9,7 +9,7 @@ extern crate test;
 use test::Bencher;
 use std::io::Read;
 use std::{ops, ptr};
-use libc::{c_int, c_void};
+use libc::c_void;
 
 use miniz_oxide::deflate::compress_to_vec;
 use miniz_oxide::deflate::core::{create_comp_flags_from_zip_params, CompressorOxide};
@@ -208,7 +208,7 @@ mod miniz {
     /// We add the link attribute to make sure
     /// these are linked to the miniz ones rather than
     /// picking up the rust versions (as they may be exported).
-    #[link(name = "miniz")]
+    #[link(name = "miniz", kind = "static")]
     extern "C" {
         fn tinfl_decompress_mem_to_heap(
             src_buf: *const c_void,
