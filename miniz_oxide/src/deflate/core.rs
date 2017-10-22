@@ -916,6 +916,7 @@ impl HuffmanOxide {
     }
 
     fn start_dynamic_block(&mut self, output: &mut OutputBufferOxide) -> io::Result<()> {
+        // There will always be one, and only one end of block code.
         self.count[0][256] = 1;
 
         self.optimize_table(0, MAX_HUFF_SYMBOLS_0, 15, false);
@@ -1313,7 +1314,7 @@ impl LZOxide {
 }
 
 fn compress_lz_codes(
-    huff: &mut HuffmanOxide,
+    huff: &HuffmanOxide,
     output: &mut OutputBufferOxide,
     lz_code_buf: &[u8],
 ) -> io::Result<bool> {
@@ -1399,6 +1400,7 @@ fn compress_lz_codes(
         bb.bits_in -= n;
     }
 
+    // Output the end of block symbol.
     output.put_bits(huff.codes[0][256] as u32, huff.code_sizes[0][256] as u32);
 
     Ok(true)
@@ -1442,11 +1444,13 @@ fn flush_block(
 
         d.lz.init_flag();
 
+        // If we are at the start of the stream, write the zlib header if requested.
         if d.params.flags & TDEFL_WRITE_ZLIB_HEADER != 0 && d.params.block_index == 0 {
             output.put_bits(0x78, 8);
             output.put_bits(0x01, 8);
         }
 
+        // Output the block header.
         output.put_bits((flush == TDEFLFlush::Finish) as u32, 1);
 
         saved_buffer = output.save();
@@ -1460,21 +1464,31 @@ fn flush_block(
 
         // If we failed to compress anything and the output would take up more space than the output
         // data, output a stored block instead, which has at most 5 bytes of overhead.
-        let expanded = (d.lz.total_bytes != 0) &&
+        // We only use some simple heuristics for now.
+        // A stored block will have an overhead of at least 4 bytes containing the block length
+        // but usually more due to the length parameters having to start at a byte boundary and thus
+        // requiring up to 5 bytes of padding.
+        // As a static block will have an overhead of at most 1 bit per byte
+        // (as literals are either 8 or 9 bytes), a raw block will
+        // never take up less space if the number of input bytes are less than 32.
+        let expanded = (d.lz.total_bytes > 32) &&
             (output.inner.position() - saved_buffer.pos + 1 >= d.lz.total_bytes as u64) &&
             (d.dict.lookahead_pos - d.dict.code_buf_dict_pos <= d.dict.size);
 
         if use_raw_block || expanded {
             output.load(saved_buffer);
 
+            // Block header.
             output.put_bits(0, 2);
+
+            // Block length has to start on a byte boundary, so pad.
             output.pad_to_bytes();
 
-            for _ in 0..2 {
-                output.put_bits(d.lz.total_bytes & 0xFFFF, 16);
-                d.lz.total_bytes ^= 0xFFFF;
-            }
+            // Block length and ones complement of block length.
+            output.put_bits(d.lz.total_bytes & 0xFFFF, 16);
+            output.put_bits(!d.lz.total_bytes & 0xFFFF, 16);
 
+            // Write the actual bytes.
             for i in 0..d.lz.total_bytes {
                 let pos = (d.dict.code_buf_dict_pos + i) & LZ_DICT_SIZE_MASK;
                 output.put_bits(d.dict.dict[pos as usize] as u32, 8);
@@ -1578,7 +1592,9 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
         let src_buf_left = in_buf.len() - src_pos;
         let num_bytes_to_process =
             cmp::min(src_buf_left, MAX_MATCH_LEN - lookahead_size as usize);
-        if lookahead_size + d.dict.size >= MIN_MATCH_LEN - 1 {
+
+        if lookahead_size + d.dict.size >= MIN_MATCH_LEN - 1 && num_bytes_to_process > 0 {
+
             let mut dst_pos = (lookahead_pos + lookahead_size) & LZ_DICT_SIZE_MASK;
             let mut ins_pos = lookahead_pos + lookahead_size - 2;
             let mut hash = ((d.dict.dict[(ins_pos & LZ_DICT_SIZE_MASK) as usize] as u32) <<
@@ -1595,7 +1611,8 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
                 hash = ((hash << LZ_HASH_SHIFT) ^ (c as u32)) &
                     (LZ_HASH_SIZE as u32 - 1);
                 d.dict.next[(ins_pos & LZ_DICT_SIZE_MASK) as usize] = d.dict.hash[hash as
-                                                                                            usize];
+                                                                                  usize];
+
                 d.dict.hash[hash as usize] = ins_pos as u16;
                 dst_pos = (dst_pos + 1) & LZ_DICT_SIZE_MASK;
                 ins_pos += 1;
@@ -1702,6 +1719,8 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
         } else if d.params.greedy_parsing || (d.params.flags & TDEFL_RLE_MATCHES != 0) ||
                    cur_match_len >= 128
         {
+            // If we are using lazy matching, check for matches at the next byte if the current
+            // match was shorter than 128 bytes.
             record_match(&mut d.huff, &mut d.lz, cur_match_len, cur_match_dist);
             len_to_move = cur_match_len;
         } else {

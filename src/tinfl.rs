@@ -82,7 +82,7 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_heap(
     let mut p_buf: *mut c_void = ptr::null_mut();
     // Capacity of the current output buffer.
     let mut out_buf_capacity = 0;
-    //let p_new_buf;
+
     *p_out_len = 0;
     // How far into the source buffer we have read.
     let mut src_buf_ofs = 0;
@@ -100,7 +100,8 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_heap(
                     src_buf_len - src_buf_ofs,
                 ),
                 &mut out_cur,
-                ((flags & !inflate_flags::TINFL_FLAG_HAS_MORE_INPUT) | inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF),
+                ((flags & !inflate_flags::TINFL_FLAG_HAS_MORE_INPUT) |
+                 inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF),
             );
 
         // If decompression fails or we don't have any input, bail out.

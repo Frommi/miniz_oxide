@@ -213,4 +213,18 @@ mod test {
         let res = compress_to_vec(text, 0);
         assert_eq!(encoded, res.as_slice());
     }
+
+    #[test]
+    fn short() {
+        let test_data = [10, 10, 10, 10, 10, 55];
+        let c = compress_to_vec(&test_data, 9);
+
+        let d = decompress_to_vec(c.as_slice()).expect("Failed to decompress!");
+        assert_eq!(&test_data, d.as_slice());
+        // Check that a static block is used here, rather than a raw block
+        // , so the data is actually compressed.
+        // (The optimal compressed length would be 5, but neither miniz nor zlib manages that either
+        // as neither checks matches against the byte at index 0.)
+        assert!(c.len() <= 6);
+    }
 }
