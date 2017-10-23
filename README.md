@@ -42,3 +42,7 @@ Run fuzzer:
 ```bash
 $ ./run_fuzz.sh
 ```
+
+### License
+This library (excluding the miniz C code used for tests) is licensed under the MIT license. The library is based on the miniz C library, of which the parts used are dual-licensed under the [MIT license](https://github.com/Frommi/miniz_oxide/blob/master/miniz/miniz.c#L1) and also the [unlicense](https://github.com/Frommi/miniz_oxide/blob/master/miniz/miniz.c#L577). 
+The parts of miniz that are not covered by the unlicense is [some Zip64 code](https://github.com/richgel999/miniz/commit/224d207ce8fffb908e156d27478be3afb5d83e6a#diff-edc0e9ccfae3b5324b85b3ec0a53dc74) which is only MIT licensed. This and other Zip functionality in miniz is not part of the miniz_oxidde and miniz_oxide_c_api rust libraries.
