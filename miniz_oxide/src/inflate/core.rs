@@ -737,8 +737,8 @@ macro_rules! try_read {
 }
 
 /// Fast inner decompression loop which is run  while there is at least
-/// 258 bytes left in the output buffer, and at least 6 bytes left in the input buffer
-/// (The maximum one match would need).
+/// 259 bytes left in the output buffer, and at least 6 bytes left in the input buffer
+/// (The maximum one match would need + 1).
 ///
 /// This was inspired by a similar optimization in zlib, which uses this info to do
 /// faster unchecked copies of multiple bytes at a time.
@@ -759,9 +759,11 @@ fn decompress_fast(
     let status: TINFLStatus = 'o: loop {
         'litlen: loop {
             state = State::DecodeLitlen;
-            // This function assumes that there is at least 258 bytes left in the output buffer,
+            // This function assumes that there is at least 259 bytes left in the output buffer,
             // and that there is at least 6 bytes left in the input buffer.
-            if out_buf.bytes_left() < 258 || in_iter.len() < 6 {
+            // We need the one extra byte as we may write one length and one full match
+            // before checking again.
+            if out_buf.bytes_left() < 259 || in_iter.len() < 6 {
                 break 'o TINFLStatus::Done;
             }
 
@@ -1318,7 +1320,7 @@ fn decompress_inner(
                 } else if
                 // If there is enough space, use the fast inner decompression
                 // function.
-                    out_buf.bytes_left() >= 258 &&
+                    out_buf.bytes_left() >= 259 &&
                     in_iter.len() >= 6
                 {
                     let (status, new_state) =

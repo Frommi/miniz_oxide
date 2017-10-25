@@ -87,6 +87,19 @@ mod oxide {
     use miniz_oxide_c_api::{tdefl_compress_mem_to_heap, tinfl_decompress_mem_to_heap};
 
     compress_bench!(
+        compress_short_lvl_1,
+        tdefl_compress_mem_to_heap,
+        1,
+        "benches/data/short"
+    );
+    compress_bench!(
+        compress_short_lvl_6,
+        tdefl_compress_mem_to_heap,
+        6,
+        "benches/data/short"
+    );
+
+    compress_bench!(
         compress_bin_lvl_1,
         tdefl_compress_mem_to_heap,
         1,
@@ -143,6 +156,12 @@ mod oxide {
         "benches/data/compressed"
     );
 
+    decompress_bench!(
+        decompress_short_lvl_1,
+        tinfl_decompress_mem_to_heap,
+        1,
+        "benches/data/short"
+    );
     decompress_bench!(
         decompress_bin_lvl_1,
         tinfl_decompress_mem_to_heap,
@@ -226,6 +245,19 @@ mod miniz {
     }
 
     compress_bench!(
+        compress_short_lvl_1,
+        tdefl_compress_mem_to_heap,
+        1,
+        "benches/data/short"
+    );
+    compress_bench!(
+        compress_short_lvl_6,
+        tdefl_compress_mem_to_heap,
+        6,
+        "benches/data/short"
+    );
+
+    compress_bench!(
         compress_bin_lvl_1,
         tdefl_compress_mem_to_heap,
         1,
@@ -280,6 +312,13 @@ mod miniz {
         tdefl_compress_mem_to_heap,
         9,
         "benches/data/compressed"
+    );
+
+    decompress_bench!(
+        decompress_short_lvl_1,
+        tinfl_decompress_mem_to_heap,
+        1,
+        "benches/data/short"
     );
 
     decompress_bench!(
