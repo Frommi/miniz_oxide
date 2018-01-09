@@ -701,6 +701,10 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Action {
     Action::Jump(DecodeLitlen)
 }
 
+// A helper macro for generating the state machine.
+//
+// As Rust doesn't have fallthrough on matches, we have to return to the match statement
+// and jump for each state change. (Which would ideally be optimized away, but often isn't.)
 macro_rules! generate_state {
     ($state: ident, $state_machine: tt, $f: expr) => {
         loop {
@@ -753,6 +757,8 @@ fn decompress_fast(
     local_vars: &mut LocalVars,
     out_buf_size_mask: usize,
 ) -> (TINFLStatus, State) {
+    // Make a local copy of the most used variables, to avoid having to update and read from values
+    // in a random memory location and to encourage more register use.
     let mut l = *local_vars;
     let mut state;
 
@@ -812,6 +818,7 @@ fn decompress_fast(
             state.begin(BlockDone);
             break 'o TINFLStatus::Done;
         } else {
+            // The symbol was a length code.
             // # Optimization
             // Mask the value to avoid bounds checks
             // We could use get_unchecked later if can statically verify that
@@ -835,6 +842,7 @@ fn decompress_fast(
                 ));
             }
 
+            // We found a length code, so a distance code should follow.
             state.begin(DecodeDistance);
             match decode_huffman_code(
                 r,
@@ -857,6 +865,8 @@ fn decompress_fast(
                     }
                 },
             ) {
+                // We decoded a distance code, read the extra bits if needed to find the
+                // full distance value.
                 Action::Jump(to) if to == ReadExtraBitsDistance => {
                     state.begin(ReadExtraBitsDistance);
                     let num_extra = l.num_extra;
@@ -871,12 +881,10 @@ fn decompress_fast(
                         },
                     ));
                 }
+                // There were no extra bits.
                 Action::End(s) => break s,
                 _ => (),
             };
-
-            // We never break with this state.
-            //state.begin(HuffDecodeOuterLoop2);
 
             l.dist_from_out_buf_start = out_buf.position();
             if l.dist as usize > l.dist_from_out_buf_start &&
@@ -893,6 +901,18 @@ fn decompress_fast(
 
             let mut out_pos = l.dist_from_out_buf_start;
 
+            // There isn't enough space left for all of the match in the (wrapping) out buffer,
+            // so break out.
+            if source_pos >= out_pos && (source_pos - out_pos) < l.counter as usize {
+                // Jump to the slow decode loop.
+                // Alternatively, we could replicate the code for this condition from there, and
+                // jump directly to WriteLenBytestoend, which may or may not be more efficient,
+                // though would add more code duplication.
+                state.begin(HuffDecodeOuterLoop2);
+                break TINFLStatus::Done;
+            }
+
+            // The match is ok, and there is space so output the decoded match data.
             {
                 let out_slice = out_buf.get_mut();
                 let mut match_len = l.counter as usize;
