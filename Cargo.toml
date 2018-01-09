@@ -22,7 +22,7 @@ crate-type = ['rlib']
 [dependencies]
 libc = "0.2.22"
 crc = "1.0.0"
-miniz_oxide = { path = "miniz_oxide", version = "0.1.1" }
+miniz_oxide = { path = "miniz_oxide", version = "0.1.2" }
 
 [build-dependencies]
 cc = "1.0"
