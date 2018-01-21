@@ -24,6 +24,13 @@ fn inf_issue_14() {
     assert_eq!(error, TINFLStatus::Failed);
 }
 
+/// Fuzzed file that causes panics (subtract-with-overflow in debug, out-of-bounds in release)
+#[test]
+fn inf_issue_19() {
+    let data = get_test_file_data("tests/test_data/issue_19.deflate");
+    let _ = decompress_to_vec(data.as_slice());
+}
+
 fn get_test_data() -> Vec<u8> {
     use std::env;
     let path = env::var("TEST_FILE").unwrap_or_else(|_| "../miniz/miniz.c".to_string());
