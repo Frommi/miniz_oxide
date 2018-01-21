@@ -251,6 +251,8 @@ enum State {
     DistanceOutOfBounds,
     BadRawLength,
     BadCodeSizeDistPrevLookup,
+    InvalidLitlen,
+    InvalidDist,
 }
 
 impl State {
@@ -264,16 +266,18 @@ use self::State::*;
 
 // Not sure why miniz uses 32-bit values for these, maybe alignment/cache again?
 // # Optimization
-// We add a extra zero value at the end and make the tables 32 elements long
+// We add a extra value at the end and make the tables 32 elements long
 // so we can use a mask to avoid bounds checks.
+// The invalid values are set to something high enough to avoid underflowing
+// the match length.
 /// Base length for each length code.
 ///
 /// The base is used together with the value of the extra bits to decode the actual
 /// length/distance values in a match.
 #[cfg_attr(rustfmt, rustfmt_skip)]
 const LENGTH_BASE: [u16; 32] = [
-    3,  4,  5,  6,  7,  8,  9,  10,  11,  13,  15,  17,  19,  23, 27, 31,
-    35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258, 0,  0, 0
+    3,  4,  5,  6,  7,  8,  9,  10,  11,  13,  15,  17,  19,  23,  27,  31,
+    35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258, 512, 512, 512
 ];
 
 /// Number of extra bits for each length code.
@@ -286,9 +290,9 @@ const LENGTH_EXTRA: [u8; 32] = [
 /// Base length for each distance code.
 #[cfg_attr(rustfmt, rustfmt_skip)]
 const DIST_BASE: [u16; 32] = [
-    1,    2,    3,    4,    5,    7,      9,      13,     17,  25,   33,
-    49,   65,   97,   129,  193,  257,    385,    513,    769, 1025, 1537,
-    2049, 3073, 4097, 6145, 8193, 12_289, 16_385, 24_577, 0,   0
+    1,    2,    3,    4,    5,    7,      9,      13,     17,     25,    33,
+    49,   65,   97,   129,  193,  257,    385,    513,    769,    1025,  1537,
+    2049, 3073, 4097, 6145, 8193, 12_289, 16_385, 24_577, 32_768, 32_768
 ];
 
 /// Number of extra bits for each distance code.
@@ -817,6 +821,11 @@ fn decompress_fast(
             // We hit the end of block symbol.
             state.begin(BlockDone);
             break 'o TINFLStatus::Done;
+        } else if l.counter > 285 {
+            // Invalid code.
+            // We already verified earlier that the code is > 256.
+            state.begin(InvalidLitlen);
+            break 'o TINFLStatus::Failed;
         } else {
             // The symbol was a length code.
             // # Optimization
@@ -851,12 +860,16 @@ fn decompress_fast(
                 flags,
                 &mut in_iter,
                 |_r, l, symbol| {
-                    // # Optimization
-                    // Mask the value to avoid bounds checks
-                    // We could use get_unchecked later if can statically verify that
-                    // this will never go out of bounds.
-                    l.num_extra = DIST_EXTRA[symbol as usize & BASE_EXTRA_MASK] as u32;
-                    l.dist = DIST_BASE[symbol as usize & BASE_EXTRA_MASK] as u32;
+                    // Check for invalid distance codes.
+                    // It may or may not be faster to put this check at the end
+                    // and mask the base/extra lookup.
+                    if symbol > 29 {
+                        state.begin(InvalidDist);
+                        return Action::End(TINFLStatus::Failed);
+                    }
+
+                    l.num_extra = DIST_EXTRA[symbol as usize] as u32;
+                    l.dist = DIST_BASE[symbol as usize] as u32;
                     if l.num_extra != 0 {
                         // ReadEXTRA_BITS_DISTACNE
                         Action::Jump(ReadExtraBitsDistance)
@@ -1417,6 +1430,10 @@ fn decompress_inner(
                 if l.counter == 256 {
                     // We hit the end of block symbol.
                     Action::Jump(BlockDone)
+                } else if l.counter > 285 {
+                    // Invalid code.
+                    // We already verified earlier that the code is > 256.
+                    Action::Jump(InvalidLitlen)
                 } else {
                     // # Optimization
                     // Mask the value to avoid bounds checks
@@ -1450,6 +1467,10 @@ fn decompress_inner(
                 // Try to read a huffman code from the input buffer and look up what
                 // length code the decoded symbol refers to.
                 decode_huffman_code(r, &mut l, DIST_TABLE, flags, &mut in_iter, |_r, l, symbol| {
+                    if symbol > 29 {
+                        // Invalid distance code.
+                        return Action::Jump(InvalidDist)
+                    }
                     // # Optimization
                     // Mask the value to avoid bounds checks
                     // We could use get_unchecked later if can statically verify that
