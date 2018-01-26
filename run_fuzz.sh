@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
 
-OLD="crate-type = \['staticlib', 'rlib'\]"
-NEW="crate-type = \['rlib'\]"
-
-sed -i "s/$OLD/$NEW/g" Cargo.toml
+# TODO: This is broken at the moment.
 cargo fuzz run fuzz_high -- -max_len=900
