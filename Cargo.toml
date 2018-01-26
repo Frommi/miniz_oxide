@@ -17,7 +17,6 @@ exclude = ["benches/data/*"]
 
 [lib]
 name = "miniz_oxide_c_api"
-crate-type = ['rlib']
 
 [dependencies]
 libc = "0.2.22"

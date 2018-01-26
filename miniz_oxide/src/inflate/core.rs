@@ -599,7 +599,7 @@ fn end_of_input(flags: u32) -> Action {
 
 #[inline]
 fn undo_bytes(l: &mut LocalVars, max: u32) -> u32 {
-    let res = cmp::min((l.num_bits >> 3), max);
+    let res = cmp::min(l.num_bits >> 3, max);
     l.num_bits -= res << 3;
     res
 }
