@@ -1,6 +1,7 @@
 //! This module contains functionality for compression.
 
 pub mod core;
+mod buffer;
 use self::core::*;
 
 /// How much processing the compressor should do to compress the data.
