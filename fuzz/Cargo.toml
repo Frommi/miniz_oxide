@@ -13,6 +13,8 @@ libc="0.2.22"
 
 [dependencies.miniz_oxide_c_api]
 path = ".."
+[dependencies.miniz_oxide]
+path = "../miniz_oxide"
 [dependencies.libfuzzer-sys]
 git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
 
@@ -28,3 +30,7 @@ path = "fuzz_targets/fuzz_high.rs"
 default = ["fuzzing"]
 fuzzing = ["miniz_oxide_c_api/fuzzing"]
 
+
+[[bin]]
+name = "inflate_nonwrapping"
+path = "fuzz_targets/inflate_nonwrapping.rs"

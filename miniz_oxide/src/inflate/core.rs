@@ -63,13 +63,24 @@ impl HuffmanTable {
 
     #[inline]
     /// Look up a symbol and code length from the bits in the provided bit buffer.
-    fn lookup(&self, bit_buf: BitBuffer) -> (i32, u32) {
+    ///
+    /// Returns Some(symbol, length) on success,
+    /// None if the length is 0.
+    ///
+    /// It's possible we could avoid checking for 0 if we can guarantee a sane table.
+    /// TODO: Check if a smaller type for code_len helps performance.
+    fn lookup(&self, bit_buf: BitBuffer) -> Option<(i32, u32)> {
         let symbol = self.fast_lookup(bit_buf).into();
         if symbol >= 0 {
-            (symbol, (symbol >> 9) as u32)
+            if (symbol >> 9) as u32 != 0 {
+                Some((symbol, (symbol >> 9) as u32))
+            } else {
+                // Zero-length code.
+                None
+            }
         } else {
             // We didn't get a symbol from the fast lookup table, so check the tree instead.
-            self.tree_lookup(symbol.into(), bit_buf, FAST_LOOKUP_BITS.into())
+            Some(self.tree_lookup(symbol.into(), bit_buf, FAST_LOOKUP_BITS.into()))
         }
     }
 }
@@ -253,6 +264,7 @@ enum State {
     BadCodeSizeDistPrevLookup,
     InvalidLitlen,
     InvalidDist,
+    InvalidCodeLen,
 }
 
 impl State {
@@ -779,7 +791,7 @@ fn decompress_fast(
 
             fill_bit_buffer(&mut l, &mut in_iter);
 
-            let (symbol, code_len) = r.tables[LITLEN_TABLE].lookup(l.bit_buf);
+            if let Some((symbol, code_len)) = r.tables[LITLEN_TABLE].lookup(l.bit_buf) {
 
             l.counter = symbol as u32;
             l.bit_buf >>= code_len;
@@ -795,21 +807,28 @@ fn decompress_fast(
                     fill_bit_buffer(&mut l, &mut in_iter);
                 }
 
-                let (symbol, code_len) = r.tables[LITLEN_TABLE].lookup(l.bit_buf);
-
-                l.bit_buf >>= code_len;
-                l.num_bits -= code_len;
-                // The previous symbol was a literal, so write it directly and check
-                // the next one.
-                out_buf.write_byte(l.counter as u8);
-                if (symbol & 256) != 0 {
-                    l.counter = symbol as u32;
-                    // The symbol is a length value.
-                    break;
+                if let Some((symbol, code_len)) = r.tables[LITLEN_TABLE].lookup(l.bit_buf) {
+                    l.bit_buf >>= code_len;
+                    l.num_bits -= code_len;
+                    // The previous symbol was a literal, so write it directly and check
+                    // the next one.
+                    out_buf.write_byte(l.counter as u8);
+                    if (symbol & 256) != 0 {
+                        l.counter = symbol as u32;
+                        // The symbol is a length value.
+                        break;
+                    } else {
+                        // The symbol is a literal, so write it directly and continue.
+                        out_buf.write_byte(symbol as u8);
+                    }
                 } else {
-                    // The symbol is a literal, so write it directly and continue.
-                    out_buf.write_byte(symbol as u8);
+                    state.begin(InvalidCodeLen);
+                    break 'o TINFLStatus::Failed;
                 }
+            }
+            } else {
+                state.begin(InvalidCodeLen);
+                break 'o TINFLStatus::Failed;
             }
         }
 
@@ -1372,7 +1391,7 @@ fn decompress_inner(
                 } else {
                     fill_bit_buffer(&mut l, &mut in_iter);
 
-                    let (symbol, code_len) = r.tables[LITLEN_TABLE].lookup(l.bit_buf);
+                    if let Some((symbol, code_len)) = r.tables[LITLEN_TABLE].lookup(l.bit_buf) {
 
                     l.counter = symbol as u32;
                     l.bit_buf >>= code_len;
@@ -1388,22 +1407,28 @@ fn decompress_inner(
                             fill_bit_buffer(&mut l, &mut in_iter);
                         }
 
-                        let (symbol, code_len) = r.tables[LITLEN_TABLE].lookup(l.bit_buf);
+                        if let Some((symbol, code_len)) = r.tables[LITLEN_TABLE].lookup(l.bit_buf) {
 
-                        l.bit_buf >>= code_len;
-                        l.num_bits -= code_len;
-                        // The previous symbol was a literal, so write it directly and check
-                        // the next one.
-                        out_buf.write_byte(l.counter as u8);
-                        if (symbol & 256) != 0 {
-                            l.counter = symbol as u32;
-                            // The symbol is a length value.
-                            Action::Jump(HuffDecodeOuterLoop1)
+                            l.bit_buf >>= code_len;
+                            l.num_bits -= code_len;
+                            // The previous symbol was a literal, so write it directly and check
+                            // the next one.
+                            out_buf.write_byte(l.counter as u8);
+                            if (symbol & 256) != 0 {
+                                l.counter = symbol as u32;
+                                // The symbol is a length value.
+                                Action::Jump(HuffDecodeOuterLoop1)
+                            } else {
+                                // The symbol is a literal, so write it directly and continue.
+                                out_buf.write_byte(symbol as u8);
+                                Action::None
+                            }
                         } else {
-                            // The symbol is a literal, so write it directly and continue.
-                            out_buf.write_byte(symbol as u8);
-                            Action::None
+                            Action::Jump(InvalidCodeLen)
                         }
+                    }
+                    } else {
+                        Action::Jump(InvalidCodeLen)
                     }
                 }
             })
@@ -1651,7 +1676,8 @@ fn decompress_inner(
 
             // Anything else indicates failure.
             // BadZlibHeader | BadRawLength | BlockTypeUnexpected | DistanceOutOfBounds |
-            // BadTotalSymbols | BadCodeSizeDistPrevLookup | BadCodeSizeSum
+            // BadTotalSymbols | BadCodeSizeDistPrevLookup | BadCodeSizeSum | InvalidLitlen |
+            // InvalidDist | InvalidCodeLen
             _ => break TINFLStatus::Failed,
         };
     };
@@ -1774,7 +1800,7 @@ mod test {
     }
 
     fn masked_lookup(table: &HuffmanTable, bit_buf: BitBuffer) -> (i32, u32) {
-        let ret = table.lookup(bit_buf);
+        let ret = table.lookup(bit_buf).unwrap();
         (ret.0 & 511, ret.1)
     }
 
