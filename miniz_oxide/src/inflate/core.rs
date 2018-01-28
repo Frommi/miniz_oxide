@@ -547,6 +547,10 @@ where
         code_len = res.1 as u32;
     };
 
+    if code_len == 0 {
+        return Action::Jump(InvalidCodeLen);
+    }
+
     l.bit_buf >>= code_len as u32;
     l.num_bits -= code_len;
     f(r, l, symbol)
@@ -1076,6 +1080,7 @@ fn decompress_inner(
         num_extra: r.num_extra,
         dist_from_out_buf_start: r.dist_from_out_buf_start,
     };
+
 
     let mut status = 'state_machine: loop {
         match state {

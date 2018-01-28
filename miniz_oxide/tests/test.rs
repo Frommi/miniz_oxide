@@ -31,8 +31,18 @@ fn inf_issue_19() {
     let _ = decompress_to_vec(data.as_slice());
 }
 
+/// Fuzzed (invalid )file that resulted in an infinite loop as inflate read a code as having 0
+/// length.
 #[test]
-fn decompress_oom() {
+fn decompress_zero_code_len_oom() {
+    let data = get_test_file_data("tests/test_data/invalid_code_len_oom");
+    let _ = decompress_to_vec(data.as_slice());
+}
+
+/// Same problem as previous test but in the end of input huffman decode part of
+/// `decode_huffman_code`
+#[test]
+fn decompress_zero_code_len_2() {
     let data = get_test_file_data("tests/test_data/invalid_code_len_oom");
     let _ = decompress_to_vec(data.as_slice());
 }
