@@ -332,7 +332,7 @@ fn read_u16_le(slice: &[u8], pos: usize) -> u16{
 pub struct CompressorOxide {
     lz: LZOxide,
     params: ParamsOxide,
-    huff: HuffmanOxide,
+    huff: Box<HuffmanOxide>,
     dict: DictOxide,
 }
 
@@ -341,7 +341,9 @@ impl CompressorOxide {
         CompressorOxide {
             lz: LZOxide::new(),
             params: ParamsOxide::new(flags),
-            huff: HuffmanOxide::new(),
+            /// Put HuffmanOxide on the stack with default trick to avoid
+            /// excessive stack copies.
+            huff: Box::default(),
             dict: DictOxide::new(flags),
         }
     }
@@ -678,15 +680,17 @@ impl RLE {
     }
 }
 
-impl HuffmanOxide {
-    fn new() -> Self {
+impl Default for HuffmanOxide {
+    fn default() -> Self {
         HuffmanOxide {
             count: [[0; MAX_HUFF_SYMBOLS]; MAX_HUFF_TABLES],
             codes: [[0; MAX_HUFF_SYMBOLS]; MAX_HUFF_TABLES],
             code_sizes: [[0; MAX_HUFF_SYMBOLS]; MAX_HUFF_TABLES],
         }
     }
+}
 
+impl HuffmanOxide {
     fn radix_sort_symbols<'a>(
         symbols0: &'a mut [SymFreq],
         symbols1: &'a mut [SymFreq],
