@@ -1,5 +1,6 @@
 use libc::*;
 use std::{mem, cmp, ptr, slice};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use miniz_oxide::deflate::core::{compress, compress_to_output, create_comp_flags_from_zip_params,
                            CallbackFunc, CompressorOxide, PutBufFuncPtr, TDEFLFlush, TDEFLStatus};
@@ -148,6 +149,35 @@ pub unsafe extern "C" fn tdefl_compress_buffer(
     tdefl_compress(d, in_buf, Some(&mut in_size), ptr::null_mut(), None, flush)
 }
 
+/// Allocate a compressor.
+///
+/// This does initialize the struct, but not the inner constructor,
+/// tdefl_init has to be called before doing anything with it.
+pub unsafe extern "C" fn tdefl_allocate() -> *mut tdefl_compressor {
+    Box::into_raw(Box::<tdefl_compressor>::new(
+        tdefl_compressor {
+            inner: None,
+            callback: None,
+        }
+    ))
+}
+
+/// Deallocate the compressor. (Does nothing if the argument is null).
+///
+/// This also calles the compressor's destructor, freeing the internal memory
+/// allocated by it.
+pub unsafe extern "C" fn tdefl_deallocate(c: *mut tdefl_compressor) {
+    if !c.is_null() {
+        Box::from_raw(c);
+    }
+}
+
+/// Initialize the compressor struct in the space pointed to by `d`.
+/// if d is null, an error is returned.
+///
+/// Deinitialization is handled by tdefl_deallocate, and thus
+/// tdefl_compressor should not be allocated or freed manually, but only through
+/// tdefl_allocate and tdefl_deallocate
 pub unsafe extern "C" fn tdefl_init(
     d: Option<&mut tdefl_compressor>,
     put_buf_func: PutBufFuncPtr,
@@ -155,13 +185,24 @@ pub unsafe extern "C" fn tdefl_init(
     flags: c_int,
 ) -> TDEFLStatus {
     if let Some(d) = d {
-        *d = put_buf_func.map_or(tdefl_compressor::new(flags as u32), |f| {
-            tdefl_compressor::new_with_callback(flags as u32, CallbackFunc {
-                put_buf_func: f,
-                put_buf_user: put_buf_user,
+        match catch_unwind( AssertUnwindSafe(|| {
+        d.inner = Some(CompressorOxide::new(flags as u32));
+        if let Some(f) = put_buf_func {
+            d.callback = Some(CallbackFunc {
+                    put_buf_func: f,
+                    put_buf_user: put_buf_user,
             })
-        });
-        TDEFLStatus::Okay
+        } else {
+            d.callback = None;
+        };
+
+        })) {
+            Ok(_) => TDEFLStatus::Okay,
+            Err(_) => {
+                eprintln!("FATAL ERROR: Caught panic when initializing the compressor!");
+                TDEFLStatus::BadParam
+            }
+        }
     } else {
         TDEFLStatus::BadParam
     }

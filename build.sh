@@ -13,7 +13,7 @@ sed -i "s/$OLD/$NEW/g" Cargo.toml
 rm -f libminiz_oxide_c_api.a
 
 if [[ ($# == 0 || $1 == "--release" ) ]]; then
-    cargo build --release --features=miniz_zip -- || exit 1
+    RUSTFLAGS="-g" cargo build --release --features=miniz_zip -- || exit 1
     cp target/release/libminiz_oxide_c_api.a .
 elif [[ $1 == "--debug" ]]; then
     cargo build --features=miniz_zip || exit 1
