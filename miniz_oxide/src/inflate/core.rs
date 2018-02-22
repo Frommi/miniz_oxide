@@ -800,40 +800,39 @@ fn decompress_fast(
             fill_bit_buffer(&mut l, &mut in_iter);
 
             if let Some((symbol, code_len)) = r.tables[LITLEN_TABLE].lookup(l.bit_buf) {
+                l.counter = symbol as u32;
+                l.bit_buf >>= code_len;
+                l.num_bits -= code_len;
 
-            l.counter = symbol as u32;
-            l.bit_buf >>= code_len;
-            l.num_bits -= code_len;
-
-            if (l.counter & 256) != 0 {
-                // The symbol is not a literal.
-                break;
-            } else {
-                // If we have a 32-bit buffer we need to read another two bytes now
-                // to have enough bits to keep going.
-                if cfg!(not(target_pointer_width = "64")) {
-                    fill_bit_buffer(&mut l, &mut in_iter);
-                }
-
-                if let Some((symbol, code_len)) = r.tables[LITLEN_TABLE].lookup(l.bit_buf) {
-                    l.bit_buf >>= code_len;
-                    l.num_bits -= code_len;
-                    // The previous symbol was a literal, so write it directly and check
-                    // the next one.
-                    out_buf.write_byte(l.counter as u8);
-                    if (symbol & 256) != 0 {
-                        l.counter = symbol as u32;
-                        // The symbol is a length value.
-                        break;
-                    } else {
-                        // The symbol is a literal, so write it directly and continue.
-                        out_buf.write_byte(symbol as u8);
-                    }
+                if (l.counter & 256) != 0 {
+                    // The symbol is not a literal.
+                    break;
                 } else {
-                    state.begin(InvalidCodeLen);
-                    break 'o TINFLStatus::Failed;
+                    // If we have a 32-bit buffer we need to read another two bytes now
+                    // to have enough bits to keep going.
+                    if cfg!(not(target_pointer_width = "64")) {
+                        fill_bit_buffer(&mut l, &mut in_iter);
+                    }
+
+                    if let Some((symbol, code_len)) = r.tables[LITLEN_TABLE].lookup(l.bit_buf) {
+                        l.bit_buf >>= code_len;
+                        l.num_bits -= code_len;
+                        // The previous symbol was a literal, so write it directly and check
+                        // the next one.
+                        out_buf.write_byte(l.counter as u8);
+                        if (symbol & 256) != 0 {
+                            l.counter = symbol as u32;
+                            // The symbol is a length value.
+                            break;
+                        } else {
+                            // The symbol is a literal, so write it directly and continue.
+                            out_buf.write_byte(symbol as u8);
+                        }
+                    } else {
+                        state.begin(InvalidCodeLen);
+                        break 'o TINFLStatus::Failed;
+                    }
                 }
-            }
             } else {
                 state.begin(InvalidCodeLen);
                 break 'o TINFLStatus::Failed;
@@ -876,17 +875,22 @@ fn decompress_fast(
                 fill_bit_buffer(&mut l, &mut in_iter);
             }
 
-            let (mut symbol, code_len) = r.tables[DIST_TABLE].lookup(l.bit_buf);
-            symbol &= 511;
-            l.bit_buf >>= code_len;
-            l.num_bits -= code_len;
-            if symbol > 29 {
-                state.begin(InvalidDist);
+            if let Some((mut symbol, code_len)) = r.tables[DIST_TABLE].lookup(l.bit_buf) {
+                symbol &= 511;
+                l.bit_buf >>= code_len;
+                l.num_bits -= code_len;
+                if symbol > 29 {
+                    state.begin(InvalidDist);
+                    break 'o TINFLStatus::Failed;
+                }
+
+                l.num_extra = DIST_EXTRA[symbol as usize] as u32;
+                l.dist = DIST_BASE[symbol as usize] as u32;
+            } else {
+                state.begin(InvalidCodeLen);
                 break 'o TINFLStatus::Failed;
             }
 
-            l.num_extra = DIST_EXTRA[symbol as usize] as u32;
-            l.dist = DIST_BASE[symbol as usize] as u32;
             if l.num_extra != 0 {
                 fill_bit_buffer(&mut l, &mut in_iter);
                 let extra_bits = l.bit_buf & ((1 << l.num_extra) - 1);
