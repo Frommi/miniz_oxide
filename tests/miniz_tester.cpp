@@ -872,6 +872,10 @@ static bool zip_create(const char *pZip_filename, const char *pSrc_filename)
   void *pComp_data = tdefl_compress_mem_to_heap(pStr, strlen(pStr), &comp_size, 256);
   success &= mz_zip_writer_add_mem_ex(&zip, "precomp.txt", pComp_data, comp_size, "Comment", (uint16)strlen("Comment"), MZ_ZIP_FLAG_COMPRESSED_DATA, strlen(pStr), mz_crc32(MZ_CRC32_INIT, (const uint8 *)pStr, strlen(pStr)));
 
+  /* Free the buffer created by tdefl_compress_mem_to_heap */
+  /* NOTE: Make sure this matches what tdefl_compress_mem_to_heap uses */
+  miniz_def_free_func(NULL, pComp_data);
+
   success &= mz_zip_writer_add_mem(&zip, "cool/", NULL, 0, 0);
 
   success &= mz_zip_writer_add_mem(&zip, "1.txt", pStr, strlen(pStr), 9);
@@ -918,7 +922,7 @@ static bool zip_create(const char *pZip_filename, const char *pSrc_filename)
     return false;
   }
 
-  printf("Created zip file \"%s\", file size: " QUAD_INT_FMT "\n", pZip_filename, zip.m_archive_size);
+  printf("Created zip file \"%s\", file size: " QUAD_INT_FMT "\n", pZip_filename, (long long unsigned int)zip.m_archive_size);
   return true;
 }
 

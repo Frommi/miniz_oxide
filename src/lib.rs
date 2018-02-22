@@ -30,7 +30,7 @@ mod tdef;
 pub use tdef::{tdefl_compress, tdefl_compress_buffer, tdefl_compress_mem_to_heap,
                tdefl_compress_mem_to_mem, tdefl_compress_mem_to_output,
                tdefl_create_comp_flags_from_zip_params, tdefl_get_prev_return_status, tdefl_init,
-               tdefl_get_adler32};
+               tdefl_allocate, tdefl_deallocate, tdefl_get_adler32};
 
 pub use tdef::flush_modes::*;
 pub use tdef::strategy::*;

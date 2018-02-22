@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+# This script runs the miniz test suite on miniz_oxide using the C API.
+
 set -e
 
 ./build.sh --release
@@ -30,7 +32,7 @@ echo "-v -b -r a"
 ../bin/miniz_tester -v -b -r a linux-4.8.11 > /dev/null
 echo "-v -a a"
 ../bin/miniz_tester -v -a a linux-4.8.11/mm > /dev/null
-
+echo "Large file"
 mkdir -p large_file
 truncate -s 5G large_file/lf
 ../bin/miniz_tester -v -a a large_file

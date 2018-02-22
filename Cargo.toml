@@ -17,7 +17,8 @@ exclude = ["benches/data/*"]
 
 [lib]
 name = "miniz_oxide_c_api"
-crate-type = ['rlib']
+# Place to modify crate type in test build script while --crate-type=staticlib seems broken
+#CRATE_TYPE
 
 [dependencies]
 libc = "0.2.22"

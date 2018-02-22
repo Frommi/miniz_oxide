@@ -137,16 +137,24 @@ pub unsafe extern "C" fn def_free_func(_opaque: *mut c_void, address: *mut c_voi
 }
 
 /// Trait used for states that can be carried by BoxedState.
-pub trait StateType {}
-impl StateType for tdefl_compressor {}
-impl StateType for inflate_state {}
+pub trait StateType {
+    fn drop_state(&mut self);
+}
+impl StateType for tdefl_compressor {
+    fn drop_state(&mut self) {
+        self.drop_inner();
+    }
+}
+impl StateType for inflate_state {
+    fn drop_state(&mut self) {}
+}
 
 /// Wrapper for a heap-allocated compressor/decompressor that frees the stucture on drop.
-pub struct BoxedState<ST: StateType> {
-    pub inner: *mut ST,
-    pub alloc: mz_alloc_func,
-    pub free: mz_free_func,
-    pub opaque: *mut c_void,
+struct BoxedState<ST: StateType> {
+    inner: *mut ST,
+    alloc: mz_alloc_func,
+    free: mz_free_func,
+    opaque: *mut c_void,
 }
 
 impl<ST: StateType> Drop for BoxedState<ST> {
@@ -176,6 +184,10 @@ impl<ST: StateType> BoxedState<ST> {
     }
 
     fn alloc_state<T>(&mut self) -> MZResult {
+        if !self.inner.is_null() {
+            return Err(MZError::Param);
+        }
+
         self.inner = unsafe { (self.alloc)(self.opaque, 1, mem::size_of::<ST>()) as *mut ST };
         if self.inner.is_null() {
             Err(MZError::Mem)
@@ -186,7 +198,10 @@ impl<ST: StateType> BoxedState<ST> {
 
     pub fn free_state(&mut self) {
         if !self.inner.is_null() {
-            unsafe { (self.free)(self.opaque, self.inner as *mut c_void) }
+            unsafe {
+                self.inner.as_mut().map(|i| i.drop_state());
+                (self.free)(self.opaque, self.inner as *mut c_void)
+            }
             self.inner = ptr::null_mut();
         }
     }
@@ -199,7 +214,7 @@ pub struct StreamOxide<'io, ST: StateType> {
     pub next_out: Option<&'io mut [u8]>,
     pub total_out: c_ulong,
 
-    pub state: BoxedState<ST>,
+    state: BoxedState<ST>,
 
     pub adler: c_ulong,
 }
@@ -329,6 +344,7 @@ pub fn mz_deflate_init2_oxide(
         return Err(MZError::Param);
     }
 
+
     stream_oxide.adler = MZ_ADLER32_INIT;
     stream_oxide.total_in = 0;
     stream_oxide.total_out = 0;
@@ -340,7 +356,11 @@ pub fn mz_deflate_init2_oxide(
     }
 
     match stream_oxide.state.as_mut() {
-        Some(state) => *state = tdefl_compressor::new(comp_flags),
+        Some(state) => {
+            unsafe {
+                ptr::write(state, tdefl_compressor::new(comp_flags));
+            }
+        },
         None => unreachable!(),
     }
 
@@ -372,11 +392,13 @@ pub fn mz_deflate_oxide(
     let original_total_in = stream_oxide.total_in;
     let original_total_out = stream_oxide.total_out;
 
+    if let Some(compressor) = state.inner.as_mut() {
+
     loop {
         let in_bytes;
         let out_bytes;
         let defl_status = {
-            let res = compress(&mut state.inner, *next_in, *next_out, TDEFLFlush::from(flush));
+            let res = compress(compressor, *next_in, *next_out, TDEFLFlush::from(flush));
             in_bytes = res.1;
             out_bytes = res.2;
             res.0
@@ -386,7 +408,7 @@ pub fn mz_deflate_oxide(
         *next_out = &mut mem::replace(next_out, &mut [])[out_bytes..];
         stream_oxide.total_in += in_bytes as c_ulong;
         stream_oxide.total_out += out_bytes as c_ulong;
-        stream_oxide.adler = state.adler32() as c_ulong;
+        stream_oxide.adler = compressor.adler32() as c_ulong;
 
         if defl_status == TDEFLStatus::BadParam || defl_status == TDEFLStatus::PutBufFailed {
             return Err(MZError::Stream);
@@ -411,6 +433,9 @@ pub fn mz_deflate_oxide(
             };
         }
     }
+    } else {
+        Err(MZError::Param)
+    }
 }
 
 /// Free the inner compression state.
@@ -430,6 +455,7 @@ pub fn mz_deflate_reset_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) 
     let state = stream_oxide.state.as_mut().ok_or(MZError::Stream)?;
     stream_oxide.total_in = 0;
     stream_oxide.total_out = 0;
+    state.drop_inner();
     *state = tdefl_compressor::new(state.flags() as u32);
     Ok(MZStatus::Ok)
 }
