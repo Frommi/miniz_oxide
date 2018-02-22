@@ -13,24 +13,24 @@ pub const TINFL_LZ_DICT_SIZE: usize = 32_768;
 #[repr(C)]
 struct HuffmanTable {
     /// Length of the code at each index.
-    pub code_size: [u8; 288],
+    pub code_size: [u8; MAX_HUFF_SYMBOLS_0],
     /// Fast lookup table for shorter huffman codes.
     ///
     /// See `HuffmanTable::fast_lookup`.
-    pub look_up: [i16; 1024],
+    pub look_up: [i16; FAST_LOOKUP_SIZE as usize],
     /// Full huffman tree.
     ///
     /// Positive values are edge nodes/symbols, negative values are
     /// parent nodes/references to other nodes.
-    pub tree: [i16; 576],
+    pub tree: [i16; MAX_HUFF_TREE_SIZE],
 }
 
 impl HuffmanTable {
     fn new() -> HuffmanTable {
         HuffmanTable {
-            code_size: [0; 288],
-            look_up: [0; 1024],
-            tree: [0; 576],
+            code_size: [0; MAX_HUFF_SYMBOLS_0],
+            look_up: [0; FAST_LOOKUP_SIZE as usize],
+            tree: [0; MAX_HUFF_TREE_SIZE],
         }
     }
 
@@ -86,6 +86,7 @@ const _MAX_HUFF_SYMBOLS_2: usize = 19;
 const FAST_LOOKUP_BITS: u8 = 10;
 /// The size of the fast lookup table.
 const FAST_LOOKUP_SIZE: u32 = 1 << FAST_LOOKUP_BITS;
+const MAX_HUFF_TREE_SIZE: usize = MAX_HUFF_SYMBOLS_0 * 2;
 const LITLEN_TABLE: usize = 0;
 const DIST_TABLE: usize = 1;
 const HUFFLEN_TABLE: usize = 2;
@@ -203,11 +204,9 @@ impl DecompressorOxide {
     /// Returns the adler32 checksum of the currently decompressed data.
     #[inline]
     pub fn adler32(&self) -> Option<u32> {
-        if self.state != core::State::Start &&
-            self.state != core::State::BadZlibHeader && self.z_header0 != 0
-            {
-                Some(self.check_adler32)
-            } else {
+        if self.state != State::Start && !self.state.is_failure() && self.z_header0 != 0 {
+            Some(self.check_adler32)
+        } else {
             None
         }
     }
@@ -256,6 +255,21 @@ enum State {
 }
 
 impl State {
+    fn is_failure(&self) -> bool {
+        match *self {
+            BlockTypeUnexpected => true,
+            BadCodeSizeSum => true,
+            BadTotalSymbols => true,
+            BadZlibHeader => true,
+            DistanceOutOfBounds => true,
+            BadRawLength => true,
+            BadCodeSizeDistPrevLookup => true,
+            InvalidLitlen => true,
+            InvalidDist => true,
+            _ => false,
+        }
+    }
+
     #[inline]
     fn begin(&mut self, new_state: State) {
         *self = new_state;
@@ -318,7 +332,6 @@ fn memset<T: Copy>(slice: &mut [T], val: T) {
 /// # Panics
 /// Panics if there are less than two bytes left.
 #[inline]
-#[cfg(not(target_pointer_width = "64"))]
 fn read_u16_le(iter: &mut slice::Iter<u8>) -> u16 {
     let ret = {
         let two_bytes = &iter.as_ref()[0..2];
@@ -470,9 +483,8 @@ where
                 } else if l.num_bits > FAST_LOOKUP_BITS.into() {
                     let mut code_len = FAST_LOOKUP_BITS as u32;
                     loop {
-                        temp =
-                            r.tables[table].tree[(!temp + ((l.bit_buf >> code_len) & 1) as i32) as
-                                                     usize] as i32;
+                        temp = r.tables[table]
+                            .tree[(!temp + ((l.bit_buf >> code_len) & 1) as i32) as usize] as i32;
                         code_len += 1;
                         if temp >= 0 || l.num_bits < code_len + 1 {
                             break;
@@ -510,10 +522,7 @@ where
             // and add them to the bit buffer.
             // Unwrapping here is fine since we just checked that there are at least two
             // bytes left.
-            let b0 = *in_iter.next().unwrap() as BitBuffer;
-            let b1 = *in_iter.next().unwrap() as BitBuffer;
-
-            l.bit_buf |= (b0 << l.num_bits) | (b1 << l.num_bits + 8);
+            l.bit_buf |= (read_u16_le(in_iter) as BitBuffer) << l.num_bits;
             l.num_bits += 16;
         }
     }
@@ -551,6 +560,7 @@ where
     }
 }
 
+// TODO: `l: &mut LocalVars` may be slow similar to decompress_fast (even with inline(always))
 #[inline]
 fn read_bits<F>(
     l: &mut LocalVars,
@@ -599,7 +609,7 @@ fn end_of_input(flags: u32) -> Action {
 
 #[inline]
 fn undo_bytes(l: &mut LocalVars, max: u32) -> u32 {
-    let res = cmp::min((l.num_bits >> 3), max);
+    let res = cmp::min(l.num_bits >> 3, max);
     l.num_bits -= res << 3;
     res
 }
@@ -626,6 +636,7 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Action {
         for &code_size in &table.code_size[..table_size] {
             total_symbols[code_size as usize] += 1;
         }
+
         let mut used_symbols = 0;
         let mut total = 0;
         for i in 1..16 {
@@ -734,16 +745,6 @@ struct LocalVars {
     pub dist_from_out_buf_start: usize,
 }
 
-/// Wrapper for read_bits/bytes that jumps out if reading failed.
-/// This could possibly be done cleaner with ? later.
-macro_rules! try_read {
-    ($f: expr) => {
-        if let Action::End(s) = $f {
-            break s;
-        }
-    }
-}
-
 /// Fast inner decompression loop which is run  while there is at least
 /// 259 bytes left in the output buffer, and at least 6 bytes left in the input buffer
 /// (The maximum one match would need + 1).
@@ -767,13 +768,16 @@ fn decompress_fast(
     let mut state;
 
     let status: TINFLStatus = 'o: loop {
+        state = State::DecodeLitlen;
         'litlen: loop {
-            state = State::DecodeLitlen;
             // This function assumes that there is at least 259 bytes left in the output buffer,
-            // and that there is at least 6 bytes left in the input buffer.
+            // and that there is at least 14 bytes left in the input buffer. 14 input bytes:
+            // 15 (prev lit) + 15 (length) + 5 (length extra) + 15 (dist)
+            // + 29 + 32 (left in bit buf, including last 13 dist extra) = 111 bits < 14 bytes
             // We need the one extra byte as we may write one length and one full match
             // before checking again.
-            if out_buf.bytes_left() < 259 || in_iter.len() < 6 {
+            if out_buf.bytes_left() < 259 || in_iter.len() < 14 {
+                state = State::DecodeLitlen;
                 break 'o TINFLStatus::Done;
             }
 
@@ -813,10 +817,8 @@ fn decompress_fast(
             }
         }
 
-        state.begin(HuffDecodeOuterLoop1);
         // Mask the top bits since they may contain length info.
         l.counter &= 511;
-
         if l.counter == 256 {
             // We hit the end of block symbol.
             state.begin(BlockDone);
@@ -836,68 +838,39 @@ fn decompress_fast(
             l.counter = LENGTH_BASE[(l.counter - 257) as usize & BASE_EXTRA_MASK] as u32;
             // Length and distance codes have a number of extra bits depending on
             // the base, which together with the base gives us the exact value.
+
+            fill_bit_buffer(&mut l, &mut in_iter);
             if l.num_extra != 0 {
-                state.begin(ReadExtraBitsLitlen);
-                let num_extra = l.num_extra;
-                try_read!(read_bits(
-                    &mut l,
-                    num_extra,
-                    &mut in_iter,
-                    flags,
-                    |l, extra_bits| {
-                        l.counter += extra_bits as u32;
-                        Action::None
-                    },
-                ));
+                let extra_bits = l.bit_buf & ((1 << l.num_extra) - 1);
+                l.bit_buf >>= l.num_extra;
+                l.num_bits -= l.num_extra;
+                l.counter += extra_bits as u32;
             }
 
             // We found a length code, so a distance code should follow.
-            state.begin(DecodeDistance);
-            match decode_huffman_code(
-                r,
-                &mut l,
-                DIST_TABLE,
-                flags,
-                &mut in_iter,
-                |_r, l, symbol| {
-                    // Check for invalid distance codes.
-                    // It may or may not be faster to put this check at the end
-                    // and mask the base/extra lookup.
-                    if symbol > 29 {
-                        state.begin(InvalidDist);
-                        return Action::End(TINFLStatus::Failed);
-                    }
 
-                    l.num_extra = DIST_EXTRA[symbol as usize] as u32;
-                    l.dist = DIST_BASE[symbol as usize] as u32;
-                    if l.num_extra != 0 {
-                        // ReadEXTRA_BITS_DISTACNE
-                        Action::Jump(ReadExtraBitsDistance)
-                    } else {
-                        Action::Jump(HuffDecodeOuterLoop2)
-                    }
-                },
-            ) {
-                // We decoded a distance code, read the extra bits if needed to find the
-                // full distance value.
-                Action::Jump(to) if to == ReadExtraBitsDistance => {
-                    state.begin(ReadExtraBitsDistance);
-                    let num_extra = l.num_extra;
-                    try_read!(read_bits(
-                        &mut l,
-                        num_extra,
-                        &mut in_iter,
-                        flags,
-                        |l, extra_bits| {
-                            l.dist += extra_bits as u32;
-                            Action::None
-                        },
-                    ));
-                }
-                // There were no extra bits.
-                Action::End(s) => break s,
-                _ => (),
-            };
+            if cfg!(not(target_pointer_width = "64")) {
+                fill_bit_buffer(&mut l, &mut in_iter);
+            }
+
+            let (mut symbol, code_len) = r.tables[DIST_TABLE].lookup(l.bit_buf);
+            symbol &= 511;
+            l.bit_buf >>= code_len;
+            l.num_bits -= code_len;
+            if symbol > 29 {
+                state.begin(InvalidDist);
+                break 'o TINFLStatus::Failed;
+            }
+
+            l.num_extra = DIST_EXTRA[symbol as usize] as u32;
+            l.dist = DIST_BASE[symbol as usize] as u32;
+            if l.num_extra != 0 {
+                fill_bit_buffer(&mut l, &mut in_iter);
+                let extra_bits = l.bit_buf & ((1 << l.num_extra) - 1);
+                l.bit_buf >>= l.num_extra;
+                l.num_bits -= l.num_extra;
+                l.dist += extra_bits as u32;
+            }
 
             l.dist_from_out_buf_start = out_buf.position();
             if l.dist as usize > l.dist_from_out_buf_start &&
@@ -940,16 +913,12 @@ fn decompress_fast(
                 {
                     if source_pos < out_pos {
                         let (from_slice, to_slice) = out_slice.split_at_mut(out_pos);
-                        to_slice[..match_len].copy_from_slice(
-                            &from_slice[source_pos..
-                                            source_pos + match_len],
-                        )
+                        to_slice[..match_len]
+                            .copy_from_slice(&from_slice[source_pos..source_pos + match_len]);
                     } else {
                         let (to_slice, from_slice) = out_slice.split_at_mut(source_pos);
-                        to_slice[out_pos..out_pos + match_len].copy_from_slice(
-                            &from_slice
-                                [..match_len],
-                        );
+                        to_slice[out_pos..out_pos + match_len]
+                            .copy_from_slice(&from_slice[..match_len]);
                     }
                     out_pos += match_len;
                 } else {
@@ -1060,8 +1029,7 @@ fn decompress_inner(
 
     let mut status = 'state_machine: loop {
         match state {
-            Start => {
-                generate_state!(state, 'state_machine, {
+            Start => generate_state!(state, 'state_machine, {
                 l.bit_buf = 0;
                 l.num_bits = 0;
                 l.dist = 0;
@@ -1076,30 +1044,24 @@ fn decompress_inner(
                 } else {
                     Action::Jump(State::ReadBlockHeader)
                 }
-            })
-            }
+            }),
 
-            ReadZlibCmf => {
-                generate_state!(state, 'state_machine, {
+            ReadZlibCmf => generate_state!(state, 'state_machine, {
                 read_byte(&mut in_iter, flags, |cmf| {
                     r.z_header0 = cmf as u32;
                     Action::Jump(State::ReadZlibFlg)
                 })
-            })
-            }
+            }),
 
-            ReadZlibFlg => {
-                generate_state!(state, 'state_machine, {
+            ReadZlibFlg => generate_state!(state, 'state_machine, {
                 read_byte(&mut in_iter, flags, |flg| {
                     r.z_header1 = flg as u32;
                     validate_zlib_header(r.z_header0, r.z_header1, flags, out_buf_size_mask)
                 })
-            })
-            }
+            }),
 
             // Read the block header and jump to the relevant section depending on the block type.
-            ReadBlockHeader => {
-                generate_state!(state, 'state_machine, {
+            ReadBlockHeader => generate_state!(state, 'state_machine, {
                 read_bits(&mut l, 3, &mut in_iter, flags, |l, bits| {
                     r.finish = (bits & 1) as u32;
                     r.block_type = (bits >> 1) as u32 & 3;
@@ -1117,22 +1079,18 @@ fn decompress_inner(
                         _ => unreachable!()
                     }
                 })
-            })
-            }
+            }),
 
             // Raw/Stored/uncompressed block.
-            BlockTypeNoCompression => {
-                generate_state!(state, 'state_machine, {
+            BlockTypeNoCompression => generate_state!(state, 'state_machine, {
                 pad_to_bytes(&mut l, &mut in_iter, flags, |l| {
                     l.counter = 0;
                     Action::Jump(RawHeader)
                 })
-            })
-            }
+            }),
 
             // Check that the raw block header is correct.
-            RawHeader => {
-                generate_state!(state, 'state_machine, {
+            RawHeader => generate_state!(state, 'state_machine, {
                 if l.counter < 4 {
                     // Read block length and block length check.
                     if l.num_bits != 0 {
@@ -1153,7 +1111,7 @@ fn decompress_inner(
                     // The 2 first (2-byte) words in a raw header are the length and the
                     // ones complement of the length.
                     let length = r.raw_header[0] as u16 | ((r.raw_header[1] as u16) << 8);
-                    let check = (r.raw_header[2] as u16) | ((r.raw_header[3] as u16) << 8);
+                    let check = r.raw_header[2] as u16 | ((r.raw_header[3] as u16) << 8);
                     let valid = length == !check;
                     l.counter = length.into();
 
@@ -1171,22 +1129,18 @@ fn decompress_inner(
                         Action::Jump(RawMemcpy1)
                     }
                 }
-            })
-            }
+            }),
 
             // Read the byte from the bit buffer.
-            RawReadFirstByte => {
-                generate_state!(state, 'state_machine, {
+            RawReadFirstByte => generate_state!(state, 'state_machine, {
                 read_bits(&mut l, 8, &mut in_iter, flags, |l, bits| {
                     l.dist = bits as u32;
                     Action::Jump(RawStoreFirstByte)
                 })
-            })
-            }
+            }),
 
             // Write the byte we just read to the output buffer.
-            RawStoreFirstByte => {
-                generate_state!(state, 'state_machine, {
+            RawStoreFirstByte => generate_state!(state, 'state_machine, {
                 if out_buf.bytes_left() == 0 {
                     Action::End(TINFLStatus::HasMoreOutput)
                 } else {
@@ -1202,11 +1156,9 @@ fn decompress_inner(
                         Action::Jump(RawReadFirstByte)
                     }
                 }
-            })
-            }
+            }),
 
-            RawMemcpy1 => {
-                generate_state!(state, 'state_machine, {
+            RawMemcpy1 => generate_state!(state, 'state_machine, {
                 if l.counter == 0 {
                     Action::Jump(BlockDone)
                 } else if out_buf.bytes_left() == 0 {
@@ -1214,11 +1166,9 @@ fn decompress_inner(
                 } else {
                     Action::Jump(RawMemcpy2)
                 }
-            })
-            }
+            }),
 
-            RawMemcpy2 => {
-                generate_state!(state, 'state_machine, {
+            RawMemcpy2 => generate_state!(state, 'state_machine, {
                 if in_iter.len() > 0 {
                     // Copy as many raw bytes as possible from the input to the output using memcpy.
                     // Raw block lengths are limited to 64 * 1024, so casting through usize and u32
@@ -1238,12 +1188,10 @@ fn decompress_inner(
                 } else {
                     end_of_input(flags)
                 }
-            })
-            }
+            }),
 
             // Read how many huffman codes/symbols are used for each table.
-            ReadTableSizes => {
-                generate_state!(state, 'state_machine, {
+            ReadTableSizes => generate_state!(state, 'state_machine, {
                 if l.counter < 3 {
                     let num_bits = [5, 5, 4][l.counter as usize];
                     read_bits(&mut l, num_bits, &mut in_iter, flags, |l, bits| {
@@ -1257,21 +1205,19 @@ fn decompress_inner(
                     l.counter = 0;
                     Action::Jump(ReadHufflenTableCodeSize)
                 }
-            })
-            }
+            }),
 
             // Read the 3-bit lengths of the huffman codes describing the huffman code lengths used
             // to decode the lengths of the main tables.
-            ReadHufflenTableCodeSize => {
-                generate_state!(state, 'state_machine, {
+            ReadHufflenTableCodeSize => generate_state!(state, 'state_machine, {
                 if l.counter < r.table_sizes[HUFFLEN_TABLE] {
                     read_bits(&mut l, 3, &mut in_iter, flags, |l, bits| {
                         // These lengths are not stored in a normal ascending order, but rather one
                         // specified by the deflate specification intended to put the most used
                         // values at the front as trailing zero lengths do not have to be stored.
                         r.tables[HUFFLEN_TABLE]
-                            .code_size[HUFFMAN_LENGTH_ORDER[l.counter as usize] as usize]
-                            = bits as u8;
+                            .code_size[HUFFMAN_LENGTH_ORDER[l.counter as usize] as usize] =
+                                bits as u8;
                         l.counter += 1;
                         Action::None
                     })
@@ -1279,11 +1225,9 @@ fn decompress_inner(
                     r.table_sizes[HUFFLEN_TABLE] = 19;
                     init_tree(r, &mut l)
                 }
-            })
-            }
+            }),
 
-            ReadLitlenDistTablesCodeSize => {
-                generate_state!(state, 'state_machine, {
+            ReadLitlenDistTablesCodeSize => generate_state!(state, 'state_machine, {
                 if l.counter < r.table_sizes[LITLEN_TABLE] + r.table_sizes[DIST_TABLE] {
                     decode_huffman_code(
                         r, &mut l, HUFFLEN_TABLE,
@@ -1315,11 +1259,9 @@ fn decompress_inner(
                     r.block_type -= 1;
                     init_tree(r, &mut l)
                 }
-            })
-            }
+            }),
 
-            ReadExtraBitsCodeSize => {
-                generate_state!(state, 'state_machine, {
+            ReadExtraBitsCodeSize => generate_state!(state, 'state_machine, {
                 let num_extra = l.num_extra;
                 read_bits(&mut l, num_extra, &mut in_iter, flags, |l, mut extra_bits| {
                     // Mask to avoid a bounds check.
@@ -1337,32 +1279,38 @@ fn decompress_inner(
                     l.counter += extra_bits as u32;
                     Action::Jump(ReadLitlenDistTablesCodeSize)
                 })
-            })
-            }
+            }),
 
-            DecodeLitlen => {
-                generate_state!(state, 'state_machine, {
+            DecodeLitlen => generate_state!(state, 'state_machine, {
                 if in_iter.len() < 4 || out_buf.bytes_left() < 2 {
                     // See if we can decode a literal with the data we have left.
                     // Jumps to next state (WriteSymbol) if successful.
                     decode_huffman_code(
-                        r, &mut l, LITLEN_TABLE, flags, &mut in_iter, |_r, l, symbol| {
-                        l.counter = symbol as u32;
-                        Action::Jump(WriteSymbol)
-                        })
+                        r,
+                        &mut l,
+                        LITLEN_TABLE,
+                        flags,
+                        &mut in_iter,
+                        |_r, l, symbol| {
+                            l.counter = symbol as u32;
+                            Action::Jump(WriteSymbol)
+                        },
+                    )
                 } else if
                 // If there is enough space, use the fast inner decompression
                 // function.
                     out_buf.bytes_left() >= 259 &&
-                    in_iter.len() >= 6
+                    in_iter.len() >= 14
                 {
-                    let (status, new_state) =
-                        decompress_fast(r,
-                                        &mut in_iter,
-                                        &mut out_buf,
-                                        flags,
-                                        &mut l,
-                                        out_buf_size_mask);
+                    let (status, new_state) = decompress_fast(
+                        r,
+                        &mut in_iter,
+                        &mut out_buf,
+                        flags,
+                        &mut l,
+                        out_buf_size_mask,
+                    );
+
                     state = new_state;
                     if status == TINFLStatus::Done {
                         Action::Jump(new_state)
@@ -1406,11 +1354,9 @@ fn decompress_inner(
                         }
                     }
                 }
-            })
-            }
+            }),
 
-            WriteSymbol => {
-                generate_state!(state, 'state_machine, {
+            WriteSymbol => generate_state!(state, 'state_machine, {
                 if l.counter >= 256 {
                     Action::Jump(HuffDecodeOuterLoop1)
                 } else if out_buf.bytes_left() > 0 {
@@ -1419,11 +1365,9 @@ fn decompress_inner(
                 } else {
                     Action::End(TINFLStatus::HasMoreOutput)
                 }
-            })
-            }
+            }),
 
-            HuffDecodeOuterLoop1 => {
-                generate_state!(state, 'state_machine, {
+            HuffDecodeOuterLoop1 => generate_state!(state, 'state_machine, {
                 // Mask the top bits since they may contain length info.
                 l.counter &= 511;
 
@@ -1449,21 +1393,17 @@ fn decompress_inner(
                         Action::Jump(DecodeDistance)
                     }
                 }
-            })
-            }
+            }),
 
-            ReadExtraBitsLitlen => {
-                generate_state!(state, 'state_machine, {
+            ReadExtraBitsLitlen => generate_state!(state, 'state_machine, {
                 let num_extra = l.num_extra;
                 read_bits(&mut l, num_extra, &mut in_iter, flags, |l, extra_bits| {
                     l.counter += extra_bits as u32;
                     Action::Jump(DecodeDistance)
                 })
-            })
-            }
+            }),
 
-            DecodeDistance => {
-                generate_state!(state, 'state_machine, {
+            DecodeDistance => generate_state!(state, 'state_machine, {
                 // Try to read a huffman code from the input buffer and look up what
                 // length code the decoded symbol refers to.
                 decode_huffman_code(r, &mut l, DIST_TABLE, flags, &mut in_iter, |_r, l, symbol| {
@@ -1484,21 +1424,17 @@ fn decompress_inner(
                         Action::Jump(HuffDecodeOuterLoop2)
                     }
                 })
-            })
-            }
+            }),
 
-            ReadExtraBitsDistance => {
-                generate_state!(state, 'state_machine, {
+            ReadExtraBitsDistance => generate_state!(state, 'state_machine, {
                 let num_extra = l.num_extra;
                 read_bits(&mut l, num_extra, &mut in_iter, flags, |l, extra_bits| {
                     l.dist += extra_bits as u32;
                     Action::Jump(HuffDecodeOuterLoop2)
                 })
-            })
-            }
+            }),
 
-            HuffDecodeOuterLoop2 => {
-                generate_state!(state, 'state_machine, {
+            HuffDecodeOuterLoop2 => generate_state!(state, 'state_machine, {
                 l.dist_from_out_buf_start = out_buf.position();
                 if l.dist as usize > l.dist_from_out_buf_start &&
                     (flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0) {
@@ -1518,7 +1454,8 @@ fn decompress_inner(
                     if match_end_pos > out_len ||
                         // miniz doesn't do this check here. Not sure how it makes sure
                         // that this case doesn't happen.
-                        (source_pos >= out_pos && (source_pos - out_pos) < l.counter as usize) {
+                        (source_pos >= out_pos && (source_pos - out_pos) < l.counter as usize)
+                    {
                         // Not enough space for all of the data in the output buffer,
                         // so copy what we have space for.
                         if l.counter == 0 {
@@ -1534,12 +1471,14 @@ fn decompress_inner(
                             // This is faster on x86, but at least on arm, it's slower, so only
                             // use it on x86 for now.
                             if match_len <= l.dist as usize && match_len > 3 &&
-                                (cfg!(any(target_arch = "x86", target_arch ="x86_64"))){
+                                (cfg!(any(target_arch = "x86", target_arch ="x86_64")))
+                            {
                                 if source_pos < out_pos {
                                     let (from_slice, to_slice) = out_slice.split_at_mut(out_pos);
                                     to_slice[..match_len]
                                         .copy_from_slice(
-                                            &from_slice[source_pos..source_pos + match_len])
+                                            &from_slice[source_pos..source_pos + match_len]
+                                        )
                                 } else {
                                     let (to_slice, from_slice) = out_slice.split_at_mut(source_pos);
                                     to_slice[out_pos..out_pos + match_len]
@@ -1574,11 +1513,9 @@ fn decompress_inner(
                         Action::Jump(DecodeLitlen)
                     }
                 }
-            })
-            }
+            }),
 
-            WriteLenBytesToEnd => {
-                generate_state!(state, 'state_machine, {
+            WriteLenBytesToEnd => generate_state!(state, 'state_machine, {
                 if out_buf.bytes_left() > 0 {
                     let source_pos =
                         l.dist_from_out_buf_start.wrapping_sub(l.dist as usize) & out_buf_size_mask;
@@ -1594,11 +1531,9 @@ fn decompress_inner(
                 } else {
                     Action::End(TINFLStatus::HasMoreOutput)
                 }
-            })
-            }
+            }),
 
-            BlockDone => {
-                generate_state!(state, 'state_machine, {
+            BlockDone => generate_state!(state, 'state_machine, {
                 // End once we've read the last block.
                 if r.finish != 0 {
                     pad_to_bytes(&mut l, &mut in_iter, flags, |_| Action::None);
@@ -1619,11 +1554,9 @@ fn decompress_inner(
                 } else {
                     Action::Jump(ReadBlockHeader)
                 }
-            })
-            }
+            }),
 
-            ReadAdler32 => {
-                generate_state!(state, 'state_machine, {
+            ReadAdler32 => generate_state!(state, 'state_machine, {
                 if l.counter < 4 {
                     if l.num_bits != 0 {
                         read_bits(&mut l, 8, &mut in_iter, flags, |l, bits| {
@@ -1643,8 +1576,7 @@ fn decompress_inner(
                 } else {
                     Action::Jump(DoneForever)
                 }
-            })
-            }
+            }),
 
             // We are done.
             DoneForever => break TINFLStatus::Done,
