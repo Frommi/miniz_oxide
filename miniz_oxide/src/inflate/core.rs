@@ -761,6 +761,84 @@ struct LocalVars {
     pub dist_from_out_buf_start: usize,
 }
 
+#[inline]
+fn transfer(
+    out_slice: &mut [u8],
+    mut source_pos: usize,
+    mut out_pos: usize,
+    match_len: usize,
+    out_buf_size_mask: usize,
+) {
+    debug_assert!(out_pos + match_len < out_slice.len());
+
+    for _ in 0..match_len >> 2 {
+        out_slice[out_pos] = out_slice[source_pos & out_buf_size_mask];
+        out_slice[out_pos + 1] = out_slice[(source_pos + 1) & out_buf_size_mask];
+        out_slice[out_pos + 2] = out_slice[(source_pos + 2) & out_buf_size_mask];
+        out_slice[out_pos + 3] = out_slice[(source_pos + 3) & out_buf_size_mask];
+        source_pos += 4;
+        out_pos += 4;
+    }
+
+    match match_len & 3 {
+        0 => (),
+        1 => out_slice[out_pos] = out_slice[source_pos & out_buf_size_mask],
+        2 => {
+            out_slice[out_pos] = out_slice[source_pos & out_buf_size_mask];
+            out_slice[out_pos + 1] = out_slice[(source_pos + 1) & out_buf_size_mask];
+        },
+        3 =>  {
+            out_slice[out_pos] = out_slice[source_pos & out_buf_size_mask];
+            out_slice[out_pos + 1] = out_slice[(source_pos + 1) & out_buf_size_mask];
+            out_slice[out_pos + 2] = out_slice[(source_pos + 2) & out_buf_size_mask];
+        },
+        _ => unreachable!(),
+    }
+}
+
+/// Presumes that there is at least match_len bytes in output left.
+#[inline]
+fn apply_match(
+    out_slice: &mut [u8],
+    out_pos: usize,
+    dist: usize,
+    match_len: usize,
+    out_buf_size_mask: usize,
+) {
+    debug_assert!(out_pos + match_len < out_slice.len());
+
+    let source_pos = out_pos.wrapping_sub(dist) & out_buf_size_mask;
+
+    if match_len == 3 {
+        // Fast path for match len 3.
+        out_slice[out_pos] = out_slice[source_pos];
+        out_slice[out_pos + 1] = out_slice[(source_pos + 1) & out_buf_size_mask];
+        out_slice[out_pos + 2] = out_slice[(source_pos + 2) & out_buf_size_mask];
+        return;
+    }
+
+    if cfg!(not(any(target_arch = "x86", target_arch = "x86_64"))) {
+        // We are not on x86 so copy manually.
+        transfer(out_slice, source_pos, out_pos, match_len, out_buf_size_mask);
+        return;
+    }
+
+    if source_pos >= out_pos && (source_pos - out_pos) < match_len {
+        transfer(out_slice, source_pos, out_pos, match_len, out_buf_size_mask);
+    } else if match_len <= dist && source_pos + match_len < out_slice.len() {
+        // Destination and source segments does not intersect and source does not wrap.
+        if source_pos < out_pos {
+            let (from_slice, to_slice) = out_slice.split_at_mut(out_pos);
+            to_slice[..match_len].copy_from_slice(&from_slice[source_pos..source_pos + match_len]);
+        } else {
+            let (to_slice, from_slice) = out_slice.split_at_mut(source_pos);
+            to_slice[out_pos..out_pos + match_len].copy_from_slice(&from_slice[..match_len]);
+        }
+    } else {
+        transfer(out_slice, source_pos, out_pos, match_len, out_buf_size_mask);
+    }
+}
+
 /// Fast inner decompression loop which is run  while there is at least
 /// 259 bytes left in the output buffer, and at least 6 bytes left in the input buffer
 /// (The maximum one match would need + 1).
@@ -909,80 +987,15 @@ fn decompress_fast(
                 break TINFLStatus::Failed;
             }
 
-            let mut source_pos = (l.dist_from_out_buf_start.wrapping_sub(l.dist as usize)) &
-                out_buf_size_mask;
+            apply_match(
+                out_buf.get_mut(),
+                l.dist_from_out_buf_start,
+                l.dist as usize,
+                l.counter as usize,
+                out_buf_size_mask,
+            );
 
-            let mut out_pos = l.dist_from_out_buf_start;
-
-            // There isn't enough space left for all of the match in the (wrapping) out buffer,
-            // so break out.
-            if source_pos >= out_pos && (source_pos - out_pos) < l.counter as usize {
-                // Jump to the slow decode loop.
-                // Alternatively, we could replicate the code for this condition from there, and
-                // jump directly to WriteLenBytestoend, which may or may not be more efficient,
-                // though would add more code duplication.
-                state.begin(HuffDecodeOuterLoop2);
-                break TINFLStatus::Done;
-            }
-
-            // The match is ok, and there is space so output the decoded match data.
-            {
-                let out_slice = out_buf.get_mut();
-                let mut match_len = l.counter as usize;
-                // This is faster on x86, but at least on arm, it's slower, so only
-                // use it on x86 for now.
-                // TODO: We know that there will always be at least 258 bytes of space
-                // in the output buffer, so maybe we can use that to do big copies without
-                // checking.
-                if match_len <= l.dist as usize && match_len > 3 &&
-                    source_pos + match_len < out_slice.len() &&
-                    (cfg!(any(target_arch = "x86", target_arch = "x86_64")))
-                {
-                    if source_pos < out_pos {
-                        let (from_slice, to_slice) = out_slice.split_at_mut(out_pos);
-                        to_slice[..match_len]
-                            .copy_from_slice(&from_slice[source_pos..source_pos + match_len]);
-                    } else {
-                        let (to_slice, from_slice) = out_slice.split_at_mut(source_pos);
-                        to_slice[out_pos..out_pos + match_len]
-                            .copy_from_slice(&from_slice[..match_len]);
-                    }
-                    out_pos += match_len;
-                } else {
-                    // We are not on x86, there was an overlapping match,
-                    // or the match is wrapping, so copy manually.
-                    // The loop exit condition is at the end since a match
-                    // will always be at least 3 bytes long.
-                    loop {
-                        // We mask the source position so we get the correct bytes
-                        // if the match wraps around.
-                        out_slice[out_pos] =
-                            out_slice[source_pos & out_buf_size_mask];
-                        out_slice[out_pos + 1] =
-                            out_slice[(source_pos + 1) & out_buf_size_mask];
-                        out_slice[out_pos + 2] =
-                            out_slice[(source_pos + 2) & out_buf_size_mask];
-                        source_pos += 3;
-                        out_pos += 3;
-                        match_len -= 3;
-                        if match_len < 3 {
-                            break;
-                        }
-                    }
-
-                    if match_len > 0 {
-                        out_slice[out_pos] =
-                            out_slice[source_pos & out_buf_size_mask];
-                        if match_len > 1 {
-                            out_slice[out_pos + 1] =
-                                out_slice[(source_pos + 1) & out_buf_size_mask];
-                        }
-                        out_pos += match_len;
-                    }
-                    l.counter = match_len as u32;
-                }
-            }
-            out_buf.set_position(out_pos);
+            out_buf.set_position(l.dist_from_out_buf_start + l.counter as usize);
         }
     };
 
@@ -1260,18 +1273,19 @@ fn decompress_inner(
                     decode_huffman_code(
                         r, &mut l, HUFFLEN_TABLE,
                         flags, &mut in_iter, |r, l, symbol| {
-                        l.dist = symbol as u32;
-                        if l.dist < 16 {
-                            r.len_codes[l.counter as usize] = l.dist as u8;
-                            l.counter += 1;
-                            Action::None
-                        } else if l.dist == 16 && l.counter == 0 {
-                            Action::Jump(BadCodeSizeDistPrevLookup)
-                        } else {
-                            l.num_extra = [2, 3, 7][l.dist as usize - 16];
-                            Action::Jump(ReadExtraBitsCodeSize)
+                            l.dist = symbol as u32;
+                            if l.dist < 16 {
+                                r.len_codes[l.counter as usize] = l.dist as u8;
+                                l.counter += 1;
+                                Action::None
+                            } else if l.dist == 16 && l.counter == 0 {
+                                Action::Jump(BadCodeSizeDistPrevLookup)
+                            } else {
+                                l.num_extra = [2, 3, 7][l.dist as usize - 16];
+                                Action::Jump(ReadExtraBitsCodeSize)
+                            }
                         }
-                    })
+                    )
                 } else if l.counter != r.table_sizes[LITLEN_TABLE] + r.table_sizes[DIST_TABLE] {
                     Action::Jump(BadCodeSizeSum)
                 } else {
@@ -1302,8 +1316,10 @@ fn decompress_inner(
 
                     memset(
                         &mut r.len_codes[
-                            l.counter as usize..l.counter as usize + extra_bits as usize],
-                        val);
+                            l.counter as usize..l.counter as usize + extra_bits as usize
+                        ],
+                        val,
+                    );
                     l.counter += extra_bits as u32;
                     Action::Jump(ReadLitlenDistTablesCodeSize)
                 })
@@ -1471,19 +1487,18 @@ fn decompress_inner(
             HuffDecodeOuterLoop2 => generate_state!(state, 'state_machine, {
                 l.dist_from_out_buf_start = out_buf.position();
                 if l.dist as usize > l.dist_from_out_buf_start &&
-                    (flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0) {
-                        // We encountered a distance that refers a position before
-                        // the start of the decoded data, so we can't continue.
-                        Action::Jump(DistanceOutOfBounds)
+                    (flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0)
+                {
+                    // We encountered a distance that refers a position before
+                    // the start of the decoded data, so we can't continue.
+                    Action::Jump(DistanceOutOfBounds)
                 } else {
-                    let mut source_pos = (l.dist_from_out_buf_start.wrapping_sub(l.dist as usize)) &
-                        out_buf_size_mask;
+                    let mut out_pos = out_buf.position();
+                    let mut source_pos = l.dist_from_out_buf_start
+                        .wrapping_sub(l.dist as usize) & out_buf_size_mask;
 
                     let out_len = out_buf.get_ref().len() as usize;
-                    let match_end_pos = cmp::max(source_pos, out_buf.position())
-                        + l.counter as usize;
-
-                    let mut out_pos = out_buf.position();
+                    let match_end_pos = out_buf.position() + l.counter as usize;
 
                     if match_end_pos > out_len ||
                         // miniz doesn't do this check here. Not sure how it makes sure
@@ -1495,55 +1510,17 @@ fn decompress_inner(
                         if l.counter == 0 {
                             Action::Jump(DecodeLitlen)
                         } else {
-                            l.counter -= 1;
                             Action::Jump(WriteLenBytesToEnd)
                         }
                     } else {
-                        {
-                            let out_slice = out_buf.get_mut();
-                            let mut match_len = l.counter as usize;
-                            // This is faster on x86, but at least on arm, it's slower, so only
-                            // use it on x86 for now.
-                            if match_len <= l.dist as usize && match_len > 3 &&
-                                (cfg!(any(target_arch = "x86", target_arch ="x86_64")))
-                            {
-                                if source_pos < out_pos {
-                                    let (from_slice, to_slice) = out_slice.split_at_mut(out_pos);
-                                    to_slice[..match_len]
-                                        .copy_from_slice(
-                                            &from_slice[source_pos..source_pos + match_len]
-                                        )
-                                } else {
-                                    let (to_slice, from_slice) = out_slice.split_at_mut(source_pos);
-                                    to_slice[out_pos..out_pos + match_len]
-                                        .copy_from_slice(&from_slice[..match_len]);
-                                }
-                                out_pos += match_len;
-                            } else {
-                                loop {
-                                    out_slice[out_pos] = out_slice[source_pos];
-                                    out_slice[out_pos + 1] = out_slice[source_pos + 1];
-                                    out_slice[out_pos + 2] = out_slice[source_pos + 2];
-                                    source_pos += 3;
-                                    out_pos += 3;
-                                    match_len -= 3;
-                                    if match_len < 3 {
-                                        break;
-                                    }
-                                }
-
-                                if match_len > 0 {
-                                    out_slice[out_pos] = out_slice[source_pos];
-                                    if match_len > 1 {
-                                        out_slice[out_pos + 1] = out_slice[source_pos + 1];
-                                    }
-                                    out_pos += match_len;
-                                }
-                                l.counter = match_len as u32;
-                            }
-                        }
-
-                        out_buf.set_position(out_pos);
+                        apply_match(
+                            out_buf.get_mut(),
+                            out_pos,
+                            l.dist as usize,
+                            l.counter as usize,
+                            out_buf_size_mask
+                        );
+                        out_buf.set_position(out_pos + l.counter as usize);
                         Action::Jump(DecodeLitlen)
                     }
                 }
@@ -1551,15 +1528,19 @@ fn decompress_inner(
 
             WriteLenBytesToEnd => generate_state!(state, 'state_machine, {
                 if out_buf.bytes_left() > 0 {
-                    let source_pos =
-                        l.dist_from_out_buf_start.wrapping_sub(l.dist as usize) & out_buf_size_mask;
-                    let val = out_buf.get_ref()[source_pos];
-                    l.dist_from_out_buf_start += 1;
-                    out_buf.write_byte(val);
+                    let source_pos = l.dist_from_out_buf_start
+                        .wrapping_sub(l.dist as usize) & out_buf_size_mask;
+                    let out_pos = out_buf.position();
+
+                    let len = cmp::min(out_buf.bytes_left(), l.counter as usize);
+                    transfer(out_buf.get_mut(), source_pos, out_pos, len, out_buf_size_mask);
+
+                    l.dist_from_out_buf_start += len;
+                    out_buf.set_position(out_pos + len);
+                    l.counter -= len as u32;
                     if l.counter == 0 {
                         Action::Jump(DecodeLitlen)
                     } else {
-                        l.counter -= 1;
                         Action::None
                     }
                 } else {
