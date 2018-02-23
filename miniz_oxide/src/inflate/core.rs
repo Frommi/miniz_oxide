@@ -769,7 +769,7 @@ fn transfer(
     match_len: usize,
     out_buf_size_mask: usize,
 ) {
-    debug_assert!(out_pos + match_len < out_slice.len());
+    debug_assert!(out_pos + match_len <= out_slice.len());
 
     for _ in 0..match_len >> 2 {
         out_slice[out_pos] = out_slice[source_pos & out_buf_size_mask];
@@ -805,7 +805,7 @@ fn apply_match(
     match_len: usize,
     out_buf_size_mask: usize,
 ) {
-    debug_assert!(out_pos + match_len < out_slice.len());
+    debug_assert!(out_pos + match_len <= out_slice.len());
 
     let source_pos = out_pos.wrapping_sub(dist) & out_buf_size_mask;
 
