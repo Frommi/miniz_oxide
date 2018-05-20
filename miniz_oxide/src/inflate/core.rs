@@ -1007,13 +1007,33 @@ fn decompress_fast(
 /// out_cur is full, the end of the deflate stream is hit, or there is an error in the deflate
 /// stream.
 ///
-/// The position of the output cursor indicates where in the output buffer slice writing should
+/// # Arguments
+///
+/// `in_buf` is a reference to the compressed data that is to be decompressed. The decompressor will
+/// start at the first byte of this buffer.
+///
+/// `out_cur` is a mutable cursor into the buffer that will store the decompressed data, and that
+/// stores previously decompressed data if any.
+/// * The position of the output cursor indicates where in the output buffer slice writing should
 /// start.
+/// * The decompression function noramlly needs access to 32KiB of the previously decompressed data
+///(or to the beginning of the decompressed data if less than 32KiB has been decompressed.)
+///     - If this data is not available, decompression may fail.
+///     - Some deflate compressors allow specifying a window size which limits match distances to
+/// less than this, or alternatively an RLE mode where matches will only refer to the previous byte
+/// and thus allows a smaller output buffer. The window size can be specified in the zlib
+/// header structure, however, the header data should not be relied on to be correct.
+///
+/// `flags`
+/// Flags to indicate settings and status to the decompression function.
+/// * The `TINFL_FLAG_HAS_MORE_INPUT` has to be specified if more compressed data is to be provided
+/// in a subsequent call to this function.
+/// * See the the [`inflate_flags`](inflate_flags/index.html) module for details on other flags.
 ///
 /// # Returns
 /// returns a tuple containing the status of the compressor, the number of input bytes read, and the
 /// number of bytes output to `out_cur`.
-/// Updates `out_cur` with new position.
+/// Updates the position of `out_cur` to point to the next free spot in the output buffer.
 ///
 /// This function shouldn't panic pending any bugs.
 pub fn decompress(
@@ -1035,6 +1055,11 @@ fn decompress_inner(
     out_cur: &mut Cursor<&mut [u8]>,
     flags: u32,
 ) -> (TINFLStatus, usize, usize) {
+
+    if out_cur.get_ref().len() == 0 {
+        return (TINFLStatus::BadParam, 0, 0);
+    }
+
     let out_buf_start_pos = out_cur.position() as usize;
     let out_buf_size_mask = if flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0 {
         usize::max_value()
@@ -1796,6 +1821,17 @@ mod test {
             State::BadTotalSymbols,
             false,
         );
+    }
+
+    #[test]
+    fn empty_output_buffer() {
+        let mut r = DecompressorOxide::new();
+        let mut output_buf = vec![];
+        let mut out_cursor = Cursor::new(output_buf.as_mut_slice());
+        // Check that we handle an empty buffer properly and not panicking.
+        // https://github.com/Frommi/miniz_oxide/issues/23
+        let res = decompress(&mut r, &[0, 0, 0], &mut out_cursor, 0);
+        assert_eq!(res, (TINFLStatus::BadParam, 0, 0));
     }
 
 }
