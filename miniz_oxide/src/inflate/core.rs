@@ -1016,7 +1016,7 @@ fn decompress_fast(
 /// stores previously decompressed data if any.
 /// * The position of the output cursor indicates where in the output buffer slice writing should
 /// start.
-/// * The decompression function noramlly needs access to 32KiB of the previously decompressed data
+/// * The decompression function normally needs access to 32KiB of the previously decompressed data
 ///(or to the beginning of the decompressed data if less than 32KiB has been decompressed.)
 ///     - If this data is not available, decompression may fail.
 ///     - Some deflate compressors allow specifying a window size which limits match distances to
@@ -1055,16 +1055,14 @@ fn decompress_inner(
     out_cur: &mut Cursor<&mut [u8]>,
     flags: u32,
 ) -> (TINFLStatus, usize, usize) {
-
-    if out_cur.get_ref().len() == 0 {
-        return (TINFLStatus::BadParam, 0, 0);
-    }
-
     let out_buf_start_pos = out_cur.position() as usize;
     let out_buf_size_mask = if flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0 {
         usize::max_value()
     } else {
-        out_cur.get_ref().len() - 1
+        // In the case of zero len, any attempt to write would produce HasMoreOutput,
+        // so to gracefully process the case of there really being no output,
+        // set the mask to all zeros.
+        out_cur.get_ref().len().saturating_sub(1)
     };
 
     // Ensure the output buffer's size is a power of 2, unless the output buffer
@@ -1824,14 +1822,37 @@ mod test {
     }
 
     #[test]
-    fn empty_output_buffer() {
+    fn empty_output_buffer_non_wrapping() {
+        let mut encoded = [
+            120, 156, 243, 72, 205, 201, 201, 215, 81, 168,
+            202, 201,  76, 82,   4,   0,  27, 101,  4,  19,
+        ];
+        let flags = TINFL_FLAG_COMPUTE_ADLER32 |
+            TINFL_FLAG_PARSE_ZLIB_HEADER |
+            TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
         let mut r = DecompressorOxide::new();
         let mut output_buf = vec![];
         let mut out_cursor = Cursor::new(output_buf.as_mut_slice());
         // Check that we handle an empty buffer properly and not panicking.
         // https://github.com/Frommi/miniz_oxide/issues/23
-        let res = decompress(&mut r, &[0, 0, 0], &mut out_cursor, 0);
-        assert_eq!(res, (TINFLStatus::BadParam, 0, 0));
+        let res = decompress(&mut r, &encoded, &mut out_cursor, flags);
+        assert_eq!(res, (TINFLStatus::HasMoreOutput, 4, 0));
     }
 
+    #[test]
+    fn empty_output_buffer_wrapping() {
+        let mut encoded =  [
+            0x73, 0x49, 0x4d, 0xcb,
+            0x49, 0x2c, 0x49, 0x55,
+            0x00, 0x11, 0x00
+        ];
+        let flags = TINFL_FLAG_COMPUTE_ADLER32;
+        let mut r = DecompressorOxide::new();
+        let mut output_buf = vec![];
+        let mut out_cursor = Cursor::new(output_buf.as_mut_slice());
+        // Check that we handle an empty buffer properly and not panicking.
+        // https://github.com/Frommi/miniz_oxide/issues/23
+        let res = decompress(&mut r, &encoded, &mut out_cursor, flags);
+        assert_eq!(res, (TINFLStatus::HasMoreOutput, 2, 0));
+    }
 }
