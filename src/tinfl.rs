@@ -79,9 +79,9 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_heap(
 
     let mut decomp = tinfl_decompressor::with_init_state_only();
     // Pointer to the buffer to place the decompressed data into.
-    let mut p_buf: *mut c_void = ptr::null_mut();
+    let mut p_buf: *mut c_void = ::miniz_def_alloc_func(ptr::null_mut(), MIN_BUFFER_CAPACITY, 1);
     // Capacity of the current output buffer.
-    let mut out_buf_capacity = 0;
+    let mut out_buf_capacity = MIN_BUFFER_CAPACITY;
 
     *p_out_len = 0;
     // How far into the source buffer we have read.
