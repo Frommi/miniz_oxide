@@ -119,13 +119,8 @@ fn compress_to_vec_inner(input: &[u8], level: u8, window_bits: i32, strategy: i3
     // The comp flags function sets the zlib flag if the window_bits parameter is > 0.
     let flags = create_comp_flags_from_zip_params(level.into(), window_bits, strategy);
     let mut compressor = CompressorOxide::new(flags);
-    let mut output = Vec::with_capacity(input.len() / 2);
-    // # Unsafe
-    // We trust compress to not read the uninitialized bytes.
-    unsafe {
-        let cap = output.capacity();
-        output.set_len(cap);
-    }
+    let mut output = vec![0;input.len() / 2];
+
     let mut in_pos = 0;
     let mut out_pos = 0;
     loop {
@@ -149,14 +144,7 @@ fn compress_to_vec_inner(input: &[u8], level: u8, window_bits: i32, strategy: i3
                 // We need more space, so extend the vector.
                 if output.len().saturating_sub(out_pos) < 30 {
                     let current_len = output.len();
-                    output.reserve(current_len);
-
-                    // # Unsafe
-                    // We trust compress to not read the uninitialized bytes.
-                    unsafe {
-                        let cap = output.capacity();
-                        output.set_len(cap);
-                    }
+                    output.extend(&vec![0;current_len]);
                 }
             }
             // Not supposed to happen unless there is a bug.

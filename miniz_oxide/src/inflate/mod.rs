@@ -71,15 +71,8 @@ pub fn decompress_to_vec_zlib(input: &[u8]) -> Result<Vec<u8>, TINFLStatus> {
 
 fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>, TINFLStatus> {
     let flags = flags | inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
-    let mut ret = Vec::with_capacity(input.len() * 2);
+    let mut ret : Vec<u8> = vec![0;input.len() * 2];
 
-    // # Unsafe
-    // We trust decompress to not read the unitialized bytes as it's wrapped
-    // in a cursor that's position is set to the end of the initialized data.
-    unsafe {
-        let cap = ret.capacity();
-        ret.set_len(cap);
-    };
     let mut decomp = unsafe { DecompressorOxide::with_init_state_only() };
 
     let mut in_pos = 0;
@@ -103,14 +96,7 @@ fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>, TINFLSta
 
             TINFLStatus::HasMoreOutput => {
                 // We need more space so extend the buffer.
-                ret.reserve(out_pos);
-                // # Unsafe
-                // We trust decompress to not read the unitialized bytes as it's wrapped
-                // in a cursor that's position is set to the end of the initialized data.
-                unsafe {
-                    let cap = ret.capacity();
-                    ret.set_len(cap);
-                }
+                ret.extend(&vec![0;out_pos]);
             },
 
             _ => return Err(status),
