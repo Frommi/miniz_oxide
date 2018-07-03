@@ -1823,7 +1823,7 @@ mod test {
 
     #[test]
     fn empty_output_buffer_non_wrapping() {
-        let mut encoded = [
+        let encoded = [
             120, 156, 243, 72, 205, 201, 201, 215, 81, 168,
             202, 201,  76, 82,   4,   0,  27, 101,  4,  19,
         ];
@@ -1841,7 +1841,7 @@ mod test {
 
     #[test]
     fn empty_output_buffer_wrapping() {
-        let mut encoded =  [
+        let encoded =  [
             0x73, 0x49, 0x4d, 0xcb,
             0x49, 0x2c, 0x49, 0x55,
             0x00, 0x11, 0x00
