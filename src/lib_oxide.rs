@@ -89,7 +89,7 @@ pub struct mz_stream {
     // TODO: Not sure
     pub data_type: c_int,
     /// Adler32 checksum of the data that has been compressed or uncompressed.
-    pub adler: c_ulong,
+    pub adler: c_uint,
     /// Reserved
     pub reserved: c_ulong,
 }
@@ -216,7 +216,7 @@ pub struct StreamOxide<'io, ST: StateType> {
 
     state: BoxedState<ST>,
 
-    pub adler: c_ulong,
+    pub adler: c_uint,
 }
 
 
@@ -408,7 +408,7 @@ pub fn mz_deflate_oxide(
         *next_out = &mut mem::replace(next_out, &mut [])[out_bytes..];
         stream_oxide.total_in += in_bytes as c_ulong;
         stream_oxide.total_out += out_bytes as c_ulong;
-        stream_oxide.adler = compressor.adler32() as c_ulong;
+        stream_oxide.adler = compressor.adler32() as c_uint;
 
         if defl_status == TDEFLStatus::BadParam || defl_status == TDEFLStatus::PutBufFailed {
             return Err(MZError::Stream);
