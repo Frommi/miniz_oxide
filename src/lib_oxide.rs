@@ -12,6 +12,7 @@ use miniz_oxide::inflate::TINFLStatus;
 use miniz_oxide::inflate::core::{TINFL_LZ_DICT_SIZE, inflate_flags, DecompressorOxide};
 
 use miniz_oxide::*;
+use miniz_oxide::deflate::core::{CompressorOxide};
 
 const MZ_DEFLATED: c_int = 8;
 const MZ_DEFAULT_WINDOW_BITS: c_int = 15;
@@ -475,6 +476,17 @@ pub struct inflate_state {
     pub m_window_bits: c_int,
     pub m_dict: [u8; TINFL_LZ_DICT_SIZE],
     pub m_last_status: TINFLStatus,
+    // consistent with tdefl_compressor in case there is a type confusion
+    pub inner: Option<CompressorOxide>,
+}
+
+// There could be a type confusion problem when calling deflateEnd with inflate
+// stream buffer. Making inflate_state consistent with tdefl_compressor can
+// workaround this issue.
+impl inflate_state {
+    pub fn drop_inner(&mut self) {
+        self.inner = None;
+    }
 }
 
 pub fn mz_inflate_init_oxide(stream_oxide: &mut StreamOxide<inflate_state>) -> MZResult {
