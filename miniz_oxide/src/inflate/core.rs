@@ -1780,7 +1780,7 @@ mod test {
         assert_eq!(masked_lookup(dt, 20), (5, 5));
     }
 
-    fn check_result(input: &[u8], status: TINFLStatus, expected_state: State, zlib: bool) {
+    fn check_result(input: &[u8], expected_status: TINFLStatus, expected_state: State, zlib: bool) {
         let mut r = unsafe { DecompressorOxide::with_init_state_only() };
         let mut output_buf = vec![0; 1024 * 32];
         let mut out_cursor = Cursor::new(output_buf.as_mut_slice());
@@ -1788,42 +1788,82 @@ mod test {
             inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER
         } else {
             0
-        } | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
+        } | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF | TINFL_FLAG_HAS_MORE_INPUT;
         let (d_status, _in_bytes, _out_bytes) =
             decompress(&mut r, input, &mut out_cursor, flags);
-        assert_eq!(r.state, expected_state);
-        assert_eq!(status, d_status);
+        assert_eq!(expected_status, d_status);
+        assert_eq!(expected_state, r.state);
     }
 
     #[test]
     fn bogus_input() {
+        use self::check_result as cr;
         const F: TINFLStatus = TINFLStatus::Failed;
+        const OK: TINFLStatus = TINFLStatus::Done;
         // Bad CM.
-        check_result(&[0x77, 0x85][..], F, State::BadZlibHeader, true);
+        cr(&[0x77, 0x85], F, State::BadZlibHeader, true);
         // Bad window size (but check is correct).
-        check_result(&[0x88, 0x98][..], F, State::BadZlibHeader, true);
+        cr(&[0x88, 0x98], F, State::BadZlibHeader, true);
         // Bad check bits.
-        check_result(&[0x78, 0x98][..], F, State::BadZlibHeader, true);
+        cr(&[0x78, 0x98], F, State::BadZlibHeader, true);
 
         // Too many code lengths. (From inflate library issues)
-        check_result(
+        cr(
             b"M\xff\xffM*\xad\xad\xad\xad\xad\xad\xad\xcd\xcd\xcdM",
             F,
             State::BadTotalSymbols,
             false,
         );
         // Bad CLEN (also from inflate library issues)
-        check_result(
+        cr(
             b"\xdd\xff\xff*M\x94ffffffffff",
             F,
             State::BadTotalSymbols,
             false,
         );
+
+        // Port of inflate coverage tests from zlib-ng
+        // https://github.com/Dead2/zlib-ng/blob/develop/test/infcover.c
+        let c = |a, b, c| cr(a, b, c, false);
+
+        // Invalid uncompressed/raw block length.
+        c(&[0,0,0,0,0], F, State::BadRawLength);
+        // Ok empty uncompressed block.
+        c(&[3, 0], OK, State::DoneForever);
+        // Invalid block type.
+        c(&[6], F, State::BlockTypeUnexpected);
+        // Ok uncompressed block.
+        c(&[1, 1, 0, 0xfe, 0xff, 0], OK, State::DoneForever);
+        // Too many litlens, we handle this later than zlib, so this test won't
+        // give the same result.
+        //        c(&[0xfc, 0, 0], F, State::BadTotalSymbols);
+        // Invalid set of code lengths - TODO Check if this is the correct error for this.
+        c(&[4, 0, 0xfe, 0xff], F, State::BadTotalSymbols);
+        // Invalid repeat in list of code lengths.
+        // (Try to repeat a non-existant code.)
+        c(&[4, 0, 0x24, 0x49, 0], F, State::BadCodeSizeDistPrevLookup);
+        // Missing end of block code (should we have a separate error for this?) - fails on futher input
+        //    c(&[4, 0, 0x24, 0xe9, 0xff, 0x6d], F, State::BadTotalSymbols);
+        // Invalid set of literals/lengths
+        c(&[4, 0x80, 0x49, 0x92, 0x24, 0x49, 0x92, 0x24, 0x71, 0xff, 0xff, 0x93, 0x11, 0], F, State::BadTotalSymbols);
+        // Invalid set of distances _ needsmoreinput
+        // c(&[4, 0x80, 0x49, 0x92, 0x24, 0x49, 0x92, 0x24, 0x0f, 0xb4, 0xff, 0xff, 0xc3, 0x84], F, State::BadTotalSymbols);
+        // Invalid distance code
+        c(&[2, 0x7e, 0xff, 0xff], F, State::InvalidDist);
+
+        // Distance refers to position before the start
+        c(&[0x0c, 0xc0 ,0x81 ,0, 0, 0, 0, 0, 0x90, 0xff, 0x6b, 0x4, 0], F, State::DistanceOutOfBounds);
+
+        // Trailer
+        // Bad gzip trailer checksum GZip header not handled by miniz_oxide
+        //cr(&[0x1f, 0x8b, 0x08 ,0 ,0 ,0 ,0 ,0 ,0 ,0 ,0x03, 0, 0, 0, 0, 0x01], F, State::BadCRC, false)
+        // Bad gzip trailer length
+        //cr(&[0x1f, 0x8b, 0x08 ,0 ,0 ,0 ,0 ,0 ,0 ,0 ,0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0x01], F, State::BadCRC, false)
     }
 
     #[test]
     fn empty_output_buffer_non_wrapping() {
-        let mut encoded = [
+        let encoded = [
             120, 156, 243, 72, 205, 201, 201, 215, 81, 168,
             202, 201,  76, 82,   4,   0,  27, 101,  4,  19,
         ];
@@ -1841,7 +1881,7 @@ mod test {
 
     #[test]
     fn empty_output_buffer_wrapping() {
-        let mut encoded =  [
+        let encoded =  [
             0x73, 0x49, 0x4d, 0xcb,
             0x49, 0x2c, 0x49, 0x55,
             0x00, 0x11, 0x00
