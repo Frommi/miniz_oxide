@@ -31,8 +31,6 @@ mod shared;
 pub use shared::update_adler32 as mz_adler32_oxide;
 pub use shared::MZ_ADLER32_INIT;
 
-use libc::{c_int, c_void};
-
 /// A list of flush types.
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -49,7 +47,7 @@ impl MZFlush {
     /// Create a Flush instance from an integer value.
     ///
     /// Returns `MZError::Param` on invalid values.
-    pub fn new(flush: c_int) -> Result<Self, MZError> {
+    pub fn new(flush: i32) -> Result<Self, MZError> {
         match flush {
             0 => Ok(MZFlush::None),
             1 | 2 => Ok(MZFlush::Sync),

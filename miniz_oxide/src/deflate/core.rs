@@ -9,6 +9,21 @@ use super::super::*;
 use shared::{HUFFMAN_LENGTH_ORDER, MZ_ADLER32_INIT, update_adler32};
 use deflate::buffer::{HashBuffers, LZ_CODE_BUF_SIZE, OUT_BUF_SIZE, LocalBuf};
 
+
+// Avoid using libc types on wasm, since they don't exist.
+// This is a temporary fix until the callback API has improved.
+#[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
+#[allow(non_camel_case_types)]
+type callback_c_void = u8;
+#[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
+#[allow(non_camel_case_types)]
+type callback_c_int = i32;
+#[cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))]
+use libc::c_void as callback_c_void;
+#[cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))]
+use libc::c_int as callback_c_int;
+
+
 const MAX_PROBES_MASK: i32 = 0xFFF;
 
 const MAX_SUPPORTED_HUFF_CODESIZE: usize = 32;
@@ -156,7 +171,8 @@ struct SymFreq {
 }
 
 /// Compression callback function type.
-pub type PutBufFuncPtrNotNull = unsafe extern "C" fn(*const c_void, c_int, *mut c_void) -> bool;
+pub type PutBufFuncPtrNotNull = unsafe extern "C" fn(
+    *const callback_c_void, callback_c_int, *mut callback_c_void) -> bool;
 /// `Option` alias for compression callback function type.
 pub type PutBufFuncPtr = Option<PutBufFuncPtrNotNull>;
 
@@ -221,7 +237,7 @@ impl From<MZFlush> for TDEFLFlush {
 }
 
 impl TDEFLFlush {
-    pub fn new(flush: c_int) -> Result<Self, MZError> {
+    pub fn new(flush: i32) -> Result<Self, MZError> {
         match flush {
             0 => Ok(TDEFLFlush::None),
             2 => Ok(TDEFLFlush::Sync),
@@ -365,7 +381,7 @@ impl CompressorOxide {
 #[derive(Copy, Clone)]
 pub struct CallbackFunc {
     pub put_buf_func: PutBufFuncPtrNotNull,
-    pub put_buf_user: *mut c_void,
+    pub put_buf_user: *mut callback_c_void,
 }
 
 impl CallbackFunc {
@@ -379,7 +395,7 @@ impl CallbackFunc {
         // this whole function should maybe be unsafe as well.
         let call_success = unsafe {
             (self.put_buf_func)(
-                &params.local_buf.b[0] as *const u8 as *const c_void,
+                &params.local_buf.b[0] as *const u8 as *const callback_c_void,
                 saved_output.pos as i32,
                 self.put_buf_user,
             )
@@ -2032,6 +2048,9 @@ pub fn compress(
 /// # Returns
 /// Returns a tuple containing the current status of the compressor, the current position
 /// in the input buffer.
+///
+/// The caller is responsible for ensuring the CallbackFunc struct will not cause undefined
+/// behaviour.
 pub fn compress_to_output(
     d: &mut CompressorOxide,
     in_buf: &[u8],
