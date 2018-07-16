@@ -15,5 +15,4 @@ description = "DEFLATE compression and decompression library rewritten in Rust b
 name = "miniz_oxide"
 
 [dependencies]
-libc = "0.2.22"
 adler32 = "1.0.2"

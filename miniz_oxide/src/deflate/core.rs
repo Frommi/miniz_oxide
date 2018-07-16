@@ -9,21 +9,6 @@ use super::super::*;
 use shared::{HUFFMAN_LENGTH_ORDER, MZ_ADLER32_INIT, update_adler32};
 use deflate::buffer::{HashBuffers, LZ_CODE_BUF_SIZE, OUT_BUF_SIZE, LocalBuf};
 
-
-// Avoid using libc types on wasm, since they don't exist.
-// This is a temporary fix until the callback API has improved.
-#[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
-#[allow(non_camel_case_types)]
-type callback_c_void = u8;
-#[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
-#[allow(non_camel_case_types)]
-type callback_c_int = i32;
-#[cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))]
-use libc::c_void as callback_c_void;
-#[cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))]
-use libc::c_int as callback_c_int;
-
-
 const MAX_PROBES_MASK: i32 = 0xFFF;
 
 const MAX_SUPPORTED_HUFF_CODESIZE: usize = 32;
@@ -169,12 +154,6 @@ struct SymFreq {
     key: u16,
     sym_index: u16,
 }
-
-/// Compression callback function type.
-pub type PutBufFuncPtrNotNull = unsafe extern "C" fn(
-    *const callback_c_void, callback_c_int, *mut callback_c_void) -> bool;
-/// `Option` alias for compression callback function type.
-pub type PutBufFuncPtr = Option<PutBufFuncPtrNotNull>;
 
 pub mod deflate_flags {
     /// Whether to use a zlib wrapper.
@@ -378,13 +357,11 @@ impl CompressorOxide {
 }
 
 /// Callback function and user used in `compress_to_output`.
-#[derive(Copy, Clone)]
-pub struct CallbackFunc {
-    pub put_buf_func: PutBufFuncPtrNotNull,
-    pub put_buf_user: *mut callback_c_void,
+pub struct CallbackFunc<'a> {
+    pub put_buf_func: Box<FnMut(&[u8]) -> bool + 'a>,
 }
 
-impl CallbackFunc {
+impl<'a> CallbackFunc<'a> {
     fn flush_output(
         &mut self,
         saved_output: SavedOutputBufferOxide,
@@ -393,13 +370,8 @@ impl CallbackFunc {
         // TODO: As this could be unsafe since
         // we can't verify the function pointer
         // this whole function should maybe be unsafe as well.
-        let call_success = unsafe {
-            (self.put_buf_func)(
-                &params.local_buf.b[0] as *const u8 as *const callback_c_void,
-                saved_output.pos as i32,
-                self.put_buf_user,
-            )
-        };
+        let call_success = (self.put_buf_func)
+            (&params.local_buf.b[0..saved_output.pos as usize]);
 
         if !call_success {
             params.prev_return_status = TDEFLStatus::PutBufFailed;
@@ -442,7 +414,7 @@ impl<'a> CallbackBuf<'a> {
 }
 
 enum CallbackOut<'a> {
-    Func(CallbackFunc),
+    Func(CallbackFunc<'a>),
     Buf(CallbackBuf<'a>),
 }
 
@@ -489,11 +461,11 @@ impl<'a> CallbackOxide<'a> {
             in_buf: Some(in_buf),
             in_buf_size: None,
             out_buf_size: None,
-            out: CallbackOut::Buf(CallbackBuf { out_buf: out_buf }),
+            out: CallbackOut::Buf(CallbackBuf { out_buf }),
         }
     }
 
-    fn new_callback_func(in_buf: &'a [u8], callback_func: CallbackFunc) -> Self {
+    fn new_callback_func(in_buf: &'a [u8], callback_func: CallbackFunc<'a>) -> Self {
         CallbackOxide {
             in_buf: Some(in_buf),
             in_buf_size: None,
@@ -2054,12 +2026,12 @@ pub fn compress(
 pub fn compress_to_output(
     d: &mut CompressorOxide,
     in_buf: &[u8],
-    callback_func: CallbackFunc,
     flush: TDEFLFlush,
+    callback_func: impl FnMut(&[u8]) -> bool,
 ) -> (TDEFLStatus, usize) {
     let res = compress_inner(
         d,
-        &mut CallbackOxide::new_callback_func(in_buf, callback_func),
+        &mut CallbackOxide::new_callback_func(in_buf, CallbackFunc { put_buf_func: Box::new(callback_func)}),
         flush
     );
 
@@ -2189,7 +2161,9 @@ pub fn create_comp_flags_from_zip_params(level: i32, window_bits: i32, strategy:
 
 #[cfg(test)]
 mod test {
-    use super::{write_u16_le, write_u16_le_uc, read_u16_le};
+    use super::{write_u16_le, write_u16_le_uc, read_u16_le,
+                CompressorOxide, compress_to_output, create_comp_flags_from_zip_params, TDEFLFlush, TDEFLStatus};
+    use ::inflate::{decompress_to_vec, TINFLStatus};
 
     #[test]
     fn u16_to_slice() {
@@ -2205,5 +2179,25 @@ mod test {
     fn u16_from_slice() {
         let mut slice = [208, 7];
         assert_eq!(read_u16_le(&mut slice, 0), 2000);
+    }
+
+    #[test]
+    fn compress_output() {
+        let slice = [1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 1, 2, 6, 1, 2, 3, 1, 2, 3, 2, 3, 1, 2, 3];
+        let mut encoded = vec![];
+        let flags = create_comp_flags_from_zip_params(6, 0, 0);
+        let mut d = CompressorOxide::new(flags);
+        let (status, in_consumed) = compress_to_output(
+            &mut d,
+            &slice,
+            TDEFLFlush::Finish,
+            |out: &[u8]| { encoded.extend_from_slice(out); true },
+        );
+
+        assert_eq!(status, TDEFLStatus::Done);
+        assert_eq!(in_consumed, slice.len());
+
+        let decoded = decompress_to_vec(&encoded[..]).unwrap();
+        assert_eq!(&decoded[..], &slice[..]);
     }
 }
