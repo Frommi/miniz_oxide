@@ -1655,11 +1655,15 @@ fn decompress_inner(
             &out_buf.get_ref()[out_buf_start_pos..out_buf_pos],
         );
 
-        // Once we are done, check if the checksum matches with the one provided in the zlib header.
-        if status == TINFLStatus::Done && flags & TINFL_FLAG_PARSE_ZLIB_HEADER != 0 &&
-            r.check_adler32 != r.z_adler32
-        {
-            status = TINFLStatus::Adler32Mismatch;
+        // disabled so that random input from fuzzer would not be rejected early,
+        // before it has a chance to reach interesting parts of code
+        if !cfg!(fuzzing) {
+            // Once we are done, check if the checksum matches with the one provided in the zlib header.
+            if status == TINFLStatus::Done && flags & TINFL_FLAG_PARSE_ZLIB_HEADER != 0 &&
+                r.check_adler32 != r.z_adler32
+            {
+                status = TINFLStatus::Adler32Mismatch;
+            }
         }
     }
 
