@@ -3,7 +3,18 @@ use std::{mem, cmp, ptr, slice};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use miniz_oxide::deflate::core::{compress, compress_to_output, create_comp_flags_from_zip_params,
-                           CallbackFunc, CompressorOxide, PutBufFuncPtr, TDEFLFlush, TDEFLStatus};
+                                 CompressorOxide, TDEFLFlush, TDEFLStatus};
+
+/// Compression callback function type.
+pub type PutBufFuncPtrNotNull = unsafe extern "C" fn(
+    *const c_void, c_int, *mut c_void) -> bool;
+/// `Option` alias for compression callback function type.
+pub type PutBufFuncPtr = Option<PutBufFuncPtrNotNull>;
+
+pub struct CallbackFunc {
+    pub put_buf_func: PutBufFuncPtrNotNull,
+    pub put_buf_user: *mut c_void,
+}
 
 /// Deflate flush modes.
 pub mod flush_modes {
@@ -119,13 +130,24 @@ pub unsafe extern "C" fn tdefl_compress(
                         }
                     }
                 },
-                Some(func) => {
+                Some(ref func) => {
                     if out_buf_size > 0 || !out_buf.is_null() {
                         in_size.map(|size| *size = 0);
                         out_size.map(|size| *size = 0);
                         return TDEFLStatus::BadParam;
                     }
-                    let res = compress_to_output(compressor, in_slice, func, flush);
+                    let res = compress_to_output(
+                        compressor,
+                        in_slice,
+                        flush,
+                        |out: &[u8]| {
+                            (func.put_buf_func)(
+                                &(out[0]) as *const u8 as *const c_void,
+                                out.len() as i32,
+                                func.put_buf_user
+                            )
+                        },
+                    );
                     (res.0, res.1, 0)
                 },
             };
