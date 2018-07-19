@@ -1,9 +1,9 @@
 #![feature(allocator_api)]
 
 extern crate crc;
-#[cfg(not(all(target_arch = "wasm32", not(target_os = "emscripten"))))]
+#[cfg(not(any(feature = "libc_stub", all(target_arch = "wasm32", not(target_os = "emscripten")))))]
 extern crate libc;
-#[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
+#[cfg(any(feature = "libc_stub", all(target_arch = "wasm32", not(target_os = "emscripten"))))]
 mod libc {
     #![allow(non_camel_case_types)]
 

@@ -36,6 +36,7 @@ benching = ["build_orig_miniz", "no_c_export"]
 build_orig_miniz = []
 build_stub_miniz = []
 no_c_export = []
+libc_stub = []
 
 [profile.dev]
 panic = "abort"
