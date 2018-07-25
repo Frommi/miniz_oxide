@@ -466,6 +466,8 @@ pub fn mz_deflate_reset_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) 
 #[repr(C)]
 #[allow(bad_style)]
 pub struct inflate_state {
+    // consistent with tdefl_compressor in case there is a type confusion
+    pub inner: Option<CompressorOxide>,
     pub m_decomp: DecompressorOxide,
 
     pub m_dict_ofs: c_uint,
@@ -476,8 +478,6 @@ pub struct inflate_state {
     pub m_window_bits: c_int,
     pub m_dict: [u8; TINFL_LZ_DICT_SIZE],
     pub m_last_status: TINFLStatus,
-    // consistent with tdefl_compressor in case there is a type confusion
-    pub inner: Option<CompressorOxide>,
 }
 
 // There could be a type confusion problem when calling deflateEnd with inflate
