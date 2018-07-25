@@ -5,6 +5,9 @@ language:
 compiler:
   - gcc
 rust: nightly
+before_install:
+  - sudo apt-get update
+  - sudo apt-get install valgrind
 script:
   - cargo test
   - cargo test -p miniz_oxide
