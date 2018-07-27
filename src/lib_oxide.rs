@@ -231,11 +231,6 @@ pub struct StreamOxide<'io, ST: StateType> {
 
 impl<'io, ST: StateType> StreamOxide<'io, ST> {
     pub unsafe fn new(stream: &mut mz_stream) -> Result<Self, MZError> {
-        // XXX: When calling init function, the state is null. We cannot check it here.
-        // if stream.state.is_null() {
-        //     return Err(MZError::Stream);
-        // }
-
         if !stream.state.is_null() {
             let stream_type_slice: StreamType = ptr::read(stream.state as *const StreamType);
             if stream_type_slice != ST::get_stream_type() {
