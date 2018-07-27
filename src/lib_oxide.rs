@@ -12,7 +12,6 @@ use miniz_oxide::inflate::TINFLStatus;
 use miniz_oxide::inflate::core::{TINFL_LZ_DICT_SIZE, inflate_flags, DecompressorOxide};
 
 use miniz_oxide::*;
-use miniz_oxide::deflate::core::{CompressorOxide};
 
 const MZ_DEFLATED: c_int = 8;
 const MZ_DEFAULT_WINDOW_BITS: c_int = 15;
@@ -140,14 +139,23 @@ pub unsafe extern "C" fn def_free_func(_opaque: *mut c_void, address: *mut c_voi
 /// Trait used for states that can be carried by BoxedState.
 pub trait StateType {
     fn drop_state(&mut self);
+    fn get_stream_type() -> StreamType;
 }
 impl StateType for tdefl_compressor {
     fn drop_state(&mut self) {
         self.drop_inner();
     }
+
+    fn get_stream_type() -> StreamType {
+        StreamType::Deflate
+    }
 }
 impl StateType for inflate_state {
     fn drop_state(&mut self) {}
+
+    fn get_stream_type() -> StreamType {
+        StreamType::Inflate
+    }
 }
 
 /// Wrapper for a heap-allocated compressor/decompressor that frees the stucture on drop.
@@ -222,7 +230,18 @@ pub struct StreamOxide<'io, ST: StateType> {
 
 
 impl<'io, ST: StateType> StreamOxide<'io, ST> {
-    pub unsafe fn new(stream: &mut mz_stream) -> Self {
+    pub unsafe fn new(stream: &mut mz_stream) -> Result<Self, MZError> {
+        // XXX: When calling init function, the state is null. We cannot check it here.
+        // if stream.state.is_null() {
+        //     return Err(MZError::Stream);
+        // }
+
+        if !stream.state.is_null() {
+            let stream_type_slice: StreamType = ptr::read(stream.state as *const StreamType);
+            if stream_type_slice != ST::get_stream_type() {
+                return Err(MZError::Stream);
+            }
+        }
         let in_slice = stream.next_in.as_ref().map(|ptr| {
             slice::from_raw_parts(ptr, stream.avail_in as usize)
         });
@@ -231,14 +250,14 @@ impl<'io, ST: StateType> StreamOxide<'io, ST> {
             slice::from_raw_parts_mut(ptr, stream.avail_out as usize)
         });
 
-        StreamOxide {
+        Ok(StreamOxide {
             next_in: in_slice,
             total_in: stream.total_in,
             next_out: out_slice,
             total_out: stream.total_out,
             state: BoxedState::new(stream),
             adler: stream.adler,
-        }
+        })
     }
 
     pub fn into_mz_stream(mut self) -> mz_stream {
@@ -461,13 +480,17 @@ pub fn mz_deflate_reset_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) 
     Ok(MZStatus::Ok)
 }
 
-
+#[allow(bad_style)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum StreamType {
+    Inflate,
+    Deflate
+}
 
 #[repr(C)]
 #[allow(bad_style)]
 pub struct inflate_state {
-    // consistent with tdefl_compressor in case there is a type confusion
-    pub inner: Option<CompressorOxide>,
+    pub stream_type: StreamType,
     pub m_decomp: DecompressorOxide,
 
     pub m_dict_ofs: c_uint,
@@ -478,15 +501,6 @@ pub struct inflate_state {
     pub m_window_bits: c_int,
     pub m_dict: [u8; TINFL_LZ_DICT_SIZE],
     pub m_last_status: TINFLStatus,
-}
-
-// There could be a type confusion problem when calling deflateEnd with inflate
-// stream buffer. Making inflate_state consistent with tdefl_compressor can
-// workaround this issue.
-impl inflate_state {
-    pub fn drop_inner(&mut self) {
-        self.inner = None;
-    }
 }
 
 pub fn mz_inflate_init_oxide(stream_oxide: &mut StreamOxide<inflate_state>) -> MZResult {
@@ -507,6 +521,7 @@ pub fn mz_inflate_init2_oxide(
 
     stream_oxide.state.alloc_state::<inflate_state>()?;
     let state = stream_oxide.state.as_mut().ok_or(MZError::Mem)?;
+    state.stream_type = StreamType::Inflate;
     state.m_decomp.init();
     state.m_dict_ofs = 0;
     state.m_dict_avail = 0;

@@ -4,6 +4,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use miniz_oxide::deflate::core::{compress, compress_to_output, create_comp_flags_from_zip_params,
                                  CompressorOxide, TDEFLFlush, TDEFLStatus};
+use lib_oxide::StreamType;
 
 /// Compression callback function type.
 pub type PutBufFuncPtrNotNull = unsafe extern "C" fn(
@@ -44,6 +45,7 @@ pub mod strategy {
 #[repr(C)]
 #[allow(bad_style)]
 pub struct tdefl_compressor {
+    pub stream_type: StreamType,
     pub inner: Option<CompressorOxide>,
     pub callback: Option<CallbackFunc>,
 }
@@ -51,6 +53,7 @@ pub struct tdefl_compressor {
 impl tdefl_compressor {
     pub(crate) fn new(flags: u32) -> Self {
         tdefl_compressor {
+            stream_type: StreamType::Deflate,
             inner: Some(CompressorOxide::new(flags)),
             callback: None,
         }
@@ -58,6 +61,7 @@ impl tdefl_compressor {
 
     pub(crate) fn new_with_callback(flags: u32, func: CallbackFunc) -> Self {
         tdefl_compressor {
+            stream_type: StreamType::Deflate,
             inner: Some(CompressorOxide::new(flags)),
             callback: Some(func),
         }
@@ -178,6 +182,7 @@ pub unsafe extern "C" fn tdefl_compress_buffer(
 pub unsafe extern "C" fn tdefl_allocate() -> *mut tdefl_compressor {
     Box::into_raw(Box::<tdefl_compressor>::new(
         tdefl_compressor {
+            stream_type: StreamType::Deflate,
             inner: None,
             callback: None,
         }

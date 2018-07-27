@@ -155,7 +155,7 @@ macro_rules! oxidize {
                     // Make sure we catch a potential panic, as
                     // this is called from C.
                     match catch_unwind(AssertUnwindSafe(|| {
-                        let mut stream_oxide = StreamOxide::new(&mut *stream);
+                        let mut stream_oxide = StreamOxide::new(&mut *stream).unwrap();
                         let status = $mz_func_oxide(&mut stream_oxide, $($arg_name),*);
                         *stream = stream_oxide.into_mz_stream();
                         as_c_return_code(status)
@@ -234,7 +234,7 @@ pub unsafe extern "C" fn mz_compress2(
                 ..Default::default()
             };
 
-            let mut stream_oxide = StreamOxide::new(&mut stream);
+            let mut stream_oxide = StreamOxide::new(&mut stream).unwrap();
             as_c_return_code(mz_compress2_oxide(&mut stream_oxide, level, dest_len))
         },
     )
@@ -272,7 +272,7 @@ pub unsafe extern "C" fn mz_uncompress(
                 ..Default::default()
             };
 
-            let mut stream_oxide = StreamOxide::new(&mut stream);
+            let mut stream_oxide = StreamOxide::new(&mut stream).unwrap();
             as_c_return_code(mz_uncompress2_oxide(&mut stream_oxide, dest_len))
         },
     )
