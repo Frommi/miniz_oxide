@@ -1,5 +1,3 @@
-#![feature(allocator_api)]
-
 extern crate crc;
 #[cfg(not(any(feature = "libc_stub", all(target_arch = "wasm32", not(target_os = "emscripten")))))]
 extern crate libc;
