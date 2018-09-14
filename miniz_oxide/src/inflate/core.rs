@@ -1182,7 +1182,7 @@ fn decompress_inner(
                     if !valid {
                         Action::Jump(BadRawLength)
                     } else if l.counter == 0 {
-                        // Empty raw block. Sometimes used for syncronization.
+                        // Empty raw block. Sometimes used for synchronization.
                         Action::Jump(BlockDone)
                     } else if l.num_bits != 0 {
                         // There is some data in the bit buffer, so we need to write that first.
