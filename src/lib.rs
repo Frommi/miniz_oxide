@@ -1,5 +1,3 @@
-#![cfg_attr(any(feature = "libc_stub", all(target_arch = "wasm32", not(target_os = "emscripten"))), feature(allocator_api))]
-
 extern crate crc;
 #[cfg(not(any(feature = "libc_stub", all(target_arch = "wasm32", not(target_os = "emscripten")))))]
 extern crate libc;
@@ -7,7 +5,7 @@ extern crate libc;
 mod libc {
     #![allow(non_camel_case_types)]
 
-    use std::alloc::{Alloc, Global, Layout};
+    use std::alloc::{alloc as rust_alloc, realloc as rust_realloc, dealloc as rust_dealloc, Layout};
     use std::mem;
     use std::ptr::NonNull;
 
@@ -24,10 +22,7 @@ mod libc {
             Ok(n) => n,
             Err(_) => return 0 as *mut c_void,
         };
-        let ptr = match Global.alloc(layout) {
-            Ok(addr) => addr.as_ptr() as *mut size_t,
-            Err(_) => return 0 as *mut c_void,
-        };
+        let ptr = rust_alloc(layout) as *mut size_t;
         *ptr.offset(0) = size;
         ptr.offset(1) as *mut c_void
     }
@@ -37,10 +32,7 @@ mod libc {
         let ptr = (ptr as *mut size_t).offset(-1);
         let old_size = *ptr.offset(0);
         let layout = Layout::from_size_align_unchecked(old_size, mem::size_of::<size_t>());
-        let ptr = match Global.realloc(NonNull::new_unchecked(ptr as *mut _), layout, new_size) {
-            Ok(addr) => addr.as_ptr() as *mut size_t,
-            Err(_) => return 0 as *mut c_void,
-        };
+        let ptr = rust_realloc(ptr as *mut _, layout, new_size) as *mut size_t;
         *ptr.offset(0) = new_size;
         ptr.offset(1) as *mut c_void
     }
@@ -50,7 +42,7 @@ mod libc {
         let size = *ptr.offset(0);
         let align = mem::size_of::<size_t>();
         let layout = Layout::from_size_align_unchecked(size, align);
-        Global.dealloc(NonNull::new_unchecked(ptr as *mut _), layout);
+        rust_dealloc(ptr as *mut _, layout);
     }
 }
 extern crate miniz_oxide;
