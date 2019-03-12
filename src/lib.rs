@@ -1,4 +1,4 @@
-extern crate crc;
+extern crate crc32fast;
 #[cfg(not(any(feature = "libc_stub", all(target_arch = "wasm32", not(target_os = "emscripten")))))]
 extern crate libc;
 #[cfg(any(feature = "libc_stub", all(target_arch = "wasm32", not(target_os = "emscripten"))))]
@@ -49,7 +49,6 @@ extern crate miniz_oxide;
 
 use std::{cmp, ptr, slice};
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use crc::{Hasher32, crc32};
 
 use libc::{c_int, c_uint, c_ulong, c_void, size_t};
 
@@ -81,9 +80,9 @@ pub use tdef::flush_modes::*;
 pub use tdef::strategy::*;
 
 pub fn mz_crc32_oxide(crc32: c_uint, data: &[u8]) -> c_uint {
-    let mut digest = crc32::Digest::new_with_initial(crc32::IEEE, crc32);
-    digest.write(data);
-    digest.sum32()
+    let mut digest = crc32fast::Hasher::new_with_initial(crc32);
+    digest.update(data);
+    digest.finalize()
 }
 
 pub const MZ_DEFLATED: c_int = 8;
