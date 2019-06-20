@@ -278,8 +278,9 @@ fn write_u16_le(val: u16, slice: &mut [u8], pos: usize) {
     assert!(pos < slice.len());
     // # Unsafe
     // We just checked that there is space.
+    // We also make the assumption here that slice can't be longer than isize::max.
     unsafe {
-        ptr::write_unaligned(slice.as_mut_ptr() as *mut u16, val);
+        ptr::write_unaligned(slice.as_mut_ptr().offset(pos as isize) as *mut u16, val);
     }
 }
 
