@@ -313,6 +313,8 @@ fn read_u16_le(slice: &[u8], pos: usize) -> u16{
     // # Unsafe
     // We just checked that there is space.
     // We also make the assumption here that slice can't be longer than isize::max.
+    // If that assumption is violated we will simply read from beginning of the slice,
+    // so it would be an issue with output correctness but not with memory safety.
     unsafe {
         ptr::read_unaligned(slice.as_ptr().offset(pos as isize) as *mut u16)
     }
