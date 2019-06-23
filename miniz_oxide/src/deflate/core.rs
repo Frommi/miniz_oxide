@@ -304,7 +304,6 @@ unsafe fn write_u16_le_uc(val: u16, slice: &mut [u8], pos: usize) {
     *slice.as_mut_ptr().offset(pos as isize + 1) = (val >> 8) as u8;
 }
 
-
 #[cfg(target_endian = "little")]
 #[inline]
 fn read_u16_le(slice: &[u8], pos: usize) -> u16{
@@ -325,6 +324,15 @@ fn read_u16_le(slice: &[u8], pos: usize) -> u16{
 fn read_u16_le(slice: &[u8], pos: usize) -> u16{
     slice[pos] as u16 | ((slice[pos + 1] as u16) << 8)
 }
+
+/// Starting with rustc 1.34, the following safe implementation can be used instead:
+/// It works for both platforms and is exactly as fast as unsafe ones, at least on x86
+// TODO: uncomment once Rust 1.34 version can be assumed
+// #[inline]
+// fn read_u16_le(slice: &[u8], pos: usize) -> u16 {
+//     let bytes: [u8; 2] = (slice[pos..=pos+1]).try_into().unwrap();
+//     u16::from_le_bytes(bytes)
+// }
 
 /// Main compression struct.
 pub struct CompressorOxide {
@@ -586,6 +594,7 @@ impl BitBuffer {
 #[inline]
 /// Copy of u64::to_le_bytes() that is only available starting at Rust 1.32,
 /// while we want to support older Rust versions
+/// TODO: drop this once Rust 1.32 version can be assumed
 fn u64_to_le_bytes(num: u64) -> [u8; 8] {
     unsafe { mem::transmute(num.to_le()) }
 }
