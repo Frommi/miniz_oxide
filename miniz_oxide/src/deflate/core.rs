@@ -570,11 +570,9 @@ impl BitBuffer {
 
     fn flush(&mut self, output: &mut OutputBufferOxide) -> io::Result<()> {
         let pos = output.inner.position() as usize;
-        let inner = &mut ((*output.inner.get_mut())[pos]) as *mut u8 as *mut u64;
-        // # Unsafe
-        // TODO: check unsafety
-        unsafe {
-            ptr::write_unaligned(inner, self.bit_buffer.to_le());
+        { // isolation to please borrow checker
+            let inner = &mut (*output.inner.get_mut())[pos..pos+8];
+            inner.copy_from_slice(&self.bit_buffer.to_le_bytes());
         }
         output.inner.seek(
             SeekFrom::Current((self.bits_in >> 3) as i64),
