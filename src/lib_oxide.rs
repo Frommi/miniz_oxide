@@ -2,6 +2,7 @@
 
 use std::{cmp, mem, ptr, slice, usize};
 use std::io::Cursor;
+use std::alloc::{alloc_zeroed, dealloc, Layout};
 
 use libc::{self, c_char, c_int, c_uint, c_ulong, c_void, size_t};
 
@@ -87,7 +88,7 @@ pub struct mz_stream {
     pub opaque: *mut c_void,
 
     // TODO: Not sure
-    pub data_type: c_int,
+    pub data_type: StateTypeEnum,
     /// Adler32 checksum of the data that has been compressed or uncompressed.
     pub adler: c_uint,
     /// Reserved
@@ -112,7 +113,7 @@ impl Default for mz_stream {
             zfree: None,
             opaque: ptr::null_mut(),
 
-            data_type: 0,
+            data_type: StateTypeEnum::None,
             adler: 0,
             reserved: 0,
         }
@@ -136,25 +137,38 @@ pub unsafe extern "C" fn def_free_func(_opaque: *mut c_void, address: *mut c_voi
     libc::free(address)
 }
 
+/// Enum to keep track of what type the internal state is when moving over the C API boundary.
+#[repr(C)]
+#[derive(Debug,Copy,Clone,PartialEq)]
+pub enum StateTypeEnum {
+    None = 0,
+    Inflate,
+    Deflate,
+}
+
 /// Trait used for states that can be carried by BoxedState.
 pub trait StateType {
     fn drop_state(&mut self);
+    const STATE_TYPE: StateTypeEnum;
 }
 impl StateType for tdefl_compressor {
+    const STATE_TYPE: StateTypeEnum = StateTypeEnum::Deflate;
     fn drop_state(&mut self) {
         self.drop_inner();
     }
 }
 impl StateType for inflate_state {
+    const STATE_TYPE: StateTypeEnum = StateTypeEnum::Inflate;
     fn drop_state(&mut self) {}
 }
 
 /// Wrapper for a heap-allocated compressor/decompressor that frees the stucture on drop.
 struct BoxedState<ST: StateType> {
     inner: *mut ST,
-    alloc: mz_alloc_func,
-    free: mz_free_func,
+    alloc: Option<mz_alloc_func>,
+    free: Option<mz_free_func>,
     opaque: *mut c_void,
+    layout: Layout,
 }
 
 impl<ST: StateType> Drop for BoxedState<ST> {
@@ -171,9 +185,10 @@ impl<ST: StateType> BoxedState<ST> {
     pub fn new(stream: &mut mz_stream) -> Self {
         BoxedState {
             inner: stream.state as *mut ST,
-            alloc: stream.zalloc.unwrap_or(def_alloc_func),
-            free: stream.zfree.unwrap_or(def_free_func),
+            alloc: stream.zalloc,
+            free: stream.zfree,
             opaque: stream.opaque,
+            layout: Layout::new::<ST>(),
         }
     }
 
@@ -188,7 +203,10 @@ impl<ST: StateType> BoxedState<ST> {
             return Err(MZError::Param);
         }
 
-        self.inner = unsafe { (self.alloc)(self.opaque, 1, mem::size_of::<ST>()) as *mut ST };
+        // We use the default rust allocator for now. To use a custom allocator we could need to
+        // add support for the internal allocations using the same one.
+        self.inner = unsafe { alloc_zeroed(self.layout) as *mut ST };
+
         if self.inner.is_null() {
             Err(MZError::Mem)
         } else {
@@ -200,7 +218,7 @@ impl<ST: StateType> BoxedState<ST> {
         if !self.inner.is_null() {
             unsafe {
                 self.inner.as_mut().map(|i| i.drop_state());
-                (self.free)(self.opaque, self.inner as *mut c_void)
+                dealloc(self.inner as *mut u8, self.layout);
             }
             self.inner = ptr::null_mut();
         }
@@ -221,7 +239,30 @@ pub struct StreamOxide<'io, ST: StateType> {
 
 
 impl<'io, ST: StateType> StreamOxide<'io, ST> {
+    /// Create a new StreamOxide wrapper from a [mz_stream] object.
+    /// Custom allocation functions are not supported, supplying an mz_stream with allocation
+    /// function will cause creation to fail.
+    ///
+    /// Unsafe as the mz_stream object is not guaranteed to be valid. It is up to the
+    /// caller to ensure it is.
     pub unsafe fn new(stream: &mut mz_stream) -> Self {
+        Self::try_new(stream)
+            .expect("Failed to create StreamOxide, wrong state type or tried to specify allocators.")
+    }
+
+    /// Try to create a new StreamOxide wrapper from a [mz_stream] object.
+    /// Custom allocation functions are not supported, supplying an mz_stream with allocation
+    /// functions will cause creation to fail.
+    ///
+    /// Unsafe as the mz_stream object is not guaranteed to be valid. It is up to the
+    /// caller to ensure it is.
+    pub unsafe fn try_new(stream: &mut mz_stream) -> Result<Self, MZError> {
+        // Make sure we don't make an inflate stream from a deflate stream and vice versa.
+        if stream.data_type != ST::STATE_TYPE
+            || stream.zalloc.is_some() || stream.zfree.is_some() {
+            return Err(MZError::Param);
+        }
+
         let in_slice = stream.next_in.as_ref().map(|ptr| {
             slice::from_raw_parts(ptr, stream.avail_in as usize)
         });
@@ -230,14 +271,14 @@ impl<'io, ST: StateType> StreamOxide<'io, ST> {
             slice::from_raw_parts_mut(ptr, stream.avail_out as usize)
         });
 
-        StreamOxide {
+        Ok(StreamOxide {
             next_in: in_slice,
             total_in: stream.total_in,
             next_out: out_slice,
             total_out: stream.total_out,
             state: BoxedState::new(stream),
             adler: stream.adler,
-        }
+        })
     }
 
     pub fn into_mz_stream(mut self) -> mz_stream {
@@ -261,12 +302,12 @@ impl<'io, ST: StateType> StreamOxide<'io, ST> {
 
             msg: ptr::null(),
 
-            zalloc: Some(self.state.alloc),
-            zfree: Some(self.state.free),
+            zalloc: self.state.alloc,
+            zfree: self.state.free,
             opaque: self.state.opaque,
             state: self.state.forget() as *mut mz_internal_state,
 
-            data_type: 0,
+            data_type: ST::STATE_TYPE,
             adler: self.adler,
             reserved: 0,
         }
