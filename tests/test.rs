@@ -70,16 +70,16 @@ fn c_api() {
             ..Default::default()
         };
 
-        assert_eq!(mz_deflateInit(&mut stream, 1), MZStatus::Ok as libc::c_int);
-        assert_eq!(mz_deflate(&mut stream, 4), MZStatus::StreamEnd as libc::c_int);
-        assert_eq!(mz_deflateEnd(&mut stream), MZStatus::Ok as libc::c_int);
+        assert_eq!(mz_deflateInit(&mut stream, 1), MZStatus::Ok as i32);
+        assert_eq!(mz_deflate(&mut stream, 4), MZStatus::StreamEnd as i32);
+        assert_eq!(mz_deflateEnd(&mut stream), MZStatus::Ok as i32);
         compressed_size = stream.total_out;
 
-        assert_eq!(mz_inflate(&mut stream, 4), MZError::Param as libc::c_int);
-        assert_eq!(mz_inflateEnd(&mut stream), MZError::Param as libc::c_int);
+        assert_eq!(mz_inflate(&mut stream, 4), MZError::Param as i32);
+        assert_eq!(mz_inflateEnd(&mut stream), MZError::Param as i32);
     }
 
-    assert!(compressed_size <= compressed.len() as u64);
+    assert!(compressed_size as usize <= compressed.len());
 
     let mut decompressed = vec![0;data.len()];
 
@@ -92,15 +92,15 @@ fn c_api() {
             ..Default::default()
         };
 
-        assert_eq!(mz_inflateInit(&mut stream),MZStatus::Ok as libc::c_int);
-        assert_eq!(mz_inflate(&mut stream, 4),MZStatus::StreamEnd as libc::c_int);
-        assert_eq!(mz_inflateEnd(&mut stream),MZStatus::Ok as libc::c_int);
+        assert_eq!(mz_inflateInit(&mut stream),MZStatus::Ok as i32);
+        assert_eq!(mz_inflate(&mut stream, 4),MZStatus::StreamEnd as i32);
+        assert_eq!(mz_inflateEnd(&mut stream),MZStatus::Ok as i32);
 
         decompressed_size = stream.total_out;
 
         // This should fail as the stream is an inflate stream!
-        assert_eq!(mz_deflate(&mut stream, 4), MZError::Param as libc::c_int);
-        assert_eq!(mz_deflateEnd(&mut stream), MZError::Param as libc::c_int);
+        assert_eq!(mz_deflate(&mut stream, 4), MZError::Param as i32);
+        assert_eq!(mz_deflateEnd(&mut stream), MZError::Param as i32);
     }
 
     assert_eq!(data[..], decompressed[0..decompressed_size as usize]);

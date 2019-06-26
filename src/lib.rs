@@ -7,7 +7,6 @@ mod libc {
 
     use std::alloc::{alloc as rust_alloc, realloc as rust_realloc, dealloc as rust_dealloc, Layout};
     use std::mem;
-    use std::ptr::NonNull;
 
     pub type c_void = u8;
     pub type c_int = i32;
