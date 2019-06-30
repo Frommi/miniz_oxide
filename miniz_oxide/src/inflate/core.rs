@@ -205,7 +205,10 @@ impl DecompressorOxide {
     /// Create a new decompressor with only the state field initialized.
     ///
     /// This is how it's created in miniz. Unsafe due to uninitialized values.
+    /// Usage is not recommended.
     #[inline]
+    #[deprecated(since = "0.2.2",
+                 note="Will be removed as the safety of using this is hard to verify.")]
     pub unsafe fn with_init_state_only() -> DecompressorOxide {
         let mut decomp: DecompressorOxide = mem::uninitialized();
         decomp.state = core::State::Start;
@@ -1785,7 +1788,7 @@ mod test {
     }
 
     fn check_result(input: &[u8], expected_status: TINFLStatus, expected_state: State, zlib: bool) {
-        let mut r = unsafe { DecompressorOxide::with_init_state_only() };
+        let mut r = DecompressorOxide::default();
         let mut output_buf = vec![0; 1024 * 32];
         let mut out_cursor = Cursor::new(output_buf.as_mut_slice());
         let flags = if zlib {

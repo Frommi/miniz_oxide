@@ -77,7 +77,7 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_heap(
     // We're not using a Vec for the buffer here to make sure the buffer is allocated and freed by
     // the same allocator.
 
-    let mut decomp = tinfl_decompressor::with_init_state_only();
+    let mut decomp = tinfl_decompressor::default();
     // Pointer to the buffer to place the decompressed data into.
     let mut p_buf: *mut c_void = ::miniz_def_alloc_func(ptr::null_mut(), MIN_BUFFER_CAPACITY, 1);
     // Capacity of the current output buffer.
