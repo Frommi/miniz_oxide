@@ -73,7 +73,7 @@ fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>, TINFLSta
     let flags = flags | inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
     let mut ret : Vec<u8> = vec![0;input.len() * 2];
 
-    let mut decomp = unsafe { DecompressorOxide::with_init_state_only() };
+    let mut decomp = Box::<DecompressorOxide>::default();
 
     let mut in_pos = 0;
     let mut out_pos = 0;

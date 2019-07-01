@@ -43,7 +43,7 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_mem(
     flags: c_int,
 ) -> size_t {
     let flags = flags as u32;
-    let mut decomp = tinfl_decompressor::with_init_state_only();
+    let mut decomp = Box::<tinfl_decompressor>::default();
 
     let (status, _, out_consumed) =
         decompress(

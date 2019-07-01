@@ -2171,7 +2171,7 @@ pub fn create_comp_flags_from_zip_params(level: i32, window_bits: i32, strategy:
 mod test {
     use super::{write_u16_le, write_u16_le_uc, read_u16_le,
                 CompressorOxide, compress_to_output, create_comp_flags_from_zip_params, TDEFLFlush, TDEFLStatus};
-    use ::inflate::{decompress_to_vec, TINFLStatus};
+    use ::inflate::decompress_to_vec;
 
     #[test]
     fn u16_to_slice() {
