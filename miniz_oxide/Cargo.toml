@@ -1,7 +1,7 @@
 [package]
 name = "miniz_oxide"
 authors = ["Frommi <daniil.liferenko@gmail.com>"]
-version = "0.2.1"
+version = "0.2.2"
 license = "MIT"
 readme = "Readme.md"
 keywords = ["zlib", "miniz", "deflate", "encoding"]
@@ -15,4 +15,4 @@ description = "DEFLATE compression and decompression library rewritten in Rust b
 name = "miniz_oxide"
 
 [dependencies]
-adler32 = "1.0.2"
+adler32 = "1.0.3"
