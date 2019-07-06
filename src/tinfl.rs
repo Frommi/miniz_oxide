@@ -135,6 +135,7 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_heap(
             return ptr::null_mut();
         }
 
+
         // Otherwise, continue using the reallocated buffer.
         p_buf = p_new_buf;
         out_buf_capacity = new_out_buf_capacity;

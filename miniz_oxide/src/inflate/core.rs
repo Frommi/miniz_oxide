@@ -407,17 +407,6 @@ fn fill_bit_buffer(l: &mut LocalVars, in_iter: &mut slice::Iter<u8>) {
     }
 }
 
-#[inline]
-fn _transfer_unaligned_u64(buf: &mut &mut [u8], from: isize, to: isize) {
-    unsafe {
-        let mut data = ptr::read_unaligned((*buf).as_ptr().offset(from) as *const u32);
-        ptr::write_unaligned((*buf).as_mut_ptr().offset(to) as *mut u32, data);
-
-        data = ptr::read_unaligned((*buf).as_ptr().offset(from + 4) as *const u32);
-        ptr::write_unaligned((*buf).as_mut_ptr().offset(to + 4) as *mut u32, data);
-    };
-}
-
 /// Check that the zlib header is correct and that there is enough space in the buffer
 /// for the window size specified in the header.
 ///
@@ -1522,8 +1511,8 @@ fn decompress_inner(
                     // the start of the decoded data, so we can't continue.
                     Action::Jump(DistanceOutOfBounds)
                 } else {
-                    let mut out_pos = out_buf.position();
-                    let mut source_pos = l.dist_from_out_buf_start
+                    let out_pos = out_buf.position();
+                    let source_pos = l.dist_from_out_buf_start
                         .wrapping_sub(l.dist as usize) & out_buf_size_mask;
 
                     let out_len = out_buf.get_ref().len() as usize;
