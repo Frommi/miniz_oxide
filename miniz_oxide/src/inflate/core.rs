@@ -40,7 +40,7 @@ impl HuffmanTable {
     /// fast lookup table and the full tree has to be traversed to find the code.
     #[inline]
     fn fast_lookup(&self, bit_buf: BitBuffer) -> i16 {
-        self.look_up[(bit_buf & (FAST_LOOKUP_SIZE - 1) as BitBuffer) as usize]
+        self.look_up[(bit_buf & BitBuffer::from(FAST_LOOKUP_SIZE - 1)) as usize]
     }
 
     /// Get the symbol and the code length from the huffman tree.
@@ -52,7 +52,7 @@ impl HuffmanTable {
         loop {
             // symbol here indicates the position of the left (0) node, if the next bit is 1
             // we add 1 to the lookup position to get the right node.
-            symbol = self.tree[(!symbol + ((bit_buf >> code_len) & 1) as i32) as usize] as i32;
+            symbol = i32::from(self.tree[(!symbol + ((bit_buf >> code_len) & 1) as i32) as usize]);
             code_len += 1;
             if symbol >= 0 {
                 break;
@@ -80,7 +80,7 @@ impl HuffmanTable {
             }
         } else {
             // We didn't get a symbol from the fast lookup table, so check the tree instead.
-            Some(self.tree_lookup(symbol.into(), bit_buf, FAST_LOOKUP_BITS.into()))
+            Some(self.tree_lookup(symbol, bit_buf, FAST_LOOKUP_BITS.into()))
         }
     }
 }
@@ -273,8 +273,8 @@ enum State {
 }
 
 impl State {
-    fn is_failure(&self) -> bool {
-        match *self {
+    fn is_failure(self) -> bool {
+        match self {
             BlockTypeUnexpected => true,
             BadCodeSizeSum => true,
             BadTotalSymbols => true,
@@ -390,7 +390,7 @@ fn read_u32_le(iter: &mut slice::Iter<u8>) -> u32 {
 fn fill_bit_buffer(l: &mut LocalVars, in_iter: &mut slice::Iter<u8>) {
     // Read four bytes into the buffer at once.
     if l.num_bits < 30 {
-        l.bit_buf |= (read_u32_le(in_iter) as BitBuffer) << l.num_bits;
+        l.bit_buf |= BitBuffer::from(read_u32_le(in_iter)) << l.num_bits;
         l.num_bits += 32;
     }
 }
@@ -402,7 +402,7 @@ fn fill_bit_buffer(l: &mut LocalVars, in_iter: &mut slice::Iter<u8>) {
 fn fill_bit_buffer(l: &mut LocalVars, in_iter: &mut slice::Iter<u8>) {
     // If the buffer is 32-bit wide, read 2 bytes instead.
     if l.num_bits < 15 {
-        l.bit_buf |= (read_u16_le(in_iter) as BitBuffer) << l.num_bits;
+        l.bit_buf |= read_u16_le(in_iter).into() << l.num_bits;
         l.num_bits += 16;
     }
 }
@@ -480,7 +480,7 @@ where
             //  * until the */
             // /* bit buffer contains >=15 bits (deflate's max. Huffman code size). */
             loop {
-                let mut temp = r.tables[table].fast_lookup(l.bit_buf) as i32;
+                let mut temp = i32::from(r.tables[table].fast_lookup(l.bit_buf));
 
                 if temp >= 0 {
                     let code_len = (temp >> 9) as u32;
@@ -488,10 +488,10 @@ where
                         break;
                     }
                 } else if l.num_bits > FAST_LOOKUP_BITS.into() {
-                    let mut code_len = FAST_LOOKUP_BITS as u32;
+                    let mut code_len = u32::from(FAST_LOOKUP_BITS);
                     loop {
-                        temp = r.tables[table]
-                            .tree[(!temp + ((l.bit_buf >> code_len) & 1) as i32) as usize] as i32;
+                        temp = i32::from(r.tables[table]
+                            .tree[(!temp + ((l.bit_buf >> code_len) & 1) as i32) as usize]);
                         code_len += 1;
                         if temp >= 0 || l.num_bits < code_len + 1 {
                             break;
@@ -517,7 +517,7 @@ where
                 };
 
                 // Do this outside closure for now to avoid borrowing r.
-                l.bit_buf |= (byte as BitBuffer) << l.num_bits;
+                l.bit_buf |= BitBuffer::from(byte) << l.num_bits;
                 l.num_bits += 8;
 
                 if l.num_bits >= 15 {
@@ -529,13 +529,13 @@ where
             // and add them to the bit buffer.
             // Unwrapping here is fine since we just checked that there are at least two
             // bytes left.
-            l.bit_buf |= (read_u16_le(in_iter) as BitBuffer) << l.num_bits;
+            l.bit_buf |= BitBuffer::from(read_u16_le(in_iter)) << l.num_bits;
             l.num_bits += 16;
         }
     }
 
     // We now have at least 15 bits in the input buffer.
-    let mut symbol = r.tables[table].fast_lookup(l.bit_buf) as i32;
+    let mut symbol = i32::from(r.tables[table].fast_lookup(l.bit_buf));
     let code_len;
     // If the symbol was found in the fast lookup table.
     if symbol >= 0 {
@@ -546,7 +546,7 @@ where
         // Mask out the length value.
         symbol &= 511;
     } else {
-        let res = r.tables[table].tree_lookup(symbol, l.bit_buf, FAST_LOOKUP_BITS as u32);
+        let res = r.tables[table].tree_lookup(symbol, l.bit_buf, u32::from(FAST_LOOKUP_BITS));
         symbol = res.0;
         code_len = res.1 as u32;
     };
@@ -560,6 +560,9 @@ where
     f(r, l, symbol)
 }
 
+/// Try to read one byte from `in_iter` and call `f` with the read byte as an argument,
+/// returning the result.
+/// If reading fails, `Action::End is returned`
 #[inline]
 fn read_byte<F>(in_iter: &mut slice::Iter<u8>, flags: u32, f: F) -> Action
 where
@@ -572,7 +575,11 @@ where
 }
 
 // TODO: `l: &mut LocalVars` may be slow similar to decompress_fast (even with inline(always))
+/// Try to read `amount` number of bits from `in_iter` and call the function `f` with the bits as an
+/// an argument after reading, returning the result of that function, or `Action::End` if there are
+/// not enough bytes left.
 #[inline]
+#[allow(clippy::while_immutable_condition)]
 fn read_bits<F>(
     l: &mut LocalVars,
     amount: u32,
@@ -583,13 +590,17 @@ fn read_bits<F>(
 where
     F: FnOnce(&mut LocalVars, BitBuffer) -> Action,
 {
+    // Clippy gives a false positive warning here due to the closure.
+    // Read enough bytes from the input iterator to cover the number of bits we want.
     while l.num_bits < amount {
         match read_byte(in_iter, flags, |byte| {
-            l.bit_buf |= (byte as BitBuffer) << l.num_bits;
+            l.bit_buf |= BitBuffer::from(byte) << l.num_bits;
             l.num_bits += 8;
             Action::None
         }) {
             Action::None => (),
+            // If there are not enough bytes in the input iterator, return and signal that we need
+            // more.
             action => return action,
         }
     }
@@ -678,7 +689,7 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Action {
             }
 
             if code_size <= FAST_LOOKUP_BITS {
-                let k = ((code_size as i16) << 9) | symbol_index as i16;
+                let k = (i16::from(code_size) << 9) | symbol_index as i16;
                 while rev_code < FAST_LOOKUP_SIZE {
                     table.look_up[rev_code as usize] = k;
                     rev_code += 1 << code_size;
@@ -929,8 +940,8 @@ fn decompress_fast(
             // Mask the value to avoid bounds checks
             // We could use get_unchecked later if can statically verify that
             // this will never go out of bounds.
-            l.num_extra = LENGTH_EXTRA[(l.counter - 257) as usize & BASE_EXTRA_MASK] as u32;
-            l.counter = LENGTH_BASE[(l.counter - 257) as usize & BASE_EXTRA_MASK] as u32;
+            l.num_extra = u32::from(LENGTH_EXTRA[(l.counter - 257) as usize & BASE_EXTRA_MASK]);
+            l.counter = u32::from(LENGTH_BASE[(l.counter - 257) as usize & BASE_EXTRA_MASK]);
             // Length and distance codes have a number of extra bits depending on
             // the base, which together with the base gives us the exact value.
 
@@ -957,8 +968,8 @@ fn decompress_fast(
                     break 'o TINFLStatus::Failed;
                 }
 
-                l.num_extra = DIST_EXTRA[symbol as usize] as u32;
-                l.dist = DIST_BASE[symbol as usize] as u32;
+                l.num_extra = u32::from(DIST_EXTRA[symbol as usize]);
+                l.dist = u32::from(DIST_BASE[symbol as usize]);
             } else {
                 state.begin(InvalidCodeLen);
                 break 'o TINFLStatus::Failed;
@@ -1107,14 +1118,14 @@ fn decompress_inner(
 
             ReadZlibCmf => generate_state!(state, 'state_machine, {
                 read_byte(&mut in_iter, flags, |cmf| {
-                    r.z_header0 = cmf as u32;
+                    r.z_header0 = u32::from(cmf);
                     Action::Jump(State::ReadZlibFlg)
                 })
             }),
 
             ReadZlibFlg => generate_state!(state, 'state_machine, {
                 read_byte(&mut in_iter, flags, |flg| {
-                    r.z_header1 = flg as u32;
+                    r.z_header1 = u32::from(flg);
                     validate_zlib_header(r.z_header0, r.z_header1, flags, out_buf_size_mask)
                 })
             }),
@@ -1169,8 +1180,8 @@ fn decompress_inner(
                     // Check if the length value of a raw block is correct.
                     // The 2 first (2-byte) words in a raw header are the length and the
                     // ones complement of the length.
-                    let length = r.raw_header[0] as u16 | ((r.raw_header[1] as u16) << 8);
-                    let check = r.raw_header[2] as u16 | ((r.raw_header[3] as u16) << 8);
+                    let length = u16::from(r.raw_header[0]) | (u16::from(r.raw_header[1]) << 8);
+                    let check = u16::from(r.raw_header[2]) | (u16::from(r.raw_header[3]) << 8);
                     let valid = length == !check;
                     l.counter = length.into();
 
@@ -1255,7 +1266,7 @@ fn decompress_inner(
                     let num_bits = [5, 5, 4][l.counter as usize];
                     read_bits(&mut l, num_bits, &mut in_iter, flags, |l, bits| {
                         r.table_sizes[l.counter as usize] =
-                            bits as u32 + MIN_TABLE_SIZES[l.counter as usize] as u32;
+                            bits as u32 + u32::from(MIN_TABLE_SIZES[l.counter as usize]);
                         l.counter += 1;
                         Action::None
                     })
@@ -1451,8 +1462,9 @@ fn decompress_inner(
                     // Mask the value to avoid bounds checks
                     // We could use get_unchecked later if can statically verify that
                     // this will never go out of bounds.
-                    l.num_extra = LENGTH_EXTRA[(l.counter - 257) as usize & BASE_EXTRA_MASK] as u32;
-                    l.counter = LENGTH_BASE[(l.counter - 257) as usize & BASE_EXTRA_MASK] as u32;
+                    l.num_extra =
+                        u32::from(LENGTH_EXTRA[(l.counter - 257) as usize & BASE_EXTRA_MASK]);
+                    l.counter = u32::from(LENGTH_BASE[(l.counter - 257) as usize & BASE_EXTRA_MASK]);
                     // Length and distance codes have a number of extra bits depending on
                     // the base, which together with the base gives us the exact value.
                     if l.num_extra != 0 {
@@ -1483,8 +1495,8 @@ fn decompress_inner(
                     // Mask the value to avoid bounds checks
                     // We could use get_unchecked later if can statically verify that
                     // this will never go out of bounds.
-                    l.num_extra = DIST_EXTRA[symbol as usize & BASE_EXTRA_MASK] as u32;
-                    l.dist = DIST_BASE[symbol as usize & BASE_EXTRA_MASK] as u32;
+                    l.num_extra = u32::from(DIST_EXTRA[symbol as usize & BASE_EXTRA_MASK]);
+                    l.dist = u32::from(DIST_BASE[symbol as usize & BASE_EXTRA_MASK]);
                     if l.num_extra != 0 {
                         // ReadEXTRA_BITS_DISTACNE
                         Action::Jump(ReadExtraBitsDistance)
@@ -1575,7 +1587,7 @@ fn decompress_inner(
                     let undo = undo_bytes(&mut l, in_consumed as u32) as usize;
                     in_iter = in_buf[in_consumed - undo..].iter();
 
-                    l.bit_buf &= (((1 as BitBuffer) << l.num_bits) - 1) as BitBuffer;
+                    l.bit_buf &= ((1 as BitBuffer) << l.num_bits) - 1;
                     debug_assert_eq!(l.num_bits, 0);
 
                     if flags & TINFL_FLAG_PARSE_ZLIB_HEADER != 0 {
@@ -1601,7 +1613,7 @@ fn decompress_inner(
                     } else {
                         read_byte(&mut in_iter, flags, |byte| {
                             r.z_adler32 <<= 8;
-                            r.z_adler32 |= byte as u32;
+                            r.z_adler32 |= u32::from(byte);
                             l.counter += 1;
                             Action::None
                         })
@@ -1630,7 +1642,7 @@ fn decompress_inner(
         0
     };
 
-    r.state = state.into();
+    r.state = state;
     r.bit_buf = l.bit_buf;
     r.num_bits = l.num_bits;
     r.dist = l.dist;
@@ -1638,7 +1650,7 @@ fn decompress_inner(
     r.num_extra = l.num_extra;
     r.dist_from_out_buf_start = l.dist_from_out_buf_start;
 
-    r.bit_buf &= (((1 as BitBuffer) << r.num_bits) - 1) as BitBuffer;
+    r.bit_buf &= ((1 as BitBuffer) << r.num_bits) - 1;
 
     // If this is a zlib stream, and update the adler32 checksum with the decompressed bytes if
     // requested.
