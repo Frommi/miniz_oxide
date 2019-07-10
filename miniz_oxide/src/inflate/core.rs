@@ -1,7 +1,7 @@
 //! Streaming decompression functionality.
 
 use super::*;
-use shared::{HUFFMAN_LENGTH_ORDER, update_adler32};
+use crate::shared::{HUFFMAN_LENGTH_ORDER, update_adler32};
 
 use std::{cmp, ptr, slice};
 
@@ -306,21 +306,21 @@ use self::State::*;
 ///
 /// The base is used together with the value of the extra bits to decode the actual
 /// length/distance values in a match.
-#[cfg_attr(rustfmt, rustfmt_skip)]
+#[rustfmt::skip]
 const LENGTH_BASE: [u16; 32] = [
     3,  4,  5,  6,  7,  8,  9,  10,  11,  13,  15,  17,  19,  23,  27,  31,
     35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258, 512, 512, 512
 ];
 
 /// Number of extra bits for each length code.
-#[cfg_attr(rustfmt, rustfmt_skip)]
+#[rustfmt::skip]
 const LENGTH_EXTRA: [u8; 32] = [
     0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2,
     3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0, 0, 0, 0
 ];
 
 /// Base length for each distance code.
-#[cfg_attr(rustfmt, rustfmt_skip)]
+#[rustfmt::skip]
 const DIST_BASE: [u16; 32] = [
     1,    2,    3,    4,    5,    7,      9,      13,     17,     25,    33,
     49,   65,   97,   129,  193,  257,    385,    513,    769,    1025,  1537,
@@ -328,7 +328,7 @@ const DIST_BASE: [u16; 32] = [
 ];
 
 /// Number of extra bits for each distance code.
-#[cfg_attr(rustfmt, rustfmt_skip)]
+#[rustfmt::skip]
 const DIST_EXTRA: [u8; 32] = [
     0, 0, 0, 0, 1, 1, 2,  2,  3,  3,  4,  4,  5,  5,  6,  6,
     7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 13, 13
@@ -356,6 +356,9 @@ fn read_u16_le(iter: &mut slice::Iter<u8>) -> u16 {
         // # Unsafe
         //
         // The slice was just bounds checked to be 2 bytes long.
+        //
+        // Skip clippy warning as using a cast with this function is ok.
+        #[allow(clippy::cast_ptr_alignment)]
         unsafe { ptr::read_unaligned(two_bytes.as_ptr() as *const u16) }
     };
     iter.nth(1);
@@ -374,6 +377,7 @@ fn read_u32_le(iter: &mut slice::Iter<u8>) -> u32 {
         // # Unsafe
         //
         // The slice was just bounds checked to be 4 bytes long.
+        #[allow(clippy::cast_ptr_alignment)]
         unsafe { ptr::read_unaligned(four_bytes.as_ptr() as *const u32) }
     };
     iter.nth(3);
@@ -869,7 +873,7 @@ fn decompress_fast(
 
     let status: TINFLStatus = 'o: loop {
         state = State::DecodeLitlen;
-        'litlen: loop {
+        loop {
             // This function assumes that there is at least 259 bytes left in the output buffer,
             // and that there is at least 14 bytes left in the input buffer. 14 input bytes:
             // 15 (prev lit) + 15 (length) + 5 (length extra) + 15 (dist)

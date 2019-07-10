@@ -27,8 +27,8 @@ pub mod inflate;
 pub mod deflate;
 mod shared;
 
-pub use shared::update_adler32 as mz_adler32_oxide;
-pub use shared::MZ_ADLER32_INIT;
+pub use crate::shared::update_adler32 as mz_adler32_oxide;
+pub use crate::shared::MZ_ADLER32_INIT;
 
 /// A list of flush types.
 #[repr(i32)]

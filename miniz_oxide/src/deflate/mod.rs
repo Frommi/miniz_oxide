@@ -159,7 +159,7 @@ fn compress_to_vec_inner(input: &[u8], level: u8, window_bits: i32, strategy: i3
 #[cfg(test)]
 mod test {
     use super::{compress_to_vec, compress_to_vec_inner, CompressionStrategy};
-    use inflate::decompress_to_vec;
+    use crate::inflate::decompress_to_vec;
 
     /// Test deflate example.
     ///

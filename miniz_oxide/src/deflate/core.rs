@@ -6,15 +6,15 @@ use std::io::{self, Cursor, Seek, SeekFrom, Write};
 use super::CompressionLevel;
 use super::deflate_flags::*;
 use super::super::*;
-use shared::{HUFFMAN_LENGTH_ORDER, MZ_ADLER32_INIT, update_adler32};
-use deflate::buffer::{HashBuffers, LZ_CODE_BUF_SIZE, OUT_BUF_SIZE, LocalBuf};
+use crate::shared::{HUFFMAN_LENGTH_ORDER, MZ_ADLER32_INIT, update_adler32};
+use crate::deflate::buffer::{HashBuffers, LZ_CODE_BUF_SIZE, OUT_BUF_SIZE, LocalBuf};
 
 const MAX_PROBES_MASK: i32 = 0xFFF;
 
 const MAX_SUPPORTED_HUFF_CODESIZE: usize = 32;
 
 /// Length code for length values.
-#[cfg_attr(rustfmt, rustfmt_skip)]
+#[rustfmt::skip]
 const LEN_SYM: [u16; 256] = [
     257, 258, 259, 260, 261, 262, 263, 264, 265, 265, 266, 266, 267, 267, 268, 268,
     269, 269, 269, 269, 270, 270, 270, 270, 271, 271, 271, 271, 272, 272, 272, 272,
@@ -35,7 +35,7 @@ const LEN_SYM: [u16; 256] = [
 ];
 
 /// Number of extra bits for length values.
-#[cfg_attr(rustfmt, rustfmt_skip)]
+#[rustfmt::skip]
 const LEN_EXTRA: [u8; 256] = [
     0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1,
     2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
@@ -56,7 +56,7 @@ const LEN_EXTRA: [u8; 256] = [
 ];
 
 /// Distance codes for distances smaller than 512.
-#[cfg_attr(rustfmt, rustfmt_skip)]
+#[rustfmt::skip]
 const SMALL_DIST_SYM: [u8; 512] = [
      0,  1,  2,  3,  4,  4,  5,  5,  6,  6,  6,  6,  7,  7,  7,  7,
      8,  8,  8,  8,  8,  8,  8,  8,  9,  9,  9,  9,  9,  9,  9,  9,
@@ -93,7 +93,7 @@ const SMALL_DIST_SYM: [u8; 512] = [
 ];
 
 /// Number of extra bits for distances smaller than 512.
-#[cfg_attr(rustfmt, rustfmt_skip)]
+#[rustfmt::skip]
 const SMALL_DIST_EXTRA: [u8; 512] = [
     0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
     4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
@@ -114,7 +114,7 @@ const SMALL_DIST_EXTRA: [u8; 512] = [
 ];
 
 /// Base values to calculate distances above 512.
-#[cfg_attr(rustfmt, rustfmt_skip)]
+#[rustfmt::skip]
 const LARGE_DIST_SYM: [u8; 128] = [
      0,  0, 18, 19, 20, 20, 21, 21, 22, 22, 22, 22, 23, 23, 23, 23,
     24, 24, 24, 24, 24, 24, 24, 24, 25, 25, 25, 25, 25, 25, 25, 25,
@@ -127,7 +127,7 @@ const LARGE_DIST_SYM: [u8; 128] = [
 ];
 
 /// Number of extra bits distances above 512.
-#[cfg_attr(rustfmt, rustfmt_skip)]
+#[rustfmt::skip]
 const LARGE_DIST_EXTRA: [u8; 128] = [
      0,  0,  8,  8,  9,  9,  9,  9, 10, 10, 10, 10, 10, 10, 10, 10,
     11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11,
@@ -139,7 +139,7 @@ const LARGE_DIST_EXTRA: [u8; 128] = [
     13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13
 ];
 
-#[cfg_attr(rustfmt, rustfmt_skip)]
+#[rustfmt::skip]
 const BITMASKS: [u32; 17] = [
     0x0000, 0x0001, 0x0003, 0x0007, 0x000F, 0x001F, 0x003F, 0x007F, 0x00FF,
     0x01FF, 0x03FF, 0x07FF, 0x0FFF, 0x1FFF, 0x3FFF, 0x7FFF, 0xFFFF
@@ -271,37 +271,29 @@ fn memset<T: Copy>(slice: &mut [T], val: T) {
     }
 }
 
-#[cfg(all(target_endian = "little", test))]
-#[inline]
-fn write_u16_le(val: u16, slice: &mut [u8], pos: usize) {
-    assert!(pos + 1 < slice.len());
-    assert!(pos < slice.len());
-    // # Unsafe
-    // We just checked that there is space.
-    // We also make the assumption here that slice can't be longer than isize::max.
-    unsafe {
-        ptr::write_unaligned(slice.as_mut_ptr().offset(pos as isize) as *mut u16, val);
-    }
-}
-
-#[cfg(all(target_endian = "big", test))]
+#[cfg(test)]
 #[inline]
 fn write_u16_le(val: u16, slice: &mut [u8], pos: usize) {
     slice[pos] = val as u8;
     slice[pos + 1] = (val >> 8) as u8;
 }
 
+/// Write the value as two bytes two the slice as a little endian word.
+///
+/// Ignore clippy warning as this use is sound:
+/// https://github.com/rust-lang/rust-clippy/issues/2881
 #[cfg(target_endian = "little")]
 #[inline]
+#[allow(clippy::cast_ptr_alignment)]
 unsafe fn write_u16_le_uc(val: u16, slice: &mut [u8], pos: usize) {
-    ptr::write_unaligned(slice.as_mut_ptr().offset(pos as isize) as *mut u16, val);
+    ptr::write_unaligned(slice.as_mut_ptr().add(pos) as *mut u16, val);
 }
 
 #[cfg(target_endian = "big")]
 #[inline]
 unsafe fn write_u16_le_uc(val: u16, slice: &mut [u8], pos: usize) {
-    *slice.as_mut_ptr().offset(pos as isize) = val as u8;
-    *slice.as_mut_ptr().offset(pos as isize + 1) = (val >> 8) as u8;
+    *slice.as_mut_ptr().add(pos) = val as u8;
+    *slice.as_mut_ptr().add(pos + 1) = (val >> 8) as u8;
 }
 
 
@@ -315,8 +307,9 @@ fn read_u16_le(slice: &[u8], pos: usize) -> u16{
     // We also make the assumption here that slice can't be longer than isize::max.
     // If that assumption is violated we will simply read from beginning of the slice,
     // so it would be an issue with output correctness but not with memory safety.
+    #[allow(clippy::cast_ptr_alignment)]
     unsafe {
-        ptr::read_unaligned(slice.as_ptr().offset(pos as isize) as *mut u16)
+        ptr::read_unaligned(slice.as_ptr().add(pos) as *mut u16)
     }
 }
 
@@ -478,12 +471,12 @@ impl<'a> CallbackOxide<'a> {
     }
 
     fn update_size(&mut self, in_size: Option<usize>, out_size: Option<usize>) {
-        if let Some(in_size) = in_size {
-            self.in_buf_size.as_mut().map(|size| **size = in_size);
+        if let (Some(in_size), Some(size)) = (in_size, self.in_buf_size.as_mut()) {
+            **size = in_size;
         }
 
-        if let Some(out_size) = out_size {
-            self.out_buf_size.as_mut().map(|size| **size = out_size);
+        if let (Some(out_size), Some(size)) = (out_size, self.out_buf_size.as_mut()) {
+            **size = out_size
         }
     }
 
@@ -792,7 +785,7 @@ impl HuffmanOxide {
         }
 
         num_codes[max_code_size] += num_codes[max_code_size + 1..].iter().sum::<i32>();
-        let total = num_codes[1..max_code_size + 1]
+        let total = num_codes[1..=max_code_size]
             .iter()
             .rev()
             .enumerate()
@@ -861,7 +854,7 @@ impl HuffmanOxide {
             memset(&mut self.codes[table_num][..], 0);
 
             let mut last = num_used_symbols;
-            for i in 1..code_size_limit + 1 {
+            for i in 1..=code_size_limit {
                 let first = last - num_codes[i] as usize;
                 for symbol in &symbols[first..last] {
                     self.code_sizes[table_num][symbol.sym_index as usize] = i as u8;
@@ -872,7 +865,7 @@ impl HuffmanOxide {
 
         let mut j = 0;
         next_code[1] = 0;
-        for i in 2..code_size_limit + 1 {
+        for i in 2..=code_size_limit {
             j = (j + num_codes[i - 1]) << 1;
             next_code[i] = j as u32;
         }
@@ -1447,12 +1440,11 @@ fn flush_block(
 
         saved_buffer = output.save();
 
-        let mut comp_success = false;
-        if !use_raw_block {
+        let comp_success = if !use_raw_block {
             let use_static = (d.params.flags & TDEFL_FORCE_ALL_STATIC_BLOCKS != 0) ||
                 (d.lz.total_bytes < 48);
-            comp_success = compress_block(&mut d.huff, &mut output, &d.lz, use_static)?;
-        }
+            compress_block(&mut d.huff, &mut output, &d.lz, use_static)?
+        } else {false};
 
         // If we failed to compress anything and the output would take up more space than the output
         // data, output a stored block instead, which has at most 5 bytes of overhead.
@@ -2171,7 +2163,7 @@ pub fn create_comp_flags_from_zip_params(level: i32, window_bits: i32, strategy:
 mod test {
     use super::{write_u16_le, write_u16_le_uc, read_u16_le,
                 CompressorOxide, compress_to_output, create_comp_flags_from_zip_params, TDEFLFlush, TDEFLStatus};
-    use ::inflate::decompress_to_vec;
+    use crate::inflate::decompress_to_vec;
 
     #[test]
     fn u16_to_slice() {
