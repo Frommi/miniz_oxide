@@ -296,26 +296,10 @@ unsafe fn write_u16_le_uc(val: u16, slice: &mut [u8], pos: usize) {
     *slice.as_mut_ptr().add(pos + 1) = (val >> 8) as u8;
 }
 
-
-#[cfg(target_endian = "little")]
+// Read the two bytes starting at pos and interpret them as an u16.
 #[inline]
-fn read_u16_le(slice: &[u8], pos: usize) -> u16{
-    assert!(pos + 1 < slice.len());
-    assert!(pos < slice.len());
-    // # Unsafe
-    // We just checked that there is space.
-    // We also make the assumption here that slice can't be longer than isize::max.
-    // If that assumption is violated we will simply read from beginning of the slice,
-    // so it would be an issue with output correctness but not with memory safety.
-    #[allow(clippy::cast_ptr_alignment)]
-    unsafe {
-        ptr::read_unaligned(slice.as_ptr().add(pos) as *mut u16)
-    }
-}
-
-#[cfg(target_endian = "big")]
-#[inline]
-fn read_u16_le(slice: &[u8], pos: usize) -> u16{
+fn read_u16_le(slice: &[u8], pos: usize) -> u16 {
+    // The compiler is smart enough to optimize this into an unaligned load.
     slice[pos] as u16 | ((slice[pos + 1] as u16) << 8)
 }
 
@@ -354,7 +338,7 @@ impl CompressorOxide {
 
 /// Callback function and user used in `compress_to_output`.
 pub struct CallbackFunc<'a> {
-    pub put_buf_func: Box<FnMut(&[u8]) -> bool + 'a>,
+    pub put_buf_func: Box<dyn FnMut(&[u8]) -> bool + 'a>,
 }
 
 impl<'a> CallbackFunc<'a> {
@@ -1061,6 +1045,11 @@ impl DictOxide {
                             *const T)
     }
 
+    #[inline]
+    fn read_as_u16(&self, pos: usize) -> u16 {
+        read_u16_le(&self.b.dict[..], pos)
+    }
+
     /// Try to find a match for the data at lookahead_pos in the dictionary that is
     /// longer than `match_len`.
     /// Returns a tuple containing (match_distance, match_length). Will be equal to the input
@@ -1092,17 +1081,9 @@ impl DictOxide {
         }
 
         // Read the last byte of the current match, and the next one, used to compare matches.
-        // # Unsafe
-        // `pos` is masked by `LZ_DICT_SIZE_MASK`
-        // `match_len` is clamped be at least 1.
-        // If it is larger or equal to the maximum length, this statement won't be reached.
-        // As the size of self.dict is LZ_DICT_SIZE + MAX_MATCH_LEN - 1 + DICT_PADDING,
-        // this will not go out of bounds.
-        let mut c01: u16 = unsafe {self.read_unaligned((pos + match_len - 1) as isize)};
+        let mut c01: u16 = self.read_as_u16(pos as usize + match_len as usize -1);
         // Read the two bytes at the end position of the current match.
-        // # Unsafe
-        // See previous.
-        let s01: u16 = unsafe {self.read_unaligned(pos as isize)};
+        let s01: u16 = self.read_as_u16(pos as usize);
 
         'outer: loop {
             let mut dist;
@@ -1128,34 +1109,27 @@ impl DictOxide {
                     // Mask the position value to get the position in the hash chain of the next
                     // position to match against.
                     probe_pos = next_probe_pos & LZ_DICT_SIZE_MASK;
-                    // # Unsafe
-                    // See the beginning of this function.
-                    // probe_pos and match_length are still both bounded.
-                    unsafe {
-                        // The first two bytes, last byte and the next byte matched, so
-                        // check the match further.
-                        if self.read_unaligned::<u16>((probe_pos + match_len - 1) as isize) == c01 {
-                            break 'found;
-                        }
+
+                    if self.read_as_u16((probe_pos + match_len - 1) as usize) == c01 {
+                        break 'found;
                     }
                 }
             }
 
             if dist == 0 {
+                // We've looked through the whole match range, so return the best match we
+                // found.
                 return (match_dist, match_len);
             }
-            // # Unsafe
-            // See the beginning of this function.
-            // probe_pos is bounded by masking with LZ_DICT_SIZE_MASK.
-            unsafe {
-                if self.read_unaligned::<u16>(probe_pos as isize) != s01 {
-                    continue;
-                }
+
+            // Check if the two first bytes match.
+            if self.read_as_u16(probe_pos as usize) != s01 {
+                continue;
             }
 
             let mut p = pos + 2;
             let mut q = probe_pos + 2;
-            // Check the length of the match.
+            // The first two bytes matched, so check the full length of the match.
             for _ in 0..32 {
                 // # Unsafe
                 // This loop has a fixed counter, so p_data and q_data will never be
@@ -1178,13 +1152,13 @@ impl DictOxide {
                         match_dist = dist;
                         match_len = cmp::min(max_match_len, probe_len);
                         if match_len == max_match_len {
+                            // We found a match that had the maximum allowed length,
+                            // so there is now point searching further.
                             return (match_dist, match_len);
                         }
-                        // # Unsafe
-                        // pos is bounded by masking.
-                        unsafe {
-                            c01 = self.read_unaligned((pos + match_len - 1) as isize);
-                        }
+                        // We found a better match, so save the last two bytes for further match
+                        // comparisons.
+                        c01 = self.read_as_u16((pos + match_len - 1) as usize)
                     }
                     continue 'outer;
                 }
