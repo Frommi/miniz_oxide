@@ -7,7 +7,8 @@ use super::CompressionLevel;
 use super::deflate_flags::*;
 use super::super::*;
 use crate::shared::{HUFFMAN_LENGTH_ORDER, MZ_ADLER32_INIT, update_adler32};
-use crate::deflate::buffer::{HashBuffers, LZ_CODE_BUF_SIZE, OUT_BUF_SIZE, LocalBuf};
+use crate::deflate::buffer::{HashBuffers, LZ_CODE_BUF_SIZE, OUT_BUF_SIZE, LocalBuf,
+                             LZ_DICT_FULL_SIZE};
 
 const MAX_PROBES_MASK: i32 = 0xFFF;
 
@@ -276,24 +277,6 @@ fn memset<T: Copy>(slice: &mut [T], val: T) {
 fn write_u16_le(val: u16, slice: &mut [u8], pos: usize) {
     slice[pos] = val as u8;
     slice[pos + 1] = (val >> 8) as u8;
-}
-
-/// Write the value as two bytes two the slice as a little endian word.
-///
-/// Ignore clippy warning as this use is sound:
-/// https://github.com/rust-lang/rust-clippy/issues/2881
-#[cfg(target_endian = "little")]
-#[inline]
-#[allow(clippy::cast_ptr_alignment)]
-unsafe fn write_u16_le_uc(val: u16, slice: &mut [u8], pos: usize) {
-    ptr::write_unaligned(slice.as_mut_ptr().add(pos) as *mut u16, val);
-}
-
-#[cfg(target_endian = "big")]
-#[inline]
-unsafe fn write_u16_le_uc(val: u16, slice: &mut [u8], pos: usize) {
-    *slice.as_mut_ptr().add(pos) = val as u8;
-    *slice.as_mut_ptr().add(pos + 1) = (val >> 8) as u8;
 }
 
 // Read the two bytes starting at pos and interpret them as an u16.
@@ -1038,13 +1021,36 @@ impl DictOxide {
 
     /// Do an unaligned read of the data at `pos` in the dictionary and treat it as if it was of
     /// type T.
-    ///
-    /// Unsafe due to reading without bounds checking and type casting.
-    unsafe fn read_unaligned<T>(&self, pos: isize) -> T {
-        ptr::read_unaligned((&self.b.dict as *const [u8] as *const u8).offset(pos) as
-                            *const T)
+    #[inline]
+    fn read_unaligned_u32(&self, pos: u32) -> u32 {
+        // Masking the value here helps avoid bounds checks.
+        let pos = (pos & LZ_DICT_SIZE_MASK) as usize;
+        let end = pos + 4;
+        // Somehow this assertion makes things faster.
+        assert!(end < LZ_DICT_FULL_SIZE);
+
+        let bytes = &self.b.dict[pos..end].as_ptr();
+        // Unsafe
+        //
+        // We just checked the bounds.
+        unsafe { ptr::read_unaligned(*bytes as *const u32)}
     }
 
+    /// Do an unaligned read of the data at `pos` in the dictionary and treat it as if it was of
+    /// type T.
+    #[inline]
+    fn read_unaligned_u64(&self, pos: u32) -> u64 {
+        let pos = pos as usize;
+        let bytes = &self.b.dict[pos..pos+8];
+        // Unsafe
+        //
+        // We just checked the bounds.
+        unsafe {ptr::read_unaligned(bytes.as_ptr() as *const u64)}
+    }
+
+
+    /// Do an unaligned read of the data at `pos` in the dictionary and treat it as if it was of
+    /// type T.
     #[inline]
     fn read_as_u16(&self, pos: usize) -> u16 {
         read_u16_le(&self.b.dict[..], pos)
@@ -1131,13 +1137,8 @@ impl DictOxide {
             let mut q = probe_pos + 2;
             // The first two bytes matched, so check the full length of the match.
             for _ in 0..32 {
-                // # Unsafe
-                // This loop has a fixed counter, so p_data and q_data will never be
-                // increased beyond 250 bytes past the initial values.
-                // Both pos and probe_pos are bounded by masking with LZ_DICT_SIZE_MASK,
-                // so {pos|probe_pos} + 258 will never exceed dict.len().
-                let p_data: u64 = unsafe {u64::from_le(self.read_unaligned(p as isize))};
-                let q_data: u64 = unsafe {u64::from_le(self.read_unaligned(q as isize))};
+                let p_data: u64 = u64::from_le(self.read_unaligned_u64(p));
+                let q_data: u64 = u64::from_le(self.read_unaligned_u64(q));
                 // Compare of 8 bytes at a time by using unaligned loads of 64-bit integers.
                 let xor_data = p_data ^ q_data;
                 if xor_data == 0 {
@@ -1740,7 +1741,7 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
         Some(in_buf) => in_buf,
     };
 
-    assert!(d.lz.code_position < LZ_CODE_BUF_SIZE - 2);
+    debug_assert!(d.lz.code_position < LZ_CODE_BUF_SIZE - 2);
 
     while src_pos < in_buf.len() || (d.params.flush != TDEFLFlush::None && lookahead_size > 0) {
         let mut dst_pos = ((lookahead_pos + lookahead_size) & LZ_DICT_SIZE_MASK) as usize;
@@ -1772,11 +1773,8 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
 
         while lookahead_size >= 4 {
             let mut cur_match_len = 1;
-            // # Unsafe
-            // cur_pos is always masked when assigned to.
-            let first_trigram = unsafe {
-                u32::from_le(d.dict.read_unaligned::<u32>(cur_pos as isize)) & 0xFF_FFFF
-            };
+
+            let first_trigram = u32::from_le(d.dict.read_unaligned_u32(cur_pos)) & 0xFF_FFFF;
 
             let hash = (first_trigram ^ (first_trigram >> (24 - (LZ_HASH_BITS - 8)))) &
                 LEVEL1_HASH_SIZE_MASK;
@@ -1787,30 +1785,19 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
             let mut cur_match_dist = (lookahead_pos - probe_pos) as u16;
             if u32::from(cur_match_dist) <= d.dict.size {
                 probe_pos &= LZ_DICT_SIZE_MASK;
-                // # Unsafe
-                // probe_pos was just masked so it can't exceed the dictionary size + max_match_len.
-                let trigram = unsafe {
-                    u32::from_le(d.dict.read_unaligned::<u32>(probe_pos as isize)) & 0xFF_FFFF
-                };
+
+                let trigram = u32::from_le(d.dict.read_unaligned_u32(probe_pos)) & 0xFF_FFFF;
 
                 if first_trigram == trigram {
                     // Trigram was tested, so we can start with "+ 3" displacement.
-                    let mut p = (cur_pos + 3) as isize;
-                    let mut q = (probe_pos + 3) as isize;
+                    let mut p = cur_pos + 3;
+                    let mut q = probe_pos + 3;
                     cur_match_len = 'find_match: loop {
                         for _ in 0..32 {
-                            // # Unsafe
-                            // This loop has a fixed counter, so p_data and q_data will never be
-                            // increased beyond 251 bytes past the initial values.
-                            // Both pos and probe_pos are bounded by masking with
-                            // LZ_DICT_SIZE_MASK,
-                            // so {pos|probe_pos} + 258 will never exceed dict.len().
-                            // (As long as dict is padded by one additional byte to have
-                            // 259 bytes of lookahead since we start at cur_pos + 3.)
                             let p_data: u64 =
-                                unsafe {u64::from_le(d.dict.read_unaligned(p as isize))};
+                                u64::from_le(d.dict.read_unaligned_u64(p));
                             let q_data: u64 =
-                                unsafe {u64::from_le(d.dict.read_unaligned(q as isize))};
+                                u64::from_le(d.dict.read_unaligned_u64(q));
                             let xor_data = p_data ^ q_data;
                             if xor_data == 0 {
                                 p += 8;
@@ -1846,15 +1833,8 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
                         cur_match_dist -= 1;
 
                         d.lz.write_code((cur_match_len - MIN_MATCH_LEN) as u8);
-                        // # Unsafe
-                        // code_position is checked to be smaller than the lz buffer size
-                        // at the start of this function and on every loop iteration.
-                        unsafe {
-                            write_u16_le_uc(cur_match_dist as u16,
-                                            &mut d.lz.codes,
-                                            d.lz.code_position);
-                            d.lz.code_position += 2;
-                        }
+                        d.lz.write_code(cur_match_dist as u8);
+                        d.lz.write_code((cur_match_dist >> 8) as u8);
 
                         *d.lz.get_flag() >>= 1;
                         *d.lz.get_flag() |= 0x80;
@@ -1881,7 +1861,6 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
                 lookahead_pos += cur_match_len;
                 d.dict.size = cmp::min(d.dict.size + cur_match_len, LZ_DICT_SIZE as u32);
                 cur_pos = (cur_pos + cur_match_len) & LZ_DICT_SIZE_MASK;
-                assert!(lookahead_size >= cur_match_len);
                 lookahead_size -= cur_match_len;
 
                 if d.lz.code_position > LZ_CODE_BUF_SIZE - 8 {
@@ -1901,7 +1880,7 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
                         d.params.src_pos = src_pos;
                         return n > 0;
                     }
-                    assert!(d.lz.code_position < LZ_CODE_BUF_SIZE - 2);
+                    debug_assert!(d.lz.code_position < LZ_CODE_BUF_SIZE - 2);
 
                     lookahead_size = d.dict.lookahead_size;
                     lookahead_pos = d.dict.lookahead_pos;
@@ -2135,7 +2114,7 @@ pub fn create_comp_flags_from_zip_params(level: i32, window_bits: i32, strategy:
 
 #[cfg(test)]
 mod test {
-    use super::{write_u16_le, write_u16_le_uc, read_u16_le,
+    use super::{write_u16_le, read_u16_le,
                 CompressorOxide, compress_to_output, create_comp_flags_from_zip_params, TDEFLFlush, TDEFLStatus};
     use crate::inflate::decompress_to_vec;
 
@@ -2143,9 +2122,6 @@ mod test {
     fn u16_to_slice() {
         let mut slice = [0, 0];
         write_u16_le(2000, &mut slice, 0);
-        assert_eq!(slice, [208, 7]);
-        let mut slice = [0, 0];
-        unsafe {write_u16_le_uc(2000, &mut slice, 0)};
         assert_eq!(slice, [208, 7]);
     }
 

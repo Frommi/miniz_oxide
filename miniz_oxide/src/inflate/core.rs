@@ -406,7 +406,7 @@ fn fill_bit_buffer(l: &mut LocalVars, in_iter: &mut slice::Iter<u8>) {
 fn fill_bit_buffer(l: &mut LocalVars, in_iter: &mut slice::Iter<u8>) {
     // If the buffer is 32-bit wide, read 2 bytes instead.
     if l.num_bits < 15 {
-        l.bit_buf |= read_u16_le(in_iter).into() << l.num_bits;
+        l.bit_buf |= BitBuffer::from(read_u16_le(in_iter)) << l.num_bits;
         l.num_bits += 16;
     }
 }

@@ -8,9 +8,10 @@ use crate::deflate::core::{LZ_DICT_SIZE, MAX_MATCH_LEN};
 pub const LZ_CODE_BUF_SIZE: usize = 64 * 1024;
 /// Size of the output buffer.
 pub const OUT_BUF_SIZE: usize = (LZ_CODE_BUF_SIZE * 13) / 10;
+pub const LZ_DICT_FULL_SIZE: usize = LZ_DICT_SIZE + MAX_MATCH_LEN - 1 + 1;
 
 pub struct HashBuffers {
-    pub dict: [u8; LZ_DICT_SIZE + MAX_MATCH_LEN - 1 + 1],
+    pub dict: [u8; LZ_DICT_FULL_SIZE],
     pub next: [u16; LZ_DICT_SIZE],
     pub hash: [u16; LZ_DICT_SIZE],
 }
@@ -18,7 +19,7 @@ pub struct HashBuffers {
 impl Default for HashBuffers {
     fn default() -> HashBuffers {
         HashBuffers {
-            dict: [0; LZ_DICT_SIZE + MAX_MATCH_LEN - 1 + 1],
+            dict: [0; LZ_DICT_FULL_SIZE],
             next: [0; LZ_DICT_SIZE],
             hash: [0; LZ_DICT_SIZE],
         }
