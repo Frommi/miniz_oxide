@@ -1,7 +1,7 @@
 [package]
 name = "miniz_oxide_c_api"
 authors = ["Frommi <daniil.liferenko@gmail.com>"]
-version = "0.2.2"
+version = "0.2.3"
 build = "src/build.rs"
 license = "MIT"
 readme = "README.md"
@@ -23,7 +23,7 @@ name = "miniz_oxide_c_api"
 [dependencies]
 libc = "0.2.22"
 crc32fast = "1.2.0"
-miniz_oxide = { path = "miniz_oxide", version = "0.2.2" }
+miniz_oxide = { path = "miniz_oxide", version = "0.3.0" }
 
 [build-dependencies]
 cc = "1.0"
