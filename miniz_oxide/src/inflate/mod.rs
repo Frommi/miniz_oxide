@@ -1,6 +1,6 @@
 //! This module contains functionality for decompression.
 
-use std::{mem, usize};
+use std::usize;
 use std::io::Cursor;
 
 pub mod core;

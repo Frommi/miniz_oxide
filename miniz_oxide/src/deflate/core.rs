@@ -1,6 +1,7 @@
 //! Streaming compression functionality.
 
-use std::{cmp, mem, ptr};
+use std::{cmp, mem};
+use std::convert::TryInto;
 use std::io::{self, Cursor, Seek, SeekFrom, Write};
 
 use super::CompressionLevel;
@@ -532,7 +533,8 @@ impl BitBuffer {
         let pos = output.inner.position() as usize;
         { // isolation to please borrow checker
             let inner = &mut (*output.inner.get_mut())[pos..pos+8];
-            inner.copy_from_slice(&u64_to_le_bytes(self.bit_buffer));
+            let bytes = u64::to_le_bytes(self.bit_buffer);
+            inner.copy_from_slice(&bytes);
         }
         output.inner.seek(
             SeekFrom::Current(i64::from(self.bits_in >> 3)),
@@ -541,13 +543,6 @@ impl BitBuffer {
         self.bits_in &= 7;
         Ok(())
     }
-}
-
-#[inline]
-/// Copy of u64::to_le_bytes() that is only available starting at Rust 1.32,
-/// while we want to support older Rust versions
-fn u64_to_le_bytes(num: u64) -> [u8; 8] {
-    unsafe { mem::transmute(num.to_le()) }
 }
 
 /// A struct containing data about huffman codes and symbol frequencies.
@@ -1029,11 +1024,8 @@ impl DictOxide {
         // Somehow this assertion makes things faster.
         assert!(end < LZ_DICT_FULL_SIZE);
 
-        let bytes = &self.b.dict[pos..end].as_ptr();
-        // Unsafe
-        //
-        // We just checked the bounds.
-        unsafe { ptr::read_unaligned(*bytes as *const u32)}
+        let bytes: [u8; 4] = self.b.dict[pos..end].try_into().unwrap();
+        u32::from_le_bytes(bytes)
     }
 
     /// Do an unaligned read of the data at `pos` in the dictionary and treat it as if it was of
@@ -1041,11 +1033,8 @@ impl DictOxide {
     #[inline]
     fn read_unaligned_u64(&self, pos: u32) -> u64 {
         let pos = pos as usize;
-        let bytes = &self.b.dict[pos..pos+8];
-        // Unsafe
-        //
-        // We just checked the bounds.
-        unsafe {ptr::read_unaligned(bytes.as_ptr() as *const u64)}
+        let bytes: [u8; 8] = self.b.dict[pos..pos+8].try_into().unwrap();
+        u64::from_le_bytes(bytes)
     }
 
 
@@ -1137,8 +1126,8 @@ impl DictOxide {
             let mut q = probe_pos + 2;
             // The first two bytes matched, so check the full length of the match.
             for _ in 0..32 {
-                let p_data: u64 = u64::from_le(self.read_unaligned_u64(p));
-                let q_data: u64 = u64::from_le(self.read_unaligned_u64(q));
+                let p_data: u64 = self.read_unaligned_u64(p);
+                let q_data: u64 = self.read_unaligned_u64(q);
                 // Compare of 8 bytes at a time by using unaligned loads of 64-bit integers.
                 let xor_data = p_data ^ q_data;
                 if xor_data == 0 {
@@ -1774,7 +1763,7 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
         while lookahead_size >= 4 {
             let mut cur_match_len = 1;
 
-            let first_trigram = u32::from_le(d.dict.read_unaligned_u32(cur_pos)) & 0xFF_FFFF;
+            let first_trigram = d.dict.read_unaligned_u32(cur_pos) & 0xFF_FFFF;
 
             let hash = (first_trigram ^ (first_trigram >> (24 - (LZ_HASH_BITS - 8)))) &
                 LEVEL1_HASH_SIZE_MASK;
@@ -1786,7 +1775,7 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
             if u32::from(cur_match_dist) <= d.dict.size {
                 probe_pos &= LZ_DICT_SIZE_MASK;
 
-                let trigram = u32::from_le(d.dict.read_unaligned_u32(probe_pos)) & 0xFF_FFFF;
+                let trigram = d.dict.read_unaligned_u32(probe_pos) & 0xFF_FFFF;
 
                 if first_trigram == trigram {
                     // Trigram was tested, so we can start with "+ 3" displacement.
@@ -1794,10 +1783,8 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
                     let mut q = probe_pos + 3;
                     cur_match_len = 'find_match: loop {
                         for _ in 0..32 {
-                            let p_data: u64 =
-                                u64::from_le(d.dict.read_unaligned_u64(p));
-                            let q_data: u64 =
-                                u64::from_le(d.dict.read_unaligned_u64(q));
+                            let p_data: u64 = d.dict.read_unaligned_u64(p);
+                            let q_data: u64 = d.dict.read_unaligned_u64(q);
                             let xor_data = p_data ^ q_data;
                             if xor_data == 0 {
                                 p += 8;

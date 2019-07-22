@@ -3,7 +3,8 @@
 use super::*;
 use crate::shared::{HUFFMAN_LENGTH_ORDER, update_adler32};
 
-use std::{cmp, ptr, slice};
+use std::{cmp, slice};
+use std::convert::TryInto;
 
 use self::output_buffer::OutputBuffer;
 
@@ -178,19 +179,6 @@ impl DecompressorOxide {
         self.state = core::State::Start;
     }
 
-    /// Create a new decompressor with only the state field initialized.
-    ///
-    /// This is how it's created in miniz. Unsafe due to uninitialized values.
-    /// Usage is not recommended.
-    #[inline]
-    #[deprecated(since = "0.2.2",
-                 note="Will be removed as the safety of using this is hard to verify.")]
-    pub unsafe fn with_init_state_only() -> DecompressorOxide {
-        let mut decomp: DecompressorOxide = mem::uninitialized();
-        decomp.state = core::State::Start;
-        decomp
-    }
-
     /// Returns the adler32 checksum of the currently decompressed data.
     #[inline]
     pub fn adler32(&self) -> Option<u32> {
@@ -352,17 +340,11 @@ fn memset<T: Copy>(slice: &mut [T], val: T) {
 #[inline]
 fn read_u16_le(iter: &mut slice::Iter<u8>) -> u16 {
     let ret = {
-        let two_bytes = &iter.as_ref()[0..2];
-        // # Unsafe
-        //
-        // The slice was just bounds checked to be 2 bytes long.
-        //
-        // Skip clippy warning as using a cast with this function is ok.
-        #[allow(clippy::cast_ptr_alignment)]
-        unsafe { ptr::read_unaligned(two_bytes.as_ptr() as *const u16) }
+        let two_bytes = iter.as_ref()[..2].try_into().unwrap();
+        u16::from_le_bytes(two_bytes)
     };
     iter.nth(1);
-    u16::from_le(ret)
+    ret
 }
 
 /// Read an le u32 value from the slice iterator.
@@ -373,15 +355,11 @@ fn read_u16_le(iter: &mut slice::Iter<u8>) -> u16 {
 #[cfg(target_pointer_width = "64")]
 fn read_u32_le(iter: &mut slice::Iter<u8>) -> u32 {
     let ret = {
-        let four_bytes = &iter.as_ref()[..4];
-        // # Unsafe
-        //
-        // The slice was just bounds checked to be 4 bytes long.
-        #[allow(clippy::cast_ptr_alignment)]
-        unsafe { ptr::read_unaligned(four_bytes.as_ptr() as *const u32) }
+        let four_bytes: [u8; 4] = iter.as_ref()[..4].try_into().unwrap();
+        u32::from_le_bytes(four_bytes)
     };
     iter.nth(3);
-    u32::from_le(ret)
+    ret
 }
 
 /// Ensure that there is data in the bit buffer.
