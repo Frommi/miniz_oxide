@@ -2,11 +2,12 @@
 
 use std::{cmp, mem, ptr, slice, usize};
 use std::io::Cursor;
-use std::alloc::{alloc_zeroed, dealloc, Layout};
+use std::default::Default;
+use std::marker::PhantomData;
 
 use libc::{self, c_char, c_int, c_uint, c_ulong, c_void, size_t};
 
-use miniz_oxide::deflate::core::{CompressionStrategy, TDEFLFlush, TDEFLStatus,
+use miniz_oxide::deflate::core::{CompressorOxide, CompressionStrategy, TDEFLFlush, TDEFLStatus,
               compress, create_comp_flags_from_zip_params, deflate_flags};
 use tdef::tdefl_compressor;
 use miniz_oxide::inflate::TINFLStatus;
@@ -54,9 +55,13 @@ pub fn update_crc32(crc32: c_uint, data: &[u8]) -> c_uint {
     digest.sum32()
 }*/
 
+pub enum InternalState {
+    Inflate(Box<inflate_state>),
+    Deflate(Box<tdefl_compressor>),
+}
+
 /// Inner stream state containing pointers to the used buffers and internal state.
 #[repr(C)]
-#[derive(Debug)]
 #[allow(bad_style)]
 pub struct mz_stream {
     /// Pointer to the current start of the input buffer.
@@ -74,8 +79,9 @@ pub struct mz_stream {
     pub total_out: c_ulong,
 
     pub msg: *const c_char,
-    /// Unused
-    pub state: *mut mz_internal_state,
+    /// Compressor or decompressor, if it exists.
+    /// This is boxed to work with the current C API.
+    pub state: Option<Box<InternalState>>,
 
     /// Allocation function to use for allocating the internal compressor/decompressor.
     /// Uses `mz_default_alloc_func` if set to `None`.
@@ -90,7 +96,7 @@ pub struct mz_stream {
     // TODO: Not sure
     pub data_type: StateTypeEnum,
     /// Adler32 checksum of the data that has been compressed or uncompressed.
-    pub adler: c_uint,
+    pub adler: c_ulong,
     /// Reserved
     pub reserved: c_ulong,
 }
@@ -107,7 +113,7 @@ impl Default for mz_stream {
             total_out: 0,
 
             msg: ptr::null(),
-            state: ptr::null_mut(),
+            state: None,
 
             zalloc: None,
             zfree: None,
@@ -148,79 +154,28 @@ pub enum StateTypeEnum {
 
 /// Trait used for states that can be carried by BoxedState.
 pub trait StateType {
-    fn drop_state(&mut self);
     const STATE_TYPE: StateTypeEnum;
+    fn from_enum(&mut InternalState) -> Option<&mut Self>;
 }
-impl StateType for tdefl_compressor {
-    const STATE_TYPE: StateTypeEnum = StateTypeEnum::Deflate;
-    fn drop_state(&mut self) {
-        self.drop_inner();
-    }
-}
+
 impl StateType for inflate_state {
     const STATE_TYPE: StateTypeEnum = StateTypeEnum::Inflate;
-    fn drop_state(&mut self) {}
-}
-
-/// Wrapper for a heap-allocated compressor/decompressor that frees the stucture on drop.
-struct BoxedState<ST: StateType> {
-    inner: *mut ST,
-    alloc: Option<mz_alloc_func>,
-    free: Option<mz_free_func>,
-    opaque: *mut c_void,
-    layout: Layout,
-}
-
-impl<ST: StateType> Drop for BoxedState<ST> {
-    fn drop(&mut self) {
-        self.free_state();
-    }
-}
-
-impl<ST: StateType> BoxedState<ST> {
-    pub fn as_mut(&mut self) -> Option<&mut ST> {
-        unsafe { self.inner.as_mut() }
-    }
-
-    pub fn new(stream: &mut mz_stream) -> Self {
-        BoxedState {
-            inner: stream.state as *mut ST,
-            alloc: stream.zalloc,
-            free: stream.zfree,
-            opaque: stream.opaque,
-            layout: Layout::new::<ST>(),
-        }
-    }
-
-    pub fn forget(mut self) -> *mut ST {
-        let state = self.inner;
-        self.inner = ptr::null_mut();
-        state
-    }
-
-    fn alloc_state<T>(&mut self) -> MZResult {
-        if !self.inner.is_null() {
-            return Err(MZError::Param);
-        }
-
-        // We use the default rust allocator for now. To use a custom allocator we could need to
-        // add support for the internal allocations using the same one.
-        self.inner = unsafe { alloc_zeroed(self.layout) as *mut ST };
-
-        if self.inner.is_null() {
-            Err(MZError::Mem)
+    fn from_enum(value: &mut InternalState) -> Option<&mut Self> {
+        if let InternalState::Inflate(state) = value {
+            Some(state.as_mut())
         } else {
-            Ok(MZStatus::Ok)
+            None
         }
     }
+}
 
-    pub fn free_state(&mut self) {
-        if !self.inner.is_null() {
-            unsafe {
-                self.inner.as_mut().map(|i| i.drop_state());
-                dealloc(self.inner as *mut u8, self.layout);
-            }
-            self.inner = ptr::null_mut();
+impl StateType for tdefl_compressor {
+    const STATE_TYPE: StateTypeEnum = StateTypeEnum::Deflate;
+    fn from_enum(value: &mut InternalState) -> Option<&mut Self> {
+        if let InternalState::Deflate(state) = value {
+            Some(state.as_mut())
+        } else {
+            None
         }
     }
 }
@@ -232,9 +187,10 @@ pub struct StreamOxide<'io, ST: StateType> {
     pub next_out: Option<&'io mut [u8]>,
     pub total_out: c_ulong,
 
-    state: BoxedState<ST>,
+    state: Option<Box<InternalState>>,
 
-    pub adler: c_uint,
+    pub adler: u32,
+    state_type: std::marker::PhantomData<ST>,
 }
 
 
@@ -276,9 +232,14 @@ impl<'io, ST: StateType> StreamOxide<'io, ST> {
             total_in: stream.total_in,
             next_out: out_slice,
             total_out: stream.total_out,
-            state: BoxedState::new(stream),
-            adler: stream.adler,
+            state: stream.state.take(),
+            adler: stream.adler as u32,
+            state_type: PhantomData,
         })
+    }
+
+    pub fn state(&mut self) -> Option<&mut ST> {
+        StateType::from_enum(self.state.as_mut()?.as_mut())
     }
 
     pub fn into_mz_stream(mut self) -> mz_stream {
@@ -302,13 +263,13 @@ impl<'io, ST: StateType> StreamOxide<'io, ST> {
 
             msg: ptr::null(),
 
-            zalloc: self.state.alloc,
-            zfree: self.state.free,
-            opaque: self.state.opaque,
-            state: self.state.forget() as *mut mz_internal_state,
+            zalloc: None,
+            zfree: None,
+            opaque: ptr::null_mut(),
+            state: self.state.take(),
 
             data_type: ST::STATE_TYPE,
-            adler: self.adler,
+            adler: self.adler as c_ulong,
             reserved: 0,
         }
     }
@@ -390,20 +351,9 @@ pub fn mz_deflate_init2_oxide(
     stream_oxide.total_in = 0;
     stream_oxide.total_out = 0;
 
-    stream_oxide.state.alloc_state::<tdefl_compressor>()?;
-    if stream_oxide.state.as_mut().is_none() {
-        mz_deflate_end_oxide(stream_oxide)?;
-        return Err(MZError::Param);
-    }
-
-    match stream_oxide.state.as_mut() {
-        Some(state) => {
-            unsafe {
-                ptr::write(state, tdefl_compressor::new(comp_flags));
-            }
-        },
-        None => unreachable!(),
-    }
+    let mut compr: Box<tdefl_compressor> = Box::default();
+    compr.inner = Some(CompressorOxide::new(comp_flags));
+    stream_oxide.state = Some(Box::new(InternalState::Deflate(compr)));
 
     Ok(MZStatus::Ok)
 }
@@ -412,7 +362,10 @@ pub fn mz_deflate_oxide(
     stream_oxide: &mut StreamOxide<tdefl_compressor>,
     flush: c_int,
 ) -> MZResult {
-    let state = stream_oxide.state.as_mut().ok_or(MZError::Stream)?;
+    let state: &mut tdefl_compressor = {
+        let enum_ref = stream_oxide.state.as_mut().ok_or(MZError::Stream)?;
+        StateType::from_enum(enum_ref)
+    }.ok_or(MZError::Stream)?;
     let next_in = stream_oxide.next_in.as_mut().ok_or(MZError::Stream)?;
     let next_out = stream_oxide.next_out.as_mut().ok_or(MZError::Stream)?;
 
@@ -483,7 +436,7 @@ pub fn mz_deflate_oxide(
 ///
 /// Currently always returns `MZStatus::Ok`.
 pub fn mz_deflate_end_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) -> MZResult {
-    stream_oxide.state.free_state();
+    stream_oxide.state = None;
     Ok(MZStatus::Ok)
 }
 
@@ -493,9 +446,9 @@ pub fn mz_deflate_end_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) ->
 /// Returns `MZError::Stream` if the inner stream is missing, otherwise `MZStatus::Ok`.
 // TODO: probably not covered by tests
 pub fn mz_deflate_reset_oxide(stream_oxide: &mut StreamOxide<tdefl_compressor>) -> MZResult {
-    let state = stream_oxide.state.as_mut().ok_or(MZError::Stream)?;
     stream_oxide.total_in = 0;
     stream_oxide.total_out = 0;
+    let state = stream_oxide.state().ok_or(MZError::Stream)?;
     state.drop_inner();
     *state = tdefl_compressor::new(state.flags() as u32);
     Ok(MZStatus::Ok)
@@ -518,6 +471,29 @@ pub struct inflate_state {
     pub m_last_status: TINFLStatus,
 }
 
+impl Default for inflate_state {
+    fn default() -> Self {
+        inflate_state {
+            m_decomp: DecompressorOxide::default(),
+            m_dict_ofs: 0,
+            m_dict_avail: 0,
+            m_first_call: 1,
+            m_has_flushed: 0,
+
+            m_window_bits: MZ_DEFAULT_WINDOW_BITS,
+            m_dict: [0; TINFL_LZ_DICT_SIZE],
+            m_last_status: TINFLStatus::NeedsMoreInput,
+        }
+    }
+}
+impl inflate_state {
+    fn new_boxed(window_bits: c_int) -> Box<inflate_state> {
+        let mut b: Box<inflate_state> = Box::default();
+        b.m_window_bits = window_bits;
+        b
+    }
+}
+
 pub fn mz_inflate_init_oxide(stream_oxide: &mut StreamOxide<inflate_state>) -> MZResult {
     mz_inflate_init2_oxide(stream_oxide, MZ_DEFAULT_WINDOW_BITS)
 }
@@ -534,8 +510,10 @@ pub fn mz_inflate_init2_oxide(
     stream_oxide.total_in = 0;
     stream_oxide.total_out = 0;
 
-    stream_oxide.state.alloc_state::<inflate_state>()?;
-    let state = stream_oxide.state.as_mut().ok_or(MZError::Mem)?;
+    stream_oxide.state = Some(Box::new(InternalState::Inflate(
+        inflate_state::new_boxed(window_bits))));
+
+    let state = stream_oxide.state().ok_or(MZError::Mem)?;
     state.m_decomp.init();
     state.m_dict_ofs = 0;
     state.m_dict_avail = 0;
@@ -560,7 +538,12 @@ fn push_dict_out(state: &mut inflate_state, next_out: &mut &mut [u8]) -> c_ulong
 }
 
 pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<inflate_state>, flush: c_int) -> MZResult {
-    let state = stream_oxide.state.as_mut().ok_or(MZError::Stream)?;
+    let state: &mut inflate_state = {
+        let enum_ref = stream_oxide.state.as_mut().ok_or(MZError::Stream)?;
+        StateType::from_enum(enum_ref)
+    }.ok_or(MZError::Stream)?;
+
+
     let next_in = stream_oxide.next_in.as_mut().ok_or(MZError::Stream)?;
     let next_out = stream_oxide.next_out.as_mut().ok_or(MZError::Stream)?;
 
@@ -706,6 +689,6 @@ pub fn mz_uncompress2_oxide(
 }
 
 pub fn mz_inflate_end_oxide(stream_oxide: &mut StreamOxide<inflate_state>) -> MZResult {
-    stream_oxide.state.free_state();
+    stream_oxide.state = None;
     Ok(MZStatus::Ok)
 }

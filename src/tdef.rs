@@ -48,6 +48,15 @@ pub struct tdefl_compressor {
     pub callback: Option<CallbackFunc>,
 }
 
+impl Default for tdefl_compressor {
+    fn default() -> Self {
+        tdefl_compressor {
+            inner: None,
+            callback: None,
+        }
+    }
+}
+
 impl tdefl_compressor {
     pub(crate) fn new(flags: u32) -> Self {
         tdefl_compressor {
