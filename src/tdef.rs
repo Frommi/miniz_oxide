@@ -16,57 +16,37 @@ pub struct CallbackFunc {
     pub put_buf_user: *mut c_void,
 }
 
-/// Deflate flush modes.
-pub mod flush_modes {
-    use libc::c_int;
-    use miniz_oxide::deflate::core::TDEFLFlush;
-    pub const MZ_NO_FLUSH: c_int = TDEFLFlush::None as c_int;
-    // TODO: This is simply sync flush for now, miniz also treats it as such.
-    pub const MZ_PARTIAL_FLUSH: c_int = 1;
-    pub const MZ_SYNC_FLUSH: c_int = TDEFLFlush::Sync as c_int;
-    pub const MZ_FULL_FLUSH: c_int = TDEFLFlush::Full as c_int;
-    pub const MZ_FINISH: c_int = TDEFLFlush::Finish as c_int;
-    // TODO: Doesn't seem to be implemented by miniz.
-    pub const MZ_BLOCK: c_int = 5;
-}
-
-pub mod strategy {
-    use libc::c_int;
-    use miniz_oxide::deflate::core::CompressionStrategy::*;
-    pub const MZ_DEFAULT_STRATEGY: c_int = Default as c_int;
-    pub const MZ_FILTERED: c_int = Filtered as c_int;
-    pub const MZ_HUFFMAN_ONLY: c_int = HuffmanOnly as c_int;
-    pub const MZ_RLE: c_int = RLE as c_int;
-    pub const MZ_FIXED: c_int = Fixed as c_int;
-}
 
 /// Main compression struct. Not the same as `CompressorOxide`
 #[repr(C)]
 #[allow(bad_style)]
-pub struct tdefl_compressor {
-    pub inner: Option<CompressorOxide>,
-    pub callback: Option<CallbackFunc>,
+pub struct Compressor {
+    pub(crate) inner: Option<CompressorOxide>,
+    pub(crate) callback: Option<CallbackFunc>,
 }
 
-impl Default for tdefl_compressor {
+impl Default for Compressor {
     fn default() -> Self {
-        tdefl_compressor {
+        Compressor {
             inner: None,
             callback: None,
         }
     }
 }
 
-impl tdefl_compressor {
-    pub(crate) fn new(flags: u32) -> Self {
-        tdefl_compressor {
-            inner: Some(CompressorOxide::new(flags)),
+impl Compressor {
+    pub(crate) fn new(flags: i32) -> Self {
+        Compressor {
+            // Note, intentional conversion to u32 here.
+            // miniz_oxide uses an unsigned value, miniz C
+            // uses a signed value, probably due to c enum constants being int.
+            inner: Some(CompressorOxide::new(flags as u32)),
             callback: None,
         }
     }
 
     pub(crate) fn new_with_callback(flags: u32, func: CallbackFunc) -> Self {
-        tdefl_compressor {
+        Compressor {
             inner: Some(CompressorOxide::new(flags)),
             callback: Some(func),
         }
@@ -87,15 +67,15 @@ impl tdefl_compressor {
         self.inner.as_ref().map(|i| i.prev_return_status()).unwrap_or(TDEFLStatus::BadParam)
     }
 
+    /// Return the compressor flags of the inner compressor.
     pub fn flags(&self) -> i32 {
         self.inner.as_ref().map(|i| i.flags()).unwrap_or(0)
     }
 }
 
-
 unmangle!(
 pub unsafe extern "C" fn tdefl_compress(
-    d: Option<&mut tdefl_compressor>,
+    d: Option<&mut Compressor>,
     in_buf: *const c_void,
     in_size: Option<&mut usize>,
     out_buf: *mut c_void,
@@ -172,7 +152,7 @@ pub unsafe extern "C" fn tdefl_compress(
 }
 
 pub unsafe extern "C" fn tdefl_compress_buffer(
-    d: Option<&mut tdefl_compressor>,
+    d: Option<&mut Compressor>,
     in_buf: *const c_void,
     mut in_size: usize,
     flush: TDEFLFlush,
@@ -184,9 +164,9 @@ pub unsafe extern "C" fn tdefl_compress_buffer(
 ///
 /// This does initialize the struct, but not the inner constructor,
 /// tdefl_init has to be called before doing anything with it.
-pub unsafe extern "C" fn tdefl_allocate() -> *mut tdefl_compressor {
-    Box::into_raw(Box::<tdefl_compressor>::new(
-        tdefl_compressor {
+pub unsafe extern "C" fn tdefl_allocate() -> *mut Compressor {
+    Box::into_raw(Box::<Compressor>::new(
+        Compressor {
             inner: None,
             callback: None,
         }
@@ -197,7 +177,7 @@ pub unsafe extern "C" fn tdefl_allocate() -> *mut tdefl_compressor {
 ///
 /// This also calles the compressor's destructor, freeing the internal memory
 /// allocated by it.
-pub unsafe extern "C" fn tdefl_deallocate(c: *mut tdefl_compressor) {
+pub unsafe extern "C" fn tdefl_deallocate(c: *mut Compressor) {
     if !c.is_null() {
         Box::from_raw(c);
     }
@@ -207,10 +187,10 @@ pub unsafe extern "C" fn tdefl_deallocate(c: *mut tdefl_compressor) {
 /// if d is null, an error is returned.
 ///
 /// Deinitialization is handled by tdefl_deallocate, and thus
-/// tdefl_compressor should not be allocated or freed manually, but only through
+/// Compressor should not be allocated or freed manually, but only through
 /// tdefl_allocate and tdefl_deallocate
 pub unsafe extern "C" fn tdefl_init(
-    d: Option<&mut tdefl_compressor>,
+    d: Option<&mut Compressor>,
     put_buf_func: PutBufFuncPtr,
     put_buf_user: *mut c_void,
     flags: c_int,
@@ -240,12 +220,12 @@ pub unsafe extern "C" fn tdefl_init(
 }
 
 pub unsafe extern "C" fn tdefl_get_prev_return_status(
-    d: Option<&mut tdefl_compressor>,
+    d: Option<&mut Compressor>,
 ) -> TDEFLStatus {
     d.map_or(TDEFLStatus::Okay, |d| d.prev_return_status())
 }
 
-pub unsafe extern "C" fn tdefl_get_adler32(d: Option<&mut tdefl_compressor>) -> c_uint {
+pub unsafe extern "C" fn tdefl_get_adler32(d: Option<&mut Compressor>) -> c_uint {
     d.map_or(::MZ_ADLER32_INIT as u32, |d| d.adler32())
 }
 
@@ -260,10 +240,10 @@ pub unsafe extern "C" fn tdefl_compress_mem_to_output(
         let compressor = ::miniz_def_alloc_func(
             ptr::null_mut(),
             1,
-            mem::size_of::<tdefl_compressor>(),
-        ) as *mut tdefl_compressor;
+            mem::size_of::<Compressor>(),
+        ) as *mut Compressor;
 
-        ptr::write(compressor,tdefl_compressor::new_with_callback(flags as u32, CallbackFunc {
+        ptr::write(compressor,Compressor::new_with_callback(flags as u32, CallbackFunc {
             put_buf_func: put_buf_func,
             put_buf_user: put_buf_user,
         }));

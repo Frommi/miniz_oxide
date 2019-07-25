@@ -53,9 +53,9 @@ fn roundtrip_level_1() {
 
 #[test]
 fn c_api() {
-    use miniz_oxide_c_api::lib_oxide::mz_stream;
     use miniz_oxide_c_api::{mz_deflateInit, mz_deflate, mz_deflateEnd,
-                            mz_inflateInit, mz_inflate, mz_inflateEnd};
+                            mz_inflateInit, mz_inflate, mz_inflateEnd,
+                            mz_stream};
     use miniz_oxide::{MZStatus, MZError};
     let mut data = get_test_data();
     let mut compressed = vec![0; data.len() + 50];

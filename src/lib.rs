@@ -46,49 +46,31 @@ mod libc {
 }
 extern crate miniz_oxide;
 
-use std::{cmp, ptr, slice};
+use std::{cmp, ptr};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use libc::{c_int, c_uint, c_ulong, c_void, size_t};
+use libc::{c_int, c_uint, c_ulong};
 
 use miniz_oxide::{MZError, MZResult};
-#[allow(bad_style)]
-pub use tdef::tdefl_compressor;
 
-pub use miniz_oxide::mz_adler32_oxide;
 use miniz_oxide::deflate::CompressionLevel;
 use miniz_oxide::deflate::core::CompressionStrategy;
-
-#[macro_use]
-mod unmangle;
 
 pub mod lib_oxide;
 use lib_oxide::*;
 
+#[macro_use]
+mod unmangle;
 mod tinfl;
-pub use tinfl::{tinfl_decompress, tinfl_decompress_mem_to_heap,
-                tinfl_decompress_mem_to_mem, tinfl_decompressor};
-
 mod tdef;
-pub use tdef::{tdefl_compress, tdefl_compress_buffer, tdefl_compress_mem_to_heap,
-               tdefl_compress_mem_to_mem, tdefl_compress_mem_to_output,
-               tdefl_create_comp_flags_from_zip_params, tdefl_get_prev_return_status, tdefl_init,
-               tdefl_allocate, tdefl_deallocate, tdefl_get_adler32};
-
-pub use tdef::flush_modes::*;
-pub use tdef::strategy::*;
-
-pub fn mz_crc32_oxide(crc32: c_uint, data: &[u8]) -> c_uint {
-    let mut digest = crc32fast::Hasher::new_with_initial(crc32);
-    digest.update(data);
-    digest.finalize()
-}
+mod c_export;
+pub use c_export::*;
+#[allow(bad_style)]
+pub use tdef::Compressor as tdefl_compressor;
+pub use lib_oxide::InflateState as inflate_state;
 
 pub const MZ_DEFLATED: c_int = 8;
 pub const MZ_DEFAULT_WINDOW_BITS: c_int = 15;
-
-pub const MZ_ADLER32_INIT: c_ulong = 1;
-pub const MZ_CRC32_INIT: c_ulong = 0;
 
 fn as_c_return_code(r: MZResult) -> c_int {
     match r {
@@ -96,43 +78,6 @@ fn as_c_return_code(r: MZResult) -> c_int {
         Ok(status) => status as c_int,
     }
 }
-
-unmangle!(
-pub unsafe extern "C" fn miniz_def_alloc_func(
-    _opaque: *mut c_void,
-    items: size_t,
-    size: size_t,
-) -> *mut c_void {
-    libc::malloc(items * size)
-}
-
-pub unsafe extern "C" fn miniz_def_free_func(_opaque: *mut c_void, address: *mut c_void) {
-    libc::free(address)
-}
-
-pub unsafe extern "C" fn miniz_def_realloc_func(
-    _opaque: *mut c_void,
-    address: *mut c_void,
-    items: size_t,
-    size: size_t,
-) -> *mut c_void {
-    libc::realloc(address, items * size)
-}
-
-pub unsafe extern "C" fn mz_adler32(adler: c_ulong, ptr: *const u8, buf_len: usize) -> c_ulong {
-    ptr.as_ref().map_or(MZ_ADLER32_INIT, |r| {
-        let data = slice::from_raw_parts(r, buf_len);
-        mz_adler32_oxide(adler as c_uint, data) as c_ulong
-    })
-}
-
-pub unsafe extern "C" fn mz_crc32(crc: c_ulong, ptr: *const u8, buf_len: size_t) -> c_ulong {
-    ptr.as_ref().map_or(MZ_CRC32_INIT, |r| {
-        let data = slice::from_raw_parts(r, buf_len);
-        mz_crc32_oxide(crc as c_uint, data) as c_ulong
-    })
-}
-);
 
 macro_rules! oxidize {
     ($mz_func:ident, $mz_func_oxide:ident; $($arg_name:ident: $type_name:ident),*) => {
