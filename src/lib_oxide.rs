@@ -3,6 +3,7 @@
 use std::{cmp, mem, usize};
 use std::io::Cursor;
 use std::default::Default;
+use std::fmt;
 
 use miniz_oxide::deflate::core::{CompressorOxide, CompressionStrategy, TDEFLFlush, TDEFLStatus,
               compress, create_comp_flags_from_zip_params, deflate_flags};
@@ -20,6 +21,16 @@ pub const MZ_ADLER32_INIT: u32 = 1;
 pub enum InternalState {
     Inflate(Box<InflateState>),
     Deflate(Box<Compressor>),
+}
+
+impl fmt::Debug for InternalState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match &self {
+            InternalState::Inflate(_) => "Decompressor",
+            InternalState::Deflate(_) => "Compressor",
+        };
+        write!(f, "{}", name)
+    }
 }
 
 pub type MZResult = Result<MZStatus, MZError>;

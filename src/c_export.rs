@@ -32,6 +32,8 @@ pub mod return_status {
     pub const MZ_NEED_DICT: c_int = MZStatus::NeedDict as c_int;
 }
 
+pub use return_status::*;
+
 /// Deflate flush modes.
 pub mod flush_modes {
     use libc::c_int;
@@ -46,6 +48,8 @@ pub mod flush_modes {
     pub const MZ_BLOCK: c_int = 5;
 }
 
+pub use flush_modes::*;
+
 pub mod strategy {
     use libc::c_int;
     use miniz_oxide::deflate::core::CompressionStrategy::*;
@@ -55,6 +59,8 @@ pub mod strategy {
     pub const MZ_RLE: c_int = RLE as c_int;
     pub const MZ_FIXED: c_int = Fixed as c_int;
 }
+
+pub use strategy::*;
 
 pub const MZ_CRC32_INIT: c_ulong = 0;
 
@@ -74,6 +80,7 @@ pub type mz_free_func = unsafe extern "C" fn(*mut c_void, *mut c_void);
 /// Inner stream state containing pointers to the used buffers and internal state.
 #[repr(C)]
 #[allow(bad_style)]
+#[derive(Debug)]
 pub struct mz_stream {
     /// Pointer to the current start of the input buffer.
     pub next_in: *const u8,
