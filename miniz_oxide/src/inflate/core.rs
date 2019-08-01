@@ -1668,7 +1668,6 @@ fn decompress_inner(
 #[cfg(test)]
 mod test {
     use super::*;
-    //use std::io::Cursor;
 
     //TODO: Fix these.
 

@@ -307,6 +307,7 @@ impl CompressorOxide {
         }
     }
 
+    /// Get the adler32 checksum of the currently encoded data.
     pub fn adler32(&self) -> u32 {
         self.params.adler32
     }
@@ -317,6 +318,18 @@ impl CompressorOxide {
 
     pub fn flags(&self) -> i32 {
         self.params.flags as i32
+    }
+
+    /// Reset the state of the compressor, keeping the same parameters.
+    ///
+    /// This avoids re-allocating data.
+    pub fn reset(&mut self) {
+        // LZ buf and huffman has no settings or dynamic memory
+        // that needs to be saved, so we simply replace them.
+        self.lz = LZOxide::new();
+        self.params.reset();
+        *self.huff = HuffmanOxide::default();
+        self.dict.reset();
     }
 }
 
@@ -1014,6 +1027,14 @@ impl DictOxide {
         }
     }
 
+    fn reset(&mut self) {
+        self.b.reset();
+        self.code_buf_dict_pos = 0;
+        self.lookahead_size = 0;
+        self.lookahead_pos = 0;
+        self.size = 0;
+    }
+
     /// Do an unaligned read of the data at `pos` in the dictionary and treat it as if it was of
     /// type T.
     #[inline]
@@ -1207,6 +1228,25 @@ impl ParamsOxide {
             saved_bits_in: 0,
             local_buf: Box::default()
         }
+    }
+
+    /// Reset state, saving settings.
+    fn reset(&mut self) {
+        self.block_index = 0;
+        self.saved_match_len = 0;
+        self.saved_match_dist = 0;
+        self.saved_lit = 0;
+        self.flush = TDEFLFlush::None;
+        self.flush_ofs = 0;
+        self.flush_remaining = 0;
+        self.finished = false;
+        self.adler32 = 0;
+        self.src_pos = 0;
+        self.out_buf_ofs = 0;
+        self.prev_return_status = TDEFLStatus::Okay;
+        self.saved_bit_buffer = 0;
+        self.saved_bits_in = 0;
+        self.local_buf.b = [0; OUT_BUF_SIZE];
     }
 }
 

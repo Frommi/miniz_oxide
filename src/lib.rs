@@ -51,10 +51,9 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use libc::{c_int, c_uint, c_ulong};
 
-use miniz_oxide::{MZError, MZResult};
-
 use miniz_oxide::deflate::CompressionLevel;
 use miniz_oxide::deflate::core::CompressionStrategy;
+pub use miniz_oxide::{MZFlush, MZResult, MZError, MZStatus};
 
 pub mod lib_oxide;
 use lib_oxide::*;
@@ -63,11 +62,11 @@ use lib_oxide::*;
 mod unmangle;
 mod tinfl;
 mod tdef;
+
 mod c_export;
 pub use c_export::*;
 #[allow(bad_style)]
 pub use tdef::Compressor as tdefl_compressor;
-pub use lib_oxide::InflateState as inflate_state;
 
 pub const MZ_DEFLATED: c_int = 8;
 pub const MZ_DEFAULT_WINDOW_BITS: c_int = 15;

@@ -16,6 +16,13 @@ pub struct HashBuffers {
     pub hash: [u16; LZ_DICT_SIZE],
 }
 
+impl HashBuffers {
+    #[inline]
+    pub fn reset(&mut self) {
+        *self = HashBuffers::default();
+    }
+}
+
 impl Default for HashBuffers {
     fn default() -> HashBuffers {
         HashBuffers {

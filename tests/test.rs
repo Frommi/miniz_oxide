@@ -74,6 +74,7 @@ fn c_api() {
         assert_eq!(mz_deflate(&mut stream, 4), MZStatus::StreamEnd as i32);
         assert_eq!(mz_deflateEnd(&mut stream), MZStatus::Ok as i32);
         compressed_size = stream.total_out;
+        assert_eq!(data.len() as u64, stream.total_in);
 
         assert_eq!(mz_inflate(&mut stream, 4), MZError::Param as i32);
         assert_eq!(mz_inflateEnd(&mut stream), MZError::Param as i32);
@@ -97,6 +98,7 @@ fn c_api() {
         assert_eq!(mz_inflateEnd(&mut stream),MZStatus::Ok as i32);
 
         decompressed_size = stream.total_out;
+        assert_eq!(compressed_size, stream.total_in);
 
         // This should fail as the stream is an inflate stream!
         assert_eq!(mz_deflate(&mut stream, 4), MZError::Param as i32);
