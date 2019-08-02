@@ -95,8 +95,8 @@ fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>, TINFLSta
             },
 
             TINFLStatus::HasMoreOutput => {
-                // We need more space so extend the buffer.
-                ret.extend(&vec![0;out_pos]);
+                // We need more space so resize the buffer.
+                ret.resize(ret.len() + out_pos, 0);
             },
 
             _ => return Err(status),
