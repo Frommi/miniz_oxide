@@ -1,18 +1,17 @@
 //! This module mainly contains functionality replicating the miniz higher level API.
 
-use std::mem;
 use std::default::Default;
 use std::fmt;
 
-use miniz_oxide::deflate::core::{CompressorOxide, CompressionStrategy, TDEFLFlush, TDEFLStatus,
-              compress, create_comp_flags_from_zip_params, deflate_flags};
+use miniz_oxide::deflate::core::{CompressorOxide, create_comp_flags_from_zip_params,
+                                 deflate_flags, CompressionStrategy};
+use miniz_oxide::deflate::state::deflate;
 use tdef::Compressor;
 use miniz_oxide::inflate::state::{InflateState, inflate};
 
 use miniz_oxide::*;
 
 const MZ_DEFLATED: i32 = 8;
-const MZ_DEFAULT_WINDOW_BITS: i32 = 15;
 
 pub const MZ_ADLER32_INIT: u32 = 1;
 
@@ -145,7 +144,7 @@ pub fn mz_deflate_init_oxide(
 /// window_bits: Number of bits used to represent the compression sliding window.
 ///              Only `MZ_DEFAULT_WINDOW_BITS` is currently supported.
 ///              A negative value, i.e `-MZ_DEFAULT_WINDOW_BITS` indicates that the stream
-///              should be wrapped in a zlib wrapper.
+///              should be not be wrapped in a zlib wrapper.
 /// mem_level: Currently unused. Only values from 1 to and including 9 are accepted.
 /// strategy: Compression strategy. See `deflate::CompressionStrategy` for accepted options.
 ///           The default, which is used in most cases, is 0.
@@ -190,72 +189,14 @@ pub fn mz_deflate_oxide(
 
     let flush = MZFlush::new(flush)?;
 
-    if let Some(compressor) = state.inner.as_mut() {
+    let ret = if let Some(compressor) = state.inner.as_mut() {
         deflate(compressor, next_in, next_out, &mut stream_oxide.total_in,
-                &mut stream_oxide.total_out, &mut stream_oxide.adler, flush)
+                &mut stream_oxide.total_out, flush)
     } else {
         Err(MZError::Param)
-    }
-}
-
-pub fn deflate(compressor: &mut CompressorOxide, next_in: &mut &[u8], next_out: &mut &mut [u8],
-               total_in: &mut u64, total_out: &mut u64, adler32: &mut u32,
-               flush: MZFlush) -> MZResult {
-
-    if next_out.is_empty() {
-        return Err(MZError::Buf);
-    }
-
-    if compressor.prev_return_status() == TDEFLStatus::Done {
-        return if flush == MZFlush::Finish {
-            Ok(MZStatus::StreamEnd)
-        } else {
-            Err(MZError::Buf)
-        };
-    }
-
-    let original_total_in = *total_in;
-    let original_total_out = *total_out;
-
-    loop {
-        let in_bytes;
-        let out_bytes;
-        let defl_status = {
-            let res = compress(compressor, *next_in, *next_out, TDEFLFlush::from(flush));
-            in_bytes = res.1;
-            out_bytes = res.2;
-            res.0
-        };
-
-        *next_in = &next_in[in_bytes..];
-        *next_out = &mut mem::replace(next_out, &mut [])[out_bytes..];
-        *total_in += in_bytes as u64;
-        *total_out += out_bytes as u64;
-        *adler32 = compressor.adler32();
-
-        if defl_status == TDEFLStatus::BadParam || defl_status == TDEFLStatus::PutBufFailed {
-            return Err(MZError::Stream);
-        }
-
-        if defl_status == TDEFLStatus::Done {
-            return Ok(MZStatus::StreamEnd);
-        }
-
-        if next_out.is_empty() {
-            return Ok(MZStatus::Ok);
-        }
-
-        if next_in.is_empty() && (flush != MZFlush::Finish) {
-            let total_changed = (*total_in != original_total_in) ||
-                (*total_out != original_total_out);
-
-            return if (flush != MZFlush::None) || total_changed {
-                Ok(MZStatus::Ok)
-            } else {
-                Err(MZError::Buf)
-            };
-        }
-    }
+    };
+    stream_oxide.adler = state.adler32();
+    ret
 }
 
 /// Free the inner compression state.

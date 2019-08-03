@@ -7,7 +7,8 @@ use std::io::{self, Cursor, Seek, SeekFrom, Write};
 use super::CompressionLevel;
 use super::deflate_flags::*;
 use super::super::*;
-use crate::shared::{HUFFMAN_LENGTH_ORDER, MZ_ADLER32_INIT, update_adler32};
+use crate::shared::{HUFFMAN_LENGTH_ORDER, MZ_ADLER32_INIT,
+                    update_adler32, zlib_window_bits};
 use crate::deflate::buffer::{HashBuffers, LZ_CODE_BUF_SIZE, OUT_BUF_SIZE, LocalBuf,
                              LZ_DICT_FULL_SIZE};
 
@@ -267,6 +268,8 @@ const MIN_MATCH_LEN: u32 = 3;
 /// The maximum length of a match.
 pub const MAX_MATCH_LEN: usize = 258;
 
+const DEFAULT_FLAGS: u32 = NUM_PROBES[4] | TDEFL_WRITE_ZLIB_HEADER;
+
 fn memset<T: Copy>(slice: &mut [T], val: T) {
     for x in slice {
         *x = val
@@ -312,6 +315,7 @@ impl CompressorOxide {
         self.params.adler32
     }
 
+    /// Get the return status of the previous [compress] call with this compressor.
     pub fn prev_return_status(&self) -> TDEFLStatus {
         self.params.prev_return_status
     }
@@ -330,6 +334,29 @@ impl CompressorOxide {
         self.params.reset();
         *self.huff = HuffmanOxide::default();
         self.dict.reset();
+    }
+
+    pub fn set_settings(&mut self, zlib_header: bool, level: u8) {
+        let flags = create_comp_flags_from_zip_params(level.into(), zlib_window_bits(zlib_header),
+                                                      CompressionStrategy::Default as i32);
+        self.params.update_flags(flags);
+        self.dict.update_flags(flags);
+    }
+}
+
+impl Default for CompressorOxide {
+    /// Initialize the compressor with a level of 4, zlib wrapper and
+    /// the default strategy.
+    #[inline(always)]
+    fn default() -> Self {
+        CompressorOxide {
+            lz: LZOxide::new(),
+            params: ParamsOxide::new(DEFAULT_FLAGS),
+            /// Put HuffmanOxide on the heap with default trick to avoid
+            /// excessive stack copies.
+            huff: Box::default(),
+            dict: DictOxide::new(DEFAULT_FLAGS),
+        }
     }
 }
 
@@ -1015,16 +1042,24 @@ struct DictOxide {
     pub size: u32,
 }
 
+fn probes_from_flags(flags: u32) -> [u32; 2] {
+    [1 + ((flags & 0xFFF) + 2) / 3, 1 + (((flags & 0xFFF) >> 2) + 2) / 3]
+}
+
 impl DictOxide {
     fn new(flags: u32) -> Self {
         DictOxide {
-            max_probes: [1 + ((flags & 0xFFF) + 2) / 3, 1 + (((flags & 0xFFF) >> 2) + 2) / 3],
+            max_probes: probes_from_flags(flags),
             b: Box::default(),
             code_buf_dict_pos: 0,
             lookahead_size: 0,
             lookahead_pos: 0,
             size: 0,
         }
+    }
+
+    fn update_flags(&mut self, flags: u32) {
+        self.max_probes = probes_from_flags(flags);
     }
 
     fn reset(&mut self) {
@@ -1228,6 +1263,11 @@ impl ParamsOxide {
             saved_bits_in: 0,
             local_buf: Box::default()
         }
+    }
+
+    fn update_flags(&mut self, flags: u32) {
+        self.flags = flags;
+        self.greedy_parsing = self.flags & TDEFL_GREEDY_PARSING_FLAG != 0;
     }
 
     /// Reset state, saving settings.
@@ -2142,7 +2182,12 @@ pub fn create_comp_flags_from_zip_params(level: i32, window_bits: i32, strategy:
 #[cfg(test)]
 mod test {
     use super::{write_u16_le, read_u16_le,
-                CompressorOxide, compress_to_output, create_comp_flags_from_zip_params, TDEFLFlush, TDEFLStatus};
+                CompressorOxide, compress_to_output,
+                create_comp_flags_from_zip_params,
+                TDEFLFlush, TDEFLStatus,
+                CompressionStrategy,
+                DEFAULT_FLAGS, MZ_DEFAULT_WINDOW_BITS,
+    };
     use crate::inflate::decompress_to_vec;
 
     #[test]
@@ -2160,6 +2205,10 @@ mod test {
 
     #[test]
     fn compress_output() {
+        assert_eq!(DEFAULT_FLAGS, create_comp_flags_from_zip_params(
+            4, MZ_DEFAULT_WINDOW_BITS, CompressionStrategy::Default as i32
+        ));
+
         let slice = [1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 1, 2, 6, 1, 2, 3, 1, 2, 3, 2, 3, 1, 2, 3];
         let mut encoded = vec![];
         let flags = create_comp_flags_from_zip_params(6, 0, 0);
