@@ -141,10 +141,9 @@ fn compress_to_vec_inner(input: &[u8], level: u8, window_bits: i32, strategy: i3
                 break;
             }
             TDEFLStatus::Okay => {
-                // We need more space, so extend the vector.
+                // We need more space, so resize the vector.
                 if output.len().saturating_sub(out_pos) < 30 {
-                    let current_len = output.len();
-                    output.extend(&vec![0;current_len]);
+                    output.resize(output.len() * 2, 0)
                 }
             }
             // Not supposed to happen unless there is a bug.
