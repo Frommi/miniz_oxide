@@ -81,3 +81,32 @@ pub enum MZError {
 
 /// `Result` alias for all miniz status codes both successful and failed.
 pub type MZResult = Result<MZStatus, MZError>;
+
+pub struct StreamResult {
+    pub bytes_consumed: usize,
+    pub bytes_written: usize,
+    pub status: MZResult,
+}
+
+impl StreamResult {
+    #[inline]
+    pub fn error(error: MZError) -> StreamResult {
+        StreamResult {
+            bytes_consumed: 0,
+            bytes_written: 0,
+            status: Err(error),
+        }
+    }
+}
+
+impl std::convert::From<StreamResult> for MZResult {
+    fn from(res: StreamResult) -> Self {
+        res.status
+    }
+}
+
+impl std::convert::From<&StreamResult> for MZResult {
+    fn from(res: &StreamResult) -> Self {
+        res.status
+    }
+}

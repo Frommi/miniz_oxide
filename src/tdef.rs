@@ -19,7 +19,6 @@ pub struct CallbackFunc {
 
 /// Main compression struct. Not the same as `CompressorOxide`
 #[repr(C)]
-#[allow(bad_style)]
 pub struct Compressor {
     pub(crate) inner: Option<CompressorOxide>,
     pub(crate) callback: Option<CallbackFunc>,
@@ -35,16 +34,6 @@ impl Default for Compressor {
 }
 
 impl Compressor {
-    pub(crate) fn new(flags: i32) -> Self {
-        Compressor {
-            // Note, intentional conversion to u32 here.
-            // miniz_oxide uses an unsigned value, miniz C
-            // uses a signed value, probably due to c enum constants being int.
-            inner: Some(CompressorOxide::new(flags as u32)),
-            callback: None,
-        }
-    }
-
     pub(crate) fn new_with_callback(flags: u32, func: CallbackFunc) -> Self {
         Compressor {
             inner: Some(CompressorOxide::new(flags)),
@@ -55,6 +44,13 @@ impl Compressor {
     /// Sets the inner state to `None` and thus drops it.
     pub fn drop_inner(&mut self) {
         self.inner = None;
+    }
+
+    /// Reset the inner compressor if any.
+    pub fn reset(&mut self) {
+        if let Some(c) = self.inner.as_mut() {
+            c.reset();
+        }
     }
 
     pub fn adler32(&self) -> u32 {

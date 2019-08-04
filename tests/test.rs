@@ -51,14 +51,16 @@ fn roundtrip_level_1() {
     assert!(data == dec);
 }
 
+/// Roundtrip test using the C API.
 #[test]
 fn c_api() {
     use miniz_oxide_c_api::{mz_deflateInit, mz_deflate, mz_deflateEnd,
+                            mz_deflateReset,
                             mz_inflateInit, mz_inflate, mz_inflateEnd,
                             mz_stream};
     use miniz_oxide::{MZStatus, MZError};
     let mut data = get_test_data();
-    let mut compressed = vec![0; data.len() + 50];
+    let mut compressed = vec![0; data.len() + 10];
     let compressed_size;
     let decompressed_size;
     unsafe {
@@ -72,12 +74,26 @@ fn c_api() {
 
         assert_eq!(mz_deflateInit(&mut stream, 1), MZStatus::Ok as i32);
         assert_eq!(mz_deflate(&mut stream, 4), MZStatus::StreamEnd as i32);
-        assert_eq!(mz_deflateEnd(&mut stream), MZStatus::Ok as i32);
         compressed_size = stream.total_out;
         assert_eq!(data.len() as u64, stream.total_in);
 
+        // Check that reseting works properly.
+        let mut compressed_2 = vec![0; compressed_size as usize];
+        assert_eq!(mz_deflateReset(&mut stream), MZStatus::Ok as i32);
+        stream.next_in = data.as_mut_ptr();
+        stream.avail_in = data.len() as u32;
+        stream.next_out = compressed_2.as_mut_ptr();
+        stream.avail_out = compressed_2.len() as u32;
+        assert_eq!(mz_deflate(&mut stream, 4), MZStatus::StreamEnd as i32);
+
+        // This should fail, trying to decompress with a compressor.
         assert_eq!(mz_inflate(&mut stream, 4), MZError::Param as i32);
         assert_eq!(mz_inflateEnd(&mut stream), MZError::Param as i32);
+
+        assert_eq!(mz_deflateEnd(&mut stream), MZStatus::Ok as i32);
+
+        assert_eq!(compressed_size, stream.total_out);
+        assert!(compressed[..compressed_size as usize] == compressed_2[..]);
     }
 
     assert!(compressed_size as usize <= compressed.len());

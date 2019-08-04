@@ -1255,7 +1255,7 @@ impl ParamsOxide {
             flush_ofs: 0,
             flush_remaining: 0,
             finished: false,
-            adler32: MZ_ADLER32_INIT as u32,
+            adler32: MZ_ADLER32_INIT,
             src_pos: 0,
             out_buf_ofs: 0,
             prev_return_status: TDEFLStatus::Okay,
@@ -1280,7 +1280,7 @@ impl ParamsOxide {
         self.flush_ofs = 0;
         self.flush_remaining = 0;
         self.finished = false;
-        self.adler32 = 0;
+        self.adler32 = MZ_ADLER32_INIT;
         self.src_pos = 0;
         self.out_buf_ofs = 0;
         self.prev_return_status = TDEFLStatus::Okay;

@@ -1,7 +1,7 @@
 //! This module mainly contains functionality replicating the miniz higher level API.
 
 use std::default::Default;
-use std::fmt;
+use std::{fmt, mem};
 
 use miniz_oxide::deflate::core::{CompressorOxide, create_comp_flags_from_zip_params,
                                  deflate_flags, CompressionStrategy};
@@ -180,8 +180,10 @@ pub fn mz_deflate_oxide(
     stream_oxide: &mut StreamOxide<Compressor>,
     flush: i32,
 ) -> MZResult {
+    println!("deflate_oxide called");
     let state: &mut Compressor = {
         let enum_ref = stream_oxide.state.as_mut().ok_or(MZError::Stream)?;
+        println!("got ref!");
         StateType::from_enum(enum_ref)
     }.ok_or(MZError::Stream)?;
     let next_in = stream_oxide.next_in.as_mut().ok_or(MZError::Stream)?;
@@ -190,13 +192,17 @@ pub fn mz_deflate_oxide(
     let flush = MZFlush::new(flush)?;
 
     let ret = if let Some(compressor) = state.inner.as_mut() {
-        deflate(compressor, next_in, next_out, &mut stream_oxide.total_in,
-                &mut stream_oxide.total_out, flush)
+        deflate(compressor, next_in, next_out,flush)
     } else {
-        Err(MZError::Param)
+        return Err(MZError::Param)
     };
+
+    *next_in = &next_in[ret.bytes_consumed as usize..];
+    *next_out = &mut mem::replace(next_out, &mut [])[ret.bytes_written as usize..];
+    stream_oxide.total_in += ret.bytes_consumed as u64;
+    stream_oxide.total_out += ret.bytes_written as u64;
     stream_oxide.adler = state.adler32();
-    ret
+    ret.into()
 }
 
 /// Free the inner compression state.
@@ -219,8 +225,7 @@ pub fn mz_deflate_reset_oxide(stream_oxide: &mut StreamOxide<Compressor>) -> MZR
     stream_oxide.next_in = None;
     stream_oxide.next_out = None;
     let state = stream_oxide.state().ok_or(MZError::Stream)?;
-    state.drop_inner();
-    *state = Compressor::new(state.flags());
+    state.reset();
     Ok(MZStatus::Ok)
 }
 
@@ -255,13 +260,15 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<InflateState>, flush: i32
 
     let next_in = stream_oxide.next_in.as_mut().ok_or(MZError::Stream)?;
     let next_out = stream_oxide.next_out.as_mut().ok_or(MZError::Stream)?;
-    let total_in = &mut stream_oxide.total_in;
-    let total_out = &mut stream_oxide.total_out;
 
     let flush = MZFlush::new(flush)?;
-    let ret = inflate(state, next_in, next_out, total_in, total_out, flush);
+    let ret = inflate(state, next_in, next_out, flush);
+    *next_in = &next_in[ret.bytes_consumed as usize..];
+    *next_out = &mut mem::replace(next_out, &mut [])[ret.bytes_written as usize..];
+    stream_oxide.total_in += ret.bytes_consumed as u64;
+    stream_oxide.total_out += ret.bytes_written as u64;
     stream_oxide.adler = state.decompressor().adler32().unwrap_or(0);
-    ret
+    ret.into()
 }
 
 pub fn mz_uncompress2_oxide(
