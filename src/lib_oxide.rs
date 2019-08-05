@@ -15,6 +15,7 @@ const MZ_DEFLATED: i32 = 8;
 
 pub const MZ_ADLER32_INIT: u32 = 1;
 
+#[repr(C)]
 pub enum InternalState {
     Inflate(Box<InflateState>),
     Deflate(Box<Compressor>),

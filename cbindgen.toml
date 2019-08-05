@@ -1,0 +1,29 @@
+header = """/* This library (excluding the miniz C code used for tests) is licensed under the MIT license. The library is based on the miniz C library, of which the parts used are dual-licensed under the MIT license and also the unlicense. The parts of miniz that are not covered by the unlicense is some Zip64 code which is only MIT licensed. This and other Zip functionality in miniz is not part of the miniz_oxidde and miniz_oxide_c_api rust libraries."""
+autogen_warning = """/* DO NOT MODIFY THIS MANUALLY! This file was generated using cbindgen.
+ * To generate this file:
+ *   1. Get the latest cbindgen using `cargo install --force cbindgen`
+ *      a. Alternatively, you can clone `https://github.com/eqrion/cbindgen` and use a tagged release
+ *   2. Run `rustup run nightly cbindgen toolkit/library/rust/ --lockfile Cargo.lock --crate miniz_oxide_c_api -o miniz_h/miniz.h`
+ */"""
+include_version = true
+language = "C"
+
+[export.rename]
+"DecompressorOxide" = "tinfl_decompressor"
+
+
+[parse]
+# Whether to parse dependent crates and include their types in the output
+# default: false
+parse_deps = true
+
+# A white list of crate names that are allowed to be parsed. If this is defined,
+# only crates found in this list will ever be parsed.
+include = ["miniz_oxide"]
+
+# A black list of crate names that are not allowed to be parsed.
+exclude = ["libc"]
+
+[parse.expand]
+crates = ["miniz_oxide_c_api"]
+

@@ -5,13 +5,14 @@ use std::{ptr, slice, usize};
 use std::io::Cursor;
 use miniz_oxide::inflate::TINFLStatus;
 pub use miniz_oxide::inflate::core::{decompress, inflate_flags};
+use miniz_oxide::inflate::core::DecompressorOxide;
 pub use miniz_oxide::inflate::core::DecompressorOxide as tinfl_decompressor;
 
 pub const TINFL_DECOMPRESS_MEM_TO_MEM_FAILED: size_t = usize::MAX;
 
 unmangle!(
 pub unsafe extern "C" fn tinfl_decompress(
-    r: *mut tinfl_decompressor,
+    r: *mut DecompressorOxide,
     in_buf: *const u8,
     in_buf_size: *mut usize,
     out_buf_start: *mut u8,
@@ -43,7 +44,7 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_mem(
     flags: c_int,
 ) -> size_t {
     let flags = flags as u32;
-    let mut decomp = Box::<tinfl_decompressor>::default();
+    let mut decomp = Box::<DecompressorOxide>::default();
 
     let (status, _, out_consumed) =
         decompress(
@@ -77,7 +78,7 @@ pub unsafe extern "C" fn tinfl_decompress_mem_to_heap(
     // We're not using a Vec for the buffer here to make sure the buffer is allocated and freed by
     // the same allocator.
 
-    let mut decomp = tinfl_decompressor::default();
+    let mut decomp = DecompressorOxide::default();
     // Pointer to the buffer to place the decompressed data into.
     let mut p_buf: *mut c_void = ::miniz_def_alloc_func(ptr::null_mut(), MIN_BUFFER_CAPACITY, 1);
     // Capacity of the current output buffer.

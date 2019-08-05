@@ -33,6 +33,28 @@ impl Default for Compressor {
     }
 }
 
+#[repr(C)]
+#[allow(bad_style)]
+#[derive(PartialEq, Eq)]
+pub enum tdefl_status {
+    TDEFL_STATUS_BAD_PARAM = -2,
+    TDEFL_STATUS_PUT_BUF_FAILED = -1,
+    TDEFL_STATUS_OKAY = 0,
+    TDEFL_STATUS_DONE = 1,
+}
+
+impl From<TDEFLStatus> for tdefl_status {
+    fn from(status: TDEFLStatus) -> tdefl_status {
+        use self::tdefl_status::*;
+        match status {
+            TDEFLStatus::BadParam => TDEFL_STATUS_BAD_PARAM,
+            TDEFLStatus::PutBufFailed => TDEFL_STATUS_PUT_BUF_FAILED,
+            TDEFLStatus::Okay => TDEFL_STATUS_OKAY,
+            TDEFLStatus::Done => TDEFL_STATUS_DONE,
+        }
+    }
+}
+
 /// Convert an i32 to a TDEFLFlush
 ///
 /// Returns TDEFLFLush::None flush value is unknown.
@@ -90,13 +112,13 @@ pub unsafe extern "C" fn tdefl_compress(
     out_buf: *mut c_void,
     out_size: Option<&mut usize>,
     flush: i32,
-) -> TDEFLStatus {
+) -> tdefl_status {
     let flush = i32_to_tdefl_flush(flush);
     match d {
         None => {
             in_size.map(|size| *size = 0);
             out_size.map(|size| *size = 0);
-            TDEFLStatus::BadParam
+            tdefl_status::TDEFL_STATUS_BAD_PARAM
         },
         Some(compressor_wrap) => {
             if let Some(ref mut compressor) = compressor_wrap.inner {
@@ -106,7 +128,7 @@ pub unsafe extern "C" fn tdefl_compress(
             if in_buf_size > 0 && in_buf.is_null() {
                 in_size.map(|size| *size = 0);
                 out_size.map(|size| *size = 0);
-                return TDEFLStatus::BadParam;
+                return tdefl_status::TDEFL_STATUS_BAD_PARAM
             }
 
             let in_slice = (in_buf as *const u8).as_ref().map_or(&[][..],|in_buf| {
@@ -125,7 +147,7 @@ pub unsafe extern "C" fn tdefl_compress(
                         None => {
                             in_size.map(|size| *size = 0);
                             out_size.map(|size| *size = 0);
-                            return TDEFLStatus::BadParam;
+                            return tdefl_status::TDEFL_STATUS_BAD_PARAM;
                         }
                     }
                 },
@@ -133,7 +155,7 @@ pub unsafe extern "C" fn tdefl_compress(
                     if out_buf_size > 0 || !out_buf.is_null() {
                         in_size.map(|size| *size = 0);
                         out_size.map(|size| *size = 0);
-                        return TDEFLStatus::BadParam;
+                        return tdefl_status::TDEFL_STATUS_BAD_PARAM;
                     }
                     let res = compress_to_output(
                         compressor,
@@ -153,9 +175,9 @@ pub unsafe extern "C" fn tdefl_compress(
 
             in_size.map(|size| *size = res.1);
             out_size.map(|size| *size = res.2);
-            res.0
+            res.0.into()
             } else {
-                TDEFLStatus::BadParam
+                tdefl_status::TDEFL_STATUS_BAD_PARAM
             }
         }
     }
@@ -166,7 +188,7 @@ pub unsafe extern "C" fn tdefl_compress_buffer(
     in_buf: *const c_void,
     mut in_size: usize,
     flush: i32,
-) -> TDEFLStatus {
+) -> tdefl_status {
     tdefl_compress(d, in_buf, Some(&mut in_size), ptr::null_mut(), None, flush)
 }
 
@@ -204,7 +226,7 @@ pub unsafe extern "C" fn tdefl_init(
     put_buf_func: PutBufFuncPtr,
     put_buf_user: *mut c_void,
     flags: c_int,
-) -> TDEFLStatus {
+) -> tdefl_status {
     if let Some(d) = d {
         match catch_unwind( AssertUnwindSafe(|| {
         d.inner = Some(CompressorOxide::new(flags as u32));
@@ -218,21 +240,21 @@ pub unsafe extern "C" fn tdefl_init(
         };
 
         })) {
-            Ok(_) => TDEFLStatus::Okay,
+            Ok(_) => tdefl_status::TDEFL_STATUS_OKAY,
             Err(_) => {
                 eprintln!("FATAL ERROR: Caught panic when initializing the compressor!");
-                TDEFLStatus::BadParam
+                tdefl_status::TDEFL_STATUS_BAD_PARAM
             }
         }
     } else {
-        TDEFLStatus::BadParam
+        tdefl_status::TDEFL_STATUS_BAD_PARAM
     }
 }
 
 pub unsafe extern "C" fn tdefl_get_prev_return_status(
     d: Option<&mut Compressor>,
-) -> TDEFLStatus {
-    d.map_or(TDEFLStatus::Okay, |d| d.prev_return_status())
+) -> tdefl_status {
+    d.map_or(tdefl_status::TDEFL_STATUS_OKAY, |d| d.prev_return_status().into())
 }
 
 pub unsafe extern "C" fn tdefl_get_adler32(d: Option<&mut Compressor>) -> c_uint {
@@ -260,7 +282,7 @@ pub unsafe extern "C" fn tdefl_compress_mem_to_output(
 
         let res = tdefl_compress_buffer(compressor.as_mut(), buf, buf_len,
                                         TDEFLFlush::Finish as i32) ==
-            TDEFLStatus::Done;
+            tdefl_status::TDEFL_STATUS_DONE;
         compressor.as_mut().map(|c| c.drop_inner());
         ::miniz_def_free_func(ptr::null_mut(), compressor as *mut c_void);
         res
