@@ -197,7 +197,6 @@ pub enum CompressionStrategy {
 }
 
 /// A list of deflate flush types.
-#[repr(u32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TDEFLFlush {
     None = 0,
@@ -812,8 +811,8 @@ impl HuffmanOxide {
         code_size_limit: usize,
         static_table: bool,
     ) {
-        let mut num_codes = [0 as i32; MAX_SUPPORTED_HUFF_CODESIZE + 1];
-        let mut next_code = [0 as u32; MAX_SUPPORTED_HUFF_CODESIZE + 1];
+        let mut num_codes = [0i32; MAX_SUPPORTED_HUFF_CODESIZE + 1];
+        let mut next_code = [0u32; MAX_SUPPORTED_HUFF_CODESIZE + 1];
 
         if static_table {
             for &code_size in &self.code_sizes[table_num][..table_len] {
@@ -1537,6 +1536,8 @@ fn flush_block(
                     }
                 }
             } else {
+                // Sync flush.
+                // Output an empty raw block.
                 output.put_bits(0, 3);
                 output.pad_to_bytes();
                 output.put_bits(0, 16);
@@ -2156,11 +2157,11 @@ pub fn create_comp_flags_from_zip_params(level: i32, window_bits: i32, strategy:
         TDEFL_GREEDY_PARSING_FLAG
     } else {
         0
-    } as u32;
+    };
     let mut comp_flags = NUM_PROBES[num_probes] | greedy;
 
     if window_bits > 0 {
-        comp_flags |= TDEFL_WRITE_ZLIB_HEADER as u32;
+        comp_flags |= TDEFL_WRITE_ZLIB_HEADER;
     }
 
     if level == 0 {
@@ -2225,5 +2226,8 @@ mod test {
 
         let decoded = decompress_to_vec(&encoded[..]).unwrap();
         assert_eq!(&decoded[..], &slice[..]);
+
+        let test = super::TDEFLFlush::Full as u32;
+        println!("test {}", test);
     }
 }

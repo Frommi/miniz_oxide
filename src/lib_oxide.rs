@@ -5,9 +5,9 @@ use std::{fmt, mem};
 
 use miniz_oxide::deflate::core::{CompressorOxide, create_comp_flags_from_zip_params,
                                  deflate_flags, CompressionStrategy};
-use miniz_oxide::deflate::state::deflate;
+use miniz_oxide::deflate::stream::deflate;
 use tdef::Compressor;
-use miniz_oxide::inflate::state::{InflateState, inflate};
+use miniz_oxide::inflate::stream::{InflateState, inflate};
 
 use miniz_oxide::*;
 

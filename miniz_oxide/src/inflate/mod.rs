@@ -3,7 +3,7 @@
 use std::usize;
 use std::io::Cursor;
 
-pub mod state;
+pub mod stream;
 pub mod core;
 mod output_buffer;
 use self::core::*;

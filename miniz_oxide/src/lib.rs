@@ -31,13 +31,25 @@ pub use crate::shared::update_adler32 as mz_adler32_oxide;
 pub use crate::shared::{MZ_ADLER32_INIT, MZ_DEFAULT_WINDOW_BITS};
 
 /// A list of flush types.
+///
+/// See http://www.bolet.org/~pornin/deflate-flush.html for more in-depth info.
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum MZFlush {
+    /// Don't force any flushing.
+    /// Used when more input data is expected.
     None = 0,
+    /// Zlib partial flush
+    /// Not implemented.
     Partial = 1,
+    /// Finish compressing the currently buffered data, and output an empty raw block.
+    /// Has no use in decompression.
+    /// Not currently implemented.
     Sync = 2,
+    /// Zlib full flush for decompression.
+    /// Not implemented
     Full = 3,
+    /// Attempt to flush the remaining data and end the stream.
     Finish = 4,
     Block = 5,
 }
@@ -82,15 +94,20 @@ pub enum MZError {
 /// `Result` alias for all miniz status codes both successful and failed.
 pub type MZResult = Result<MZStatus, MZError>;
 
+/// A structure containg the result of a call to the inflate or deflate streaming functions.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct StreamResult {
+    /// The number of bytes consumed from the input slice.
     pub bytes_consumed: usize,
+    /// The number of bytes written to the output slice.
     pub bytes_written: usize,
+    /// The return status of the call.
     pub status: MZResult,
 }
 
 impl StreamResult {
     #[inline]
-    pub fn error(error: MZError) -> StreamResult {
+    pub(crate) fn error(error: MZError) -> StreamResult {
         StreamResult {
             bytes_consumed: 0,
             bytes_written: 0,

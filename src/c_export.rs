@@ -111,7 +111,7 @@ pub struct mz_stream {
     /// (Not used for the default ones)
     pub opaque: *mut c_void,
 
-    // TODO: Not sure
+    /// Whether the stream contains a compressor or decompressor.
     pub data_type: StateTypeEnum,
     /// Adler32 checksum of the data that has been compressed or uncompressed.
     pub adler: c_ulong,
@@ -221,6 +221,7 @@ impl<'io, ST: StateType> StreamOxide<'io, ST> {
     }
 }
 
+#[cfg(not(no_c_export))]
 unmangle!(
     /// Default allocation function using `malloc`.
     pub unsafe extern "C" fn miniz_def_alloc_func(

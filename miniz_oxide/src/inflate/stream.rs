@@ -6,6 +6,7 @@ use crate::{MZResult, MZFlush, MZError, MZStatus, StreamResult};
 use crate::inflate::TINFLStatus;
 use crate::inflate::core::{DecompressorOxide, TINFL_LZ_DICT_SIZE, inflate_flags, decompress};
 
+/// A struct that keeps extra data for streaming decompression.
 pub struct InflateState {
     /// Inner decompressor struct
     decomp: DecompressorOxide,
@@ -50,6 +51,17 @@ impl InflateState {
     /// Parameters:
     /// `zlib_header`: Determines whether the compressed data is assumed to wrapped with zlib
     /// metadata.
+    pub fn new(zlib_header: bool) -> InflateState {
+        let mut b = InflateState::default();
+        b.zlib_header = zlib_header;
+        b
+    }
+
+    /// Create a new state on the heap.
+    ///
+    /// Parameters:
+    /// `zlib_header`: Determines whether the compressed data is assumed to wrapped with zlib
+    /// metadata.
     pub fn new_boxed(zlib_header: bool) -> Box<InflateState> {
         let mut b: Box<InflateState> = Box::default();
         b.zlib_header = zlib_header;
@@ -82,7 +94,6 @@ impl InflateState {
 pub fn inflate<I: AsRef<[u8]>, O: AsMut<[u8]>>(state: &mut InflateState, input: &I, output: &mut O,
            flush: MZFlush)
                -> StreamResult {
-    println!("Called inflate!");
     let mut bytes_consumed = 0;
     let mut bytes_written = 0;
     let mut next_in = input.as_ref();
@@ -100,7 +111,6 @@ pub fn inflate<I: AsRef<[u8]>, O: AsMut<[u8]>>(state: &mut InflateState, input: 
     let first_call = state.first_call;
     state.first_call = false;
     if (state.last_status as i32) < 0 {
-        println!("Data error: {:?}", state.last_status);
         return StreamResult::error(MZError::Data);
     }
 
@@ -129,10 +139,8 @@ pub fn inflate<I: AsRef<[u8]>, O: AsMut<[u8]>>(state: &mut InflateState, input: 
 
         let ret_status = {
             if (status as i32) < 0 {
-                println!("Decomp failed!: {:?}", state.last_status);
                 Err(MZError::Data)
             } else if status != TINFLStatus::Done {
-                println!("no space in buffer to flush finish!: {:?}", state.last_status);
                 state.last_status = TINFLStatus::Failed;
                 Err(MZError::Buf)
             } else {

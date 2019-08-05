@@ -33,6 +33,19 @@ impl Default for Compressor {
     }
 }
 
+/// Convert an i32 to a TDEFLFlush
+///
+/// Returns TDEFLFLush::None flush value is unknown.
+/// For use with c interface.
+pub fn i32_to_tdefl_flush(flush: i32) -> TDEFLFlush {
+    match flush {
+        2 => TDEFLFlush::Sync,
+        3 => TDEFLFlush::Full,
+        4 => TDEFLFlush::Finish,
+        _ => TDEFLFlush::None,
+    }
+}
+
 impl Compressor {
     pub(crate) fn new_with_callback(flags: u32, func: CallbackFunc) -> Self {
         Compressor {
@@ -76,8 +89,9 @@ pub unsafe extern "C" fn tdefl_compress(
     in_size: Option<&mut usize>,
     out_buf: *mut c_void,
     out_size: Option<&mut usize>,
-    flush: TDEFLFlush,
+    flush: i32,
 ) -> TDEFLStatus {
+    let flush = i32_to_tdefl_flush(flush);
     match d {
         None => {
             in_size.map(|size| *size = 0);
@@ -151,7 +165,7 @@ pub unsafe extern "C" fn tdefl_compress_buffer(
     d: Option<&mut Compressor>,
     in_buf: *const c_void,
     mut in_size: usize,
-    flush: TDEFLFlush,
+    flush: i32,
 ) -> TDEFLStatus {
     tdefl_compress(d, in_buf, Some(&mut in_size), ptr::null_mut(), None, flush)
 }
@@ -244,7 +258,8 @@ pub unsafe extern "C" fn tdefl_compress_mem_to_output(
             put_buf_user: put_buf_user,
         }));
 
-        let res = tdefl_compress_buffer(compressor.as_mut(), buf, buf_len, TDEFLFlush::Finish) ==
+        let res = tdefl_compress_buffer(compressor.as_mut(), buf, buf_len,
+                                        TDEFLFlush::Finish as i32) ==
             TDEFLStatus::Done;
         compressor.as_mut().map(|c| c.drop_inner());
         ::miniz_def_free_func(ptr::null_mut(), compressor as *mut c_void);

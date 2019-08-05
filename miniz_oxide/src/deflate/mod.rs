@@ -1,7 +1,7 @@
 //! This module contains functionality for compression.
 
 pub mod core;
-pub mod state;
+pub mod stream;
 mod buffer;
 use self::core::*;
 

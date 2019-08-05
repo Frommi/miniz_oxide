@@ -11,7 +11,6 @@ use self::output_buffer::OutputBuffer;
 pub const TINFL_LZ_DICT_SIZE: usize = 32_768;
 
 /// A struct containing huffman code lengths and the huffman code tree used by the decompressor.
-#[repr(C)]
 struct HuffmanTable {
     /// Length of the code at each index.
     pub code_size: [u8; MAX_HUFF_SYMBOLS_0],
@@ -127,9 +126,6 @@ type BitBuffer = u32;
 
 /// Main decompression struct.
 ///
-/// This is repr(C) to be usable in the C API.
-#[repr(C)]
-#[allow(bad_style)]
 pub struct DecompressorOxide {
     /// Current state of the decompressor.
     state: core::State,
@@ -218,7 +214,6 @@ impl Default for DecompressorOxide {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-#[repr(C)]
 enum State {
     Start = 0,
     ReadZlibCmf,
