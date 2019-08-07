@@ -32,7 +32,7 @@ pub use crate::shared::{MZ_ADLER32_INIT, MZ_DEFAULT_WINDOW_BITS};
 
 /// A list of flush types.
 ///
-/// See http://www.bolet.org/~pornin/deflate-flush.html for more in-depth info.
+/// See [http://www.bolet.org/~pornin/deflate-flush.html] for more in-depth info.
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum MZFlush {
@@ -45,8 +45,9 @@ pub enum MZFlush {
     /// Finish compressing the currently buffered data, and output an empty raw block.
     /// Has no use in decompression.
     Sync = 2,
-    /// Zlib full flush for decompression.
-    /// Not implemented.
+    /// Same as `Sync`, but resets the compression dictionary so that further compressed
+    /// data does not depend on data compressed before the flush.
+    /// Has no use in decompression.
     Full = 3,
     /// Attempt to flush the remaining data and end the stream.
     Finish = 4,
@@ -95,8 +96,7 @@ pub enum MZError {
 /// How compressed data is wrapped.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum DataFormat {
-    /// Wrapped using the zlib format.
-    /// See http://www.zlib.org/rfc-zlib.html
+    /// Wrapped using the [zlib](http://www.zlib.org/rfc-zlib.html) format.
     Zlib,
     /// Raw DEFLATE.
     None,

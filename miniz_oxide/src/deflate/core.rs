@@ -167,7 +167,8 @@ pub mod deflate_flags {
     /// Should we use greedy parsing (as opposed to lazy parsing where look ahead one or more
     /// bytes to check for better matches.)
     pub const TDEFL_GREEDY_PARSING_FLAG: u32 = 0x0000_4000;
-    /// TODO
+    /// Used in miniz to skip zero-initializing hash and dict. We don't do this here, so
+    /// this flag is ignored.
     pub const TDEFL_NONDETERMINISTIC_PARSING_FLAG: u32 = 0x0000_8000;
     /// Only look for matches with a distance of 0.
     pub const TDEFL_RLE_MATCHES: u32 = 0x0001_0000;
@@ -180,7 +181,9 @@ pub mod deflate_flags {
     pub const TDEFL_FORCE_ALL_RAW_BLOCKS: u32 = 0x0008_0000;
 }
 
-/// Used to generate deflate flags with `create_comp_flags_from_zip_params`.
+/// Strategy setting for compression.
+///
+/// The non-default settings offer some special-case compression variants.
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum CompressionStrategy {
@@ -200,9 +203,15 @@ pub enum CompressionStrategy {
 /// A list of deflate flush types.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TDEFLFlush {
+    /// Compress as much as there is space for, and then return
+    /// waiting for more input.
     None = 0,
+    /// Try to flush the current data and output an empty raw block.
     Sync = 2,
+    /// Same as sync, but reset the dictionary so that the following data does not depend
+    /// on previous data.
     Full = 3,
+    /// Try to flush everything and end the stream.
     Finish = 4,
 }
 
@@ -260,13 +269,13 @@ const MAX_HUFF_SYMBOLS_1: usize = 32;
 /// Huffman length values.
 const MAX_HUFF_SYMBOLS_2: usize = 19;
 /// Size of the chained hash table.
-pub const LZ_DICT_SIZE: usize = 32_768;
+pub(crate) const LZ_DICT_SIZE: usize = 32_768;
 /// Mask used when stepping through the hash chains.
 const LZ_DICT_SIZE_MASK: u32 = LZ_DICT_SIZE as u32 - 1;
 /// The minimum length of a match.
 const MIN_MATCH_LEN: u32 = 3;
 /// The maximum length of a match.
-pub const MAX_MATCH_LEN: usize = 258;
+pub(crate) const MAX_MATCH_LEN: usize = 258;
 
 const DEFAULT_FLAGS: u32 = NUM_PROBES[4] | TDEFL_WRITE_ZLIB_HEADER;
 
@@ -299,9 +308,10 @@ pub struct CompressorOxide {
 }
 
 impl CompressorOxide {
-    /// Create a new Compressor with the given flags.
+    /// Create a new `CompressorOxide` with the given flags.
     ///
-    /// NOTE: This function may be changed to take different parameters in the future.
+    /// # Notes
+    /// This function may be changed to take different parameters in the future.
     pub fn new(flags: u32) -> Self {
         CompressorOxide {
             lz: LZOxide::new(),
@@ -318,18 +328,21 @@ impl CompressorOxide {
         self.params.adler32
     }
 
-    /// Get the return status of the previous [compress] call with this compressor.
+    /// Get the return status of the previous [`compress`](fn.compress.html)
+    /// call with this compressor.
     pub fn prev_return_status(&self) -> TDEFLStatus {
         self.params.prev_return_status
     }
 
     /// Get the raw compressor flags.
     ///
-    /// NOTE: This function may be deprecated or changed in the future.
+    /// # Notes
+    /// This function may be deprecated or changed in the future to use more rust-style flags.
     pub fn flags(&self) -> i32 {
         self.params.flags as i32
     }
 
+    /// Returns whether the compressor is wrapping the data in a zlib format or not.
     pub fn data_format(&self) -> DataFormat {
         if (self.params.flags & TDEFL_WRITE_ZLIB_HEADER) != 0 {
             DataFormat::Zlib
@@ -354,9 +367,9 @@ impl CompressorOxide {
     ///
     /// Using this to change level after compresson has started is supported.
     /// Note that the compression strategy will be reset to the default one.
-    pub fn set_compression_level(&mut self, level: u8) {
+    pub fn set_level(&mut self, level: u8) {
         let format = self.data_format();
-        self.set_settings(format, level.into());
+        self.set_format_and_level(format, level.into());
     }
 
     /// Update the compression settings of the compressor.
@@ -364,9 +377,11 @@ impl CompressorOxide {
     /// Changing the `DataFormat` after compression has started will result in
     /// a corrupted stream.
     ///
+    /// # Notes
     /// This function mainly intented for setting the initial settings after e.g creating with
-    /// `default` or after calling `CompressorOxide::reset()`.
-    pub fn set_settings(&mut self, data_format: DataFormat, level: u8) {
+    /// `default` or after calling `CompressorOxide::reset()`, and behaviour may be changed
+    /// to disallow calling it after starting compression in the future.
+    pub fn set_format_and_level(&mut self, data_format: DataFormat, level: u8) {
         let flags = create_comp_flags_from_zip_params(level.into(), data_format.to_window_bits(),
                                                       CompressionStrategy::Default as i32);
         self.params.update_flags(flags);
@@ -1567,7 +1582,7 @@ fn flush_block(
                     }
                 }
             } else {
-                // Sync flush.
+                // Sync or Full flush.
                 // Output an empty raw block.
                 output.put_bits(0, 3);
                 output.pad_to_bytes();
@@ -2191,6 +2206,9 @@ fn compress_inner(
 /// `window_bits`: Above 0, wraps the stream in a zlib wrapper, 0 or negative for a raw deflate
 /// stream.
 /// `strategy`: Sets the strategy if this conforms to any of the values in `CompressionStrategy`.
+///
+/// # Notes
+/// This function may be removed or moved to the `miniz_oxide_c_api` in the future.
 pub fn create_comp_flags_from_zip_params(level: i32, window_bits: i32, strategy: i32) -> u32 {
     let num_probes = (if level >= 0 {
                           cmp::min(10, level)

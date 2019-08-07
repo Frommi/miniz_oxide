@@ -1,3 +1,9 @@
+//! Crate wrapping miniz_oxide in a C API that mimics the C API of the original miniz.
+//! Originally designed to allow use of miniz_oxide as a back-end to the
+//! [flate2](https://crates.io/crates/flate2) crate.
+//!
+//! The C API is in a bit of a rough shape currently.
+
 extern crate crc32fast;
 #[cfg(not(any(feature = "libc_stub", all(target_arch = "wasm32", not(target_os = "emscripten")))))]
 extern crate libc;
