@@ -7,8 +7,9 @@ use std::io::{self, Cursor, Seek, SeekFrom, Write};
 use super::CompressionLevel;
 use super::deflate_flags::*;
 use super::super::*;
+use crate::DataFormat;
 use crate::shared::{HUFFMAN_LENGTH_ORDER, MZ_ADLER32_INIT,
-                    update_adler32, zlib_window_bits};
+                    update_adler32};
 use crate::deflate::buffer::{HashBuffers, LZ_CODE_BUF_SIZE, OUT_BUF_SIZE, LocalBuf,
                              LZ_DICT_FULL_SIZE};
 
@@ -298,6 +299,9 @@ pub struct CompressorOxide {
 }
 
 impl CompressorOxide {
+    /// Create a new Compressor with the given flags.
+    ///
+    /// NOTE: This function may be changed to take different parameters in the future.
     pub fn new(flags: u32) -> Self {
         CompressorOxide {
             lz: LZOxide::new(),
@@ -319,8 +323,19 @@ impl CompressorOxide {
         self.params.prev_return_status
     }
 
+    /// Get the raw compressor flags.
+    ///
+    /// NOTE: This function may be deprecated or changed in the future.
     pub fn flags(&self) -> i32 {
         self.params.flags as i32
+    }
+
+    pub fn data_format(&self) -> DataFormat {
+        if (self.params.flags & TDEFL_WRITE_ZLIB_HEADER) != 0 {
+            DataFormat::Zlib
+        } else {
+            DataFormat::None
+        }
     }
 
     /// Reset the state of the compressor, keeping the same parameters.
@@ -335,8 +350,24 @@ impl CompressorOxide {
         self.dict.reset();
     }
 
-    pub fn set_settings(&mut self, zlib_header: bool, level: u8) {
-        let flags = create_comp_flags_from_zip_params(level.into(), zlib_window_bits(zlib_header),
+    /// Set the compression level of the compressor.
+    ///
+    /// Using this to change level after compresson has started is supported.
+    /// Note that the compression strategy will be reset to the default one.
+    pub fn set_compression_level(&mut self, level: u8) {
+        let format = self.data_format();
+        self.set_settings(format, level.into());
+    }
+
+    /// Update the compression settings of the compressor.
+    ///
+    /// Changing the `DataFormat` after compression has started will result in
+    /// a corrupted stream.
+    ///
+    /// This function mainly intented for setting the initial settings after e.g creating with
+    /// `default` or after calling `CompressorOxide::reset()`.
+    pub fn set_settings(&mut self, data_format: DataFormat, level: u8) {
+        let flags = create_comp_flags_from_zip_params(level.into(), data_format.to_window_bits(),
                                                       CompressionStrategy::Default as i32);
         self.params.update_flags(flags);
         self.dict.update_flags(flags);
@@ -2022,7 +2053,12 @@ fn flush_output_buffer(
     res
 }
 
-/// Main compression function. Puts output into buffer.
+/// Main compression function. Tries to compress as much as possible from `in_buf` and
+/// puts compressed output into `out_buf`.
+///
+/// The value of `flush` determines if the compressor should attempt to flush all output
+/// and alternatively try to finish the stream.
+/// Should be `TDeflflush::Finish` on the final call.
 ///
 /// # Returns
 /// Returns a tuple containing the current status of the compressor, the current position
@@ -2042,7 +2078,7 @@ pub fn compress(
 /// Returns a tuple containing the current status of the compressor, the current position
 /// in the input buffer.
 ///
-/// The caller is responsible for ensuring the CallbackFunc struct will not cause undefined
+/// The caller is responsible for ensuring the `CallbackFunc` struct will not cause undefined
 /// behaviour.
 pub fn compress_to_output(
     d: &mut CompressorOxide,
@@ -2147,6 +2183,14 @@ fn compress_inner(
 }
 
 /// Create a set of compression flags using parameters used by zlib and other compressors.
+/// Mainly intented for use with transition from c libraries as it deals with raw integers.
+///
+/// # Parameters
+/// `level` determines compression level. Clamped to maximum of 10. Negative values result in
+/// `Compressionlevel::DefaultLevel`.
+/// `window_bits`: Above 0, wraps the stream in a zlib wrapper, 0 or negative for a raw deflate
+/// stream.
+/// `strategy`: Sets the strategy if this conforms to any of the values in `CompressionStrategy`.
 pub fn create_comp_flags_from_zip_params(level: i32, window_bits: i32, strategy: i32) -> u32 {
     let num_probes = (if level >= 0 {
                           cmp::min(10, level)
@@ -2226,8 +2270,5 @@ mod test {
 
         let decoded = decompress_to_vec(&encoded[..]).unwrap();
         assert_eq!(&decoded[..], &slice[..]);
-
-        let test = super::TDEFLFlush::Full as u32;
-        println!("test {}", test);
     }
 }

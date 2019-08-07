@@ -1,12 +1,16 @@
+//! Extra streaming decompression functionality.
+//!
+//! As of now this is mainly inteded for use to build a higher-level wrapper.
 use std::io::Cursor;
 use std::{mem, cmp};
 use std::convert::{AsMut, AsRef};
 
-use crate::{MZResult, MZFlush, MZError, MZStatus, StreamResult};
+use crate::{MZResult, MZFlush, MZError, MZStatus, StreamResult, DataFormat};
 use crate::inflate::TINFLStatus;
 use crate::inflate::core::{DecompressorOxide, TINFL_LZ_DICT_SIZE, inflate_flags, decompress};
 
-/// A struct that keeps extra data for streaming decompression.
+/// A struct that compbines a decompressor with extra data for streaming decompression.
+///
 pub struct InflateState {
     /// Inner decompressor struct
     decomp: DecompressorOxide,
@@ -27,7 +31,7 @@ pub struct InflateState {
 
     /// Whether the input data is wrapped in a zlib header and checksum.
     /// TODO: This should be stored in the decompressor.
-    zlib_header: bool,
+    data_format: DataFormat,
     last_status: TINFLStatus,
 }
 
@@ -40,7 +44,7 @@ impl Default for InflateState {
             dict_avail: 0,
             first_call: true,
             has_flushed: false,
-            zlib_header: false,
+            data_format: DataFormat::None,
             last_status: TINFLStatus::NeedsMoreInput,
         }
     }
@@ -48,30 +52,35 @@ impl Default for InflateState {
 impl InflateState {
     /// Create a new state.
     ///
-    /// Parameters:
-    /// `zlib_header`: Determines whether the compressed data is assumed to wrapped with zlib
+    /// Note that this struct is quite large due to internal buffers, and as such storing it on
+    /// the stack is not recommended.
+    ///
+    /// # Parameters
+    /// `data_format`: Determines whether the compressed data is assumed to wrapped with zlib
     /// metadata.
-    pub fn new(zlib_header: bool) -> InflateState {
+    pub fn new(data_format: DataFormat) -> InflateState {
         let mut b = InflateState::default();
-        b.zlib_header = zlib_header;
+        b.data_format = data_format;
         b
     }
 
     /// Create a new state on the heap.
     ///
-    /// Parameters:
-    /// `zlib_header`: Determines whether the compressed data is assumed to wrapped with zlib
+    /// # Parameters
+    /// `data_format`: Determines whether the compressed data is assumed to wrapped with zlib
     /// metadata.
-    pub fn new_boxed(zlib_header: bool) -> Box<InflateState> {
+    pub fn new_boxed(data_format: DataFormat) -> Box<InflateState> {
         let mut b: Box<InflateState> = Box::default();
-        b.zlib_header = zlib_header;
+        b.data_format = data_format;
         b
     }
 
+    /// Access the innner decompressor.
     pub fn decompressor(&mut self) -> &mut DecompressorOxide {
         &mut self.decomp
     }
 
+    /// Return the status of the last call to `inflate` with this `InflateState`.
     pub fn last_status(&self) -> TINFLStatus {
         self.last_status
     }
@@ -83,14 +92,21 @@ impl InflateState {
     /// will not.
     pub fn new_boxed_with_window_bits(window_bits: i32) -> Box<InflateState> {
         let mut b: Box<InflateState> = Box::default();
-
-        b.zlib_header = window_bits > 0;
+        b.data_format = DataFormat::from_window_bits(window_bits);
         b
     }
 
 }
 
-
+/// Try to decompress from `input` to `output` with the given `InflateState`
+///
+/// # Errors
+///
+/// Returns `MZError::Buf` If the size of the `output` slice is empty or no progress was made due to
+/// lack of expected input data or called after the decompression was
+/// finished without MZFlush::Finish.
+///
+/// Returns `MZError::Param` if the compressor parameters are set wrong.
 pub fn inflate<I: AsRef<[u8]>, O: AsMut<[u8]>>(state: &mut InflateState, input: &I, output: &mut O,
            flush: MZFlush)
                -> StreamResult {
@@ -104,7 +120,7 @@ pub fn inflate<I: AsRef<[u8]>, O: AsMut<[u8]>>(state: &mut InflateState, input: 
     }
 
     let mut decomp_flags = inflate_flags::TINFL_FLAG_COMPUTE_ADLER32;
-    if state.zlib_header {
+    if state.data_format == DataFormat::Zlib {
         decomp_flags |= inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER;
     }
 
@@ -208,7 +224,6 @@ fn inflate_loop(state: &mut InflateState, next_in: &mut &[u8], next_out: &mut &m
 
         // The stream was corrupted, and decompression failed.
         if (status as i32) < 0 {
-            println!("Decomp failed loop!: {:?}", state.last_status);
             return Err(MZError::Data);
         }
 
@@ -263,7 +278,7 @@ fn push_dict_out(state: &mut InflateState, next_out: &mut &mut [u8]) -> usize {
 #[cfg(test)]
 mod test {
     use super::{InflateState, inflate};
-    use crate::{MZFlush, MZStatus};
+    use crate::{MZFlush, MZStatus, DataFormat};
     #[test]
     fn test_state() {
         let encoded = [
@@ -271,7 +286,7 @@ mod test {
             202, 201,  76,  82,  4,   0,  27, 101,  4,  19,
         ];
         let mut out = vec![0; 50];
-        let mut state = InflateState::new_boxed(true);
+        let mut state = InflateState::new_boxed(DataFormat::Zlib);
         let res = inflate(&mut state, &encoded, &mut out, MZFlush::Finish);
         let status = res.status.expect("Failed to decompress!");
         assert_eq!(status, MZStatus::StreamEnd);

@@ -39,23 +39,23 @@ pub enum MZFlush {
     /// Don't force any flushing.
     /// Used when more input data is expected.
     None = 0,
-    /// Zlib partial flush
-    /// Not implemented.
+    /// Zlib partial flush.
+    /// Currently treated as `Sync`.
     Partial = 1,
     /// Finish compressing the currently buffered data, and output an empty raw block.
     /// Has no use in decompression.
-    /// Not currently implemented.
     Sync = 2,
     /// Zlib full flush for decompression.
-    /// Not implemented
+    /// Not implemented.
     Full = 3,
     /// Attempt to flush the remaining data and end the stream.
     Finish = 4,
+    /// Not implemented.
     Block = 5,
 }
 
 impl MZFlush {
-    /// Create a Flush instance from an integer value.
+    /// Create an MZFlush value from an integer value.
     ///
     /// Returns `MZError::Param` on invalid values.
     pub fn new(flush: i32) -> Result<Self, MZError> {
@@ -65,6 +65,7 @@ impl MZFlush {
             3 => Ok(MZFlush::Full),
             4 => Ok(MZFlush::Finish),
             _ => Err(MZError::Param),
+
         }
     }
 }
@@ -89,6 +90,33 @@ pub enum MZError {
     Buf = -5,
     Version = -6,
     Param = -10_000,
+}
+
+/// How compressed data is wrapped.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum DataFormat {
+    /// Wrapped using the zlib format.
+    /// See http://www.zlib.org/rfc-zlib.html
+    Zlib,
+    /// Raw DEFLATE.
+    None,
+}
+
+impl DataFormat {
+    pub(crate) fn from_window_bits(window_bits: i32) -> DataFormat {
+        if window_bits > 0 {
+            DataFormat::Zlib
+        } else {
+            DataFormat::None
+        }
+    }
+
+    pub(crate) fn to_window_bits(self) -> i32 {
+        match self {
+            DataFormat::Zlib => shared::MZ_DEFAULT_WINDOW_BITS,
+            DataFormat::None => -shared::MZ_DEFAULT_WINDOW_BITS,
+        }
+    }
 }
 
 /// `Result` alias for all miniz status codes both successful and failed.

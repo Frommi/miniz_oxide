@@ -1,9 +1,22 @@
+//! Extra streaming compression functionality.
+//!
+//! As of now this is mainly inteded for use to build a higher-level wrapper.
+//!
+//! There is no DeflateState as the needed state is contained in the compressor struct itself.
 use std::convert::{AsMut, AsRef};
 
 use crate::{MZFlush, MZError, MZStatus, StreamResult};
 use crate::deflate::core::{TDEFLStatus, TDEFLFlush, CompressorOxide, compress};
 
 /// Try to compress from input to output with the given Compressor
+///
+/// # Errors
+///
+/// Returns `MZError::Buf` If the size of the `output` slice is empty or no progress was made due to
+/// lack of expected input data or called after the compression was finished without
+/// MZFlush::Finish.
+///
+/// Returns `MZError::Param` if the compressor parameters are set wrong.
 pub fn deflate<I: AsRef<[u8]>, O: AsMut<[u8]>>(compressor: &mut CompressorOxide, input: &I,
                output: &mut O,
                flush: MZFlush) -> StreamResult {
@@ -23,6 +36,7 @@ pub fn deflate<I: AsRef<[u8]>, O: AsMut<[u8]>>(compressor: &mut CompressorOxide,
             StreamResult::error(MZError::Buf)
         };
     }
+
 
     let mut bytes_written = 0;
     let mut bytes_consumed = 0;
@@ -45,15 +59,16 @@ pub fn deflate<I: AsRef<[u8]>, O: AsMut<[u8]>>(compressor: &mut CompressorOxide,
         bytes_consumed += in_bytes;
         bytes_written += out_bytes;
 
-        if defl_status == TDEFLStatus::BadParam || defl_status == TDEFLStatus::PutBufFailed {
-            break Err(MZError::Stream);
-        }
+        // Check if we are done, or compression failed.
+        match defl_status {
+            TDEFLStatus::BadParam => break Err(MZError::Param),
+            // Don't think this can happen as we're not using a custom callback.
+            TDEFLStatus::PutBufFailed => break Err(MZError::Stream),
+            TDEFLStatus::Done => break Ok(MZStatus::StreamEnd),
+            _ => ()
+        };
 
-        if defl_status == TDEFLStatus::Done {
-            break Ok(MZStatus::StreamEnd);
-
-        }
-
+        // All the output space was used, so wait for more.
         if next_out.is_empty() {
             break Ok(MZStatus::Ok);
         }
@@ -62,8 +77,11 @@ pub fn deflate<I: AsRef<[u8]>, O: AsMut<[u8]>>(compressor: &mut CompressorOxide,
             let total_changed = bytes_written > 0 || bytes_consumed > 0;
 
             break if (flush != MZFlush::None) || total_changed {
+                // We wrote or consumed something, and/or did a flush (sync/partial etc.).
                 Ok(MZStatus::Ok)
             } else {
+                // No more input data, not flushing, and nothing was consumed or written,
+                // so couldn't make any progress.
                 Err(MZError::Buf)
             };
         }

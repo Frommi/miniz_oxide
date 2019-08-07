@@ -181,10 +181,8 @@ pub fn mz_deflate_oxide(
     stream_oxide: &mut StreamOxide<Compressor>,
     flush: i32,
 ) -> MZResult {
-    println!("deflate_oxide called");
     let state: &mut Compressor = {
         let enum_ref = stream_oxide.state.as_mut().ok_or(MZError::Stream)?;
-        println!("got ref!");
         StateType::from_enum(enum_ref)
     }.ok_or(MZError::Stream)?;
     let next_in = stream_oxide.next_in.as_mut().ok_or(MZError::Stream)?;

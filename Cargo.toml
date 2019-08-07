@@ -11,7 +11,7 @@ repository = "https://github.com/Frommi/miniz_oxide"
 homepage = "https://github.com/Frommi/miniz_oxide/"
 documentation = "https://docs.rs/miniz_oxide_c_api"
 description = "DEFLATE compression and decompression API designed to be Rust drop-in replacement for miniz"
-exclude = ["benches/data/*", "/*.sh", "/redefine.txt", "fuzz"]
+exclude = ["benches/data/*", "/*.sh", "/redefine.txt", "fuzz/*", "tests/*", "miniz/*"]
 
 [workspace]
 
