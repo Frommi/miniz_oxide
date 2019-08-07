@@ -3,11 +3,12 @@
 use std::default::Default;
 use std::{fmt, mem};
 
-use miniz_oxide::deflate::core::{CompressorOxide, create_comp_flags_from_zip_params,
-                                 deflate_flags, CompressionStrategy};
+use miniz_oxide::deflate::core::{
+    create_comp_flags_from_zip_params, deflate_flags, CompressionStrategy, CompressorOxide,
+};
 use miniz_oxide::deflate::stream::deflate;
+use miniz_oxide::inflate::stream::{inflate, InflateState};
 use tdef::Compressor;
-use miniz_oxide::inflate::stream::{InflateState, inflate};
 
 use miniz_oxide::*;
 
@@ -35,7 +36,7 @@ pub type MZResult = Result<MZStatus, MZError>;
 
 /// Enum to keep track of what type the internal state is when moving over the C API boundary.
 #[repr(C)]
-#[derive(Debug,Copy,Clone,PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum StateTypeEnum {
     None = 0,
     Inflate,
@@ -118,14 +119,10 @@ pub fn mz_compress2_oxide(
     }
 }
 
-
 /// Initialize the wrapped compressor with the requested level (0-10) and default settings.
 ///
 /// The compression level will be set to 6 (default) if the requested level is not available.
-pub fn mz_deflate_init_oxide(
-    stream_oxide: &mut StreamOxide<Compressor>,
-    level: i32,
-) -> MZResult {
+pub fn mz_deflate_init_oxide(stream_oxide: &mut StreamOxide<Compressor>, level: i32) -> MZResult {
     mz_deflate_init2_oxide(
         stream_oxide,
         level,
@@ -157,14 +154,13 @@ pub fn mz_deflate_init2_oxide(
     mem_level: i32,
     strategy: i32,
 ) -> MZResult {
-    let comp_flags = deflate_flags::TDEFL_COMPUTE_ADLER32 |
-        create_comp_flags_from_zip_params(level, window_bits, strategy);
+    let comp_flags = deflate_flags::TDEFL_COMPUTE_ADLER32
+        | create_comp_flags_from_zip_params(level, window_bits, strategy);
 
     let invalid_level = (mem_level < 1) || (mem_level > 9);
     if (method != MZ_DEFLATED) || invalid_level || invalid_window_bits(window_bits) {
         return Err(MZError::Param);
     }
-
 
     stream_oxide.adler = MZ_ADLER32_INIT;
     stream_oxide.total_in = 0;
@@ -177,23 +173,21 @@ pub fn mz_deflate_init2_oxide(
     Ok(MZStatus::Ok)
 }
 
-pub fn mz_deflate_oxide(
-    stream_oxide: &mut StreamOxide<Compressor>,
-    flush: i32,
-) -> MZResult {
+pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<Compressor>, flush: i32) -> MZResult {
     let state: &mut Compressor = {
         let enum_ref = stream_oxide.state.as_mut().ok_or(MZError::Stream)?;
         StateType::from_enum(enum_ref)
-    }.ok_or(MZError::Stream)?;
+    }
+    .ok_or(MZError::Stream)?;
     let next_in = stream_oxide.next_in.as_mut().ok_or(MZError::Stream)?;
     let next_out = stream_oxide.next_out.as_mut().ok_or(MZError::Stream)?;
 
     let flush = MZFlush::new(flush)?;
 
     let ret = if let Some(compressor) = state.inner.as_mut() {
-        deflate(compressor, next_in, next_out,flush)
+        deflate(compressor, next_in, next_out, flush)
     } else {
-        return Err(MZError::Param)
+        return Err(MZError::Param);
     };
 
     *next_in = &next_in[ret.bytes_consumed as usize..];
@@ -211,7 +205,6 @@ pub fn mz_deflate_end_oxide(stream_oxide: &mut StreamOxide<Compressor>) -> MZRes
     stream_oxide.state = None;
     Ok(MZStatus::Ok)
 }
-
 
 /// Reset the compressor, so it can be used to compress a new set of data.
 ///
@@ -245,7 +238,8 @@ pub fn mz_inflate_init2_oxide(
     stream_oxide.total_out = 0;
 
     stream_oxide.state = Some(Box::new(InternalState::Inflate(
-        InflateState::new_boxed_with_window_bits(window_bits))));
+        InflateState::new_boxed_with_window_bits(window_bits),
+    )));
 
     Ok(MZStatus::Ok)
 }
@@ -254,8 +248,8 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<InflateState>, flush: i32
     let state: &mut InflateState = {
         let enum_ref = stream_oxide.state.as_mut().ok_or(MZError::Stream)?;
         StateType::from_enum(enum_ref)
-    }.ok_or(MZError::Stream)?;
-
+    }
+    .ok_or(MZError::Stream)?;
 
     let next_in = stream_oxide.next_in.as_mut().ok_or(MZError::Stream)?;
     let next_out = stream_oxide.next_out.as_mut().ok_or(MZError::Stream)?;
@@ -278,10 +272,9 @@ pub fn mz_uncompress2_oxide(
     let status = mz_inflate_oxide(stream_oxide, MZFlush::Finish as i32);
     mz_inflate_end_oxide(stream_oxide)?;
 
-    let empty_in = stream_oxide.next_in.map_or(
-        true,
-        |next_in| next_in.is_empty(),
-    );
+    let empty_in = stream_oxide
+        .next_in
+        .map_or(true, |next_in| next_in.is_empty());
     match (status, empty_in) {
         (Ok(MZStatus::StreamEnd), _) => {
             *dest_len = stream_oxide.total_out;

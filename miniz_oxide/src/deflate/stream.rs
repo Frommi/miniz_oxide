@@ -5,8 +5,8 @@
 //! There is no DeflateState as the needed state is contained in the compressor struct itself.
 use std::convert::{AsMut, AsRef};
 
-use crate::{MZFlush, MZError, MZStatus, StreamResult};
-use crate::deflate::core::{TDEFLStatus, TDEFLFlush, CompressorOxide, compress};
+use crate::deflate::core::{compress, CompressorOxide, TDEFLFlush, TDEFLStatus};
+use crate::{MZError, MZFlush, MZStatus, StreamResult};
 
 /// Try to compress from input to output with the given Compressor
 ///
@@ -17,12 +17,14 @@ use crate::deflate::core::{TDEFLStatus, TDEFLFlush, CompressorOxide, compress};
 /// MZFlush::Finish.
 ///
 /// Returns `MZError::Param` if the compressor parameters are set wrong.
-pub fn deflate(compressor: &mut CompressorOxide, input: &[u8],
-               output: &mut [u8],
-               flush: MZFlush) -> StreamResult {
-
+pub fn deflate(
+    compressor: &mut CompressorOxide,
+    input: &[u8],
+    output: &mut [u8],
+    flush: MZFlush,
+) -> StreamResult {
     if output.is_empty() {
-        return StreamResult::error(MZError::Buf)
+        return StreamResult::error(MZError::Buf);
     }
 
     if compressor.prev_return_status() == TDEFLStatus::Done {
@@ -30,13 +32,12 @@ pub fn deflate(compressor: &mut CompressorOxide, input: &[u8],
             StreamResult {
                 bytes_written: 0,
                 bytes_consumed: 0,
-                status: Ok(MZStatus::StreamEnd)
+                status: Ok(MZStatus::StreamEnd),
             }
         } else {
             StreamResult::error(MZError::Buf)
         };
     }
-
 
     let mut bytes_written = 0;
     let mut bytes_consumed = 0;
@@ -65,7 +66,7 @@ pub fn deflate(compressor: &mut CompressorOxide, input: &[u8],
             // Don't think this can happen as we're not using a custom callback.
             TDEFLStatus::PutBufFailed => break Err(MZError::Stream),
             TDEFLStatus::Done => break Ok(MZStatus::StreamEnd),
-            _ => ()
+            _ => (),
         };
 
         // All the output space was used, so wait for more.
@@ -93,13 +94,12 @@ pub fn deflate(compressor: &mut CompressorOxide, input: &[u8],
     }
 }
 
-
 #[cfg(test)]
 mod test {
-    use crate::{MZFlush, MZStatus};
+    use super::deflate;
     use crate::deflate::CompressorOxide;
     use crate::inflate::decompress_to_vec_zlib;
-    use super::deflate;
+    use crate::{MZFlush, MZStatus};
     #[test]
     fn test_state() {
         let data = b"Hello zlib!";
@@ -107,8 +107,8 @@ mod test {
         let mut compressor = Box::<CompressorOxide>::default();
         let res = deflate(&mut compressor, data, &mut compressed, MZFlush::Finish);
         let status = res.status.expect("Failed to compress!");
-        let decomp = decompress_to_vec_zlib(&compressed)
-            .expect("Failed to decompress compressed data");
+        let decomp =
+            decompress_to_vec_zlib(&compressed).expect("Failed to decompress compressed data");
         assert_eq!(status, MZStatus::StreamEnd);
         assert_eq!(decomp[..], data[..]);
         assert_eq!(res.bytes_consumed, data.len());

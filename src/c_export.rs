@@ -1,25 +1,27 @@
-/// Module that contains most of the functions exported to C.
-use std::{slice, ptr};
 use std::marker::PhantomData;
+/// Module that contains most of the functions exported to C.
+use std::{ptr, slice};
 
-pub use tinfl::{tinfl_decompress, tinfl_decompress_mem_to_heap,
-                tinfl_decompress_mem_to_mem, tinfl_decompressor};
+pub use tinfl::{
+    tinfl_decompress, tinfl_decompress_mem_to_heap, tinfl_decompress_mem_to_mem, tinfl_decompressor,
+};
 
-
-pub use tdef::{tdefl_compress, tdefl_compress_buffer, tdefl_compress_mem_to_heap,
-               tdefl_compress_mem_to_mem, tdefl_compress_mem_to_output,
-               tdefl_create_comp_flags_from_zip_params, tdefl_get_prev_return_status, tdefl_init,
-               tdefl_allocate, tdefl_deallocate, tdefl_get_adler32};
 use libc::*;
+pub use tdef::{
+    tdefl_allocate, tdefl_compress, tdefl_compress_buffer, tdefl_compress_mem_to_heap,
+    tdefl_compress_mem_to_mem, tdefl_compress_mem_to_output,
+    tdefl_create_comp_flags_from_zip_params, tdefl_deallocate, tdefl_get_adler32,
+    tdefl_get_prev_return_status, tdefl_init,
+};
 
-use lib_oxide::{MZ_ADLER32_INIT, StreamOxide, StateType, InternalState, StateTypeEnum};
+use lib_oxide::{InternalState, StateType, StateTypeEnum, StreamOxide, MZ_ADLER32_INIT};
 
 use miniz_oxide::{mz_adler32_oxide, MZError};
 
 pub mod return_status {
-    use MZError::*;
-    use miniz_oxide::MZStatus;
     use libc::c_int;
+    use miniz_oxide::MZStatus;
+    use MZError::*;
     pub const MZ_ERRNO: c_int = ErrNo as c_int;
     pub const MZ_STREAM_ERROR: c_int = Stream as c_int;
     pub const MZ_DATA_ERROR: c_int = Data as c_int;
@@ -147,21 +149,20 @@ impl Default for mz_stream {
 impl<'io, ST: StateType> StreamOxide<'io, ST> {
     pub fn into_mz_stream(mut self) -> mz_stream {
         mz_stream {
-            next_in: self.next_in.map_or(
-                ptr::null(),
-                |in_slice| in_slice.as_ptr(),
-            ),
+            next_in: self
+                .next_in
+                .map_or(ptr::null(), |in_slice| in_slice.as_ptr()),
             avail_in: self.next_in.map_or(0, |in_slice| in_slice.len() as c_uint),
             total_in: self.total_in,
 
-            next_out: self.next_out.as_mut().map_or(
-                ptr::null_mut(),
-                |out_slice| out_slice.as_mut_ptr(),
-            ),
-            avail_out: self.next_out.as_mut().map_or(
-                0,
-                |out_slice| out_slice.len() as c_uint,
-            ),
+            next_out: self
+                .next_out
+                .as_mut()
+                .map_or(ptr::null_mut(), |out_slice| out_slice.as_mut_ptr()),
+            avail_out: self
+                .next_out
+                .as_mut()
+                .map_or(0, |out_slice| out_slice.len() as c_uint),
             total_out: self.total_out,
 
             msg: ptr::null(),
@@ -177,15 +178,16 @@ impl<'io, ST: StateType> StreamOxide<'io, ST> {
         }
     }
 
-        /// Create a new StreamOxide wrapper from a [mz_stream] object.
+    /// Create a new StreamOxide wrapper from a [mz_stream] object.
     /// Custom allocation functions are not supported, supplying an mz_stream with allocation
     /// function will cause creation to fail.
     ///
     /// Unsafe as the mz_stream object is not guaranteed to be valid. It is up to the
     /// caller to ensure it is.
     pub unsafe fn new(stream: &mut mz_stream) -> Self {
-        Self::try_new(stream)
-            .expect("Failed to create StreamOxide, wrong state type or tried to specify allocators.")
+        Self::try_new(stream).expect(
+            "Failed to create StreamOxide, wrong state type or tried to specify allocators.",
+        )
     }
 
     /// Try to create a new StreamOxide wrapper from a [mz_stream] object.
@@ -196,18 +198,19 @@ impl<'io, ST: StateType> StreamOxide<'io, ST> {
     /// caller to ensure it is.
     pub unsafe fn try_new(stream: &mut mz_stream) -> Result<Self, MZError> {
         // Make sure we don't make an inflate stream from a deflate stream and vice versa.
-        if stream.data_type != ST::STATE_TYPE
-            || stream.zalloc.is_some() || stream.zfree.is_some() {
+        if stream.data_type != ST::STATE_TYPE || stream.zalloc.is_some() || stream.zfree.is_some() {
             return Err(MZError::Param);
         }
 
-        let in_slice = stream.next_in.as_ref().map(|ptr| {
-            slice::from_raw_parts(ptr, stream.avail_in as usize)
-        });
+        let in_slice = stream
+            .next_in
+            .as_ref()
+            .map(|ptr| slice::from_raw_parts(ptr, stream.avail_in as usize));
 
-        let out_slice = stream.next_out.as_mut().map(|ptr| {
-            slice::from_raw_parts_mut(ptr, stream.avail_out as usize)
-        });
+        let out_slice = stream
+            .next_out
+            .as_mut()
+            .map(|ptr| slice::from_raw_parts_mut(ptr, stream.avail_out as usize));
 
         Ok(StreamOxide {
             next_in: in_slice,
@@ -266,5 +269,5 @@ unmangle!(
             let data = slice::from_raw_parts(r, buf_len);
             mz_crc32_oxide(crc as u32, data) as c_ulong
         })
-}
+    }
 );

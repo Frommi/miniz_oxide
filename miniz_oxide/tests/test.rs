@@ -2,8 +2,8 @@ extern crate miniz_oxide;
 
 use std::io::Read;
 
-use miniz_oxide::inflate::{TINFLStatus, decompress_to_vec_zlib, decompress_to_vec};
 use miniz_oxide::deflate::compress_to_vec;
+use miniz_oxide::inflate::{decompress_to_vec, decompress_to_vec_zlib, TINFLStatus};
 
 fn get_test_file_data(name: &str) -> Vec<u8> {
     use std::fs::File;

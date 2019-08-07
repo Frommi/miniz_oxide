@@ -23,8 +23,8 @@
 
 extern crate adler32;
 
-pub mod inflate;
 pub mod deflate;
+pub mod inflate;
 mod shared;
 
 pub use crate::shared::update_adler32 as mz_adler32_oxide;
@@ -66,7 +66,6 @@ impl MZFlush {
             3 => Ok(MZFlush::Full),
             4 => Ok(MZFlush::Finish),
             _ => Err(MZError::Param),
-
         }
     }
 }

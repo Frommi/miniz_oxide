@@ -5,13 +5,21 @@
 //! The C API is in a bit of a rough shape currently.
 
 extern crate crc32fast;
-#[cfg(not(any(feature = "libc_stub", all(target_arch = "wasm32", not(target_os = "emscripten")))))]
+#[cfg(not(any(
+    feature = "libc_stub",
+    all(target_arch = "wasm32", not(target_os = "emscripten"))
+)))]
 extern crate libc;
-#[cfg(any(feature = "libc_stub", all(target_arch = "wasm32", not(target_os = "emscripten"))))]
+#[cfg(any(
+    feature = "libc_stub",
+    all(target_arch = "wasm32", not(target_os = "emscripten"))
+))]
 mod libc {
     #![allow(non_camel_case_types)]
 
-    use std::alloc::{alloc as rust_alloc, realloc as rust_realloc, dealloc as rust_dealloc, Layout};
+    use std::alloc::{
+        alloc as rust_alloc, dealloc as rust_dealloc, realloc as rust_realloc, Layout,
+    };
     use std::mem;
 
     pub type c_void = u8;
@@ -52,22 +60,22 @@ mod libc {
 }
 extern crate miniz_oxide;
 
-use std::{cmp, ptr};
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::{cmp, ptr};
 
 use libc::{c_int, c_uint, c_ulong};
 
-use miniz_oxide::deflate::CompressionLevel;
 use miniz_oxide::deflate::core::CompressionStrategy;
-pub use miniz_oxide::{MZFlush, MZResult, MZError, MZStatus};
+use miniz_oxide::deflate::CompressionLevel;
+pub use miniz_oxide::{MZError, MZFlush, MZResult, MZStatus};
 
 pub mod lib_oxide;
 use lib_oxide::*;
 
 #[macro_use]
 mod unmangle;
-mod tinfl;
 mod tdef;
+mod tinfl;
 
 mod c_export;
 pub use c_export::*;
@@ -122,169 +130,171 @@ oxidize!(mz_deflate, mz_deflate_oxide;
 oxidize!(mz_deflateEnd, mz_deflate_end_oxide;);
 oxidize!(mz_deflateReset, mz_deflate_reset_oxide;);
 
-
 oxidize!(mz_inflate, mz_inflate_oxide;
          flush: c_int);
 oxidize!(mz_inflateEnd, mz_inflate_end_oxide;);
 
 unmangle!(
-pub unsafe extern "C" fn mz_deflateInit(stream: *mut mz_stream, level: c_int) -> c_int {
-    mz_deflateInit2(
-        stream,
-        level,
-        MZ_DEFLATED,
-        MZ_DEFAULT_WINDOW_BITS,
-        9,
-        CompressionStrategy::Default as c_int,
-    )
-}
+    pub unsafe extern "C" fn mz_deflateInit(stream: *mut mz_stream, level: c_int) -> c_int {
+        mz_deflateInit2(
+            stream,
+            level,
+            MZ_DEFLATED,
+            MZ_DEFAULT_WINDOW_BITS,
+            9,
+            CompressionStrategy::Default as c_int,
+        )
+    }
 
-pub unsafe extern "C" fn mz_deflateInit2(stream: *mut mz_stream, level: c_int, method: c_int,
-                                         window_bits: c_int, mem_level: c_int, strategy: c_int)
-                                         -> c_int {
-    match stream.as_mut() {
-        None => MZError::Stream as c_int,
-        Some(stream) => {
-            stream.data_type = StateTypeEnum::Deflate;
-            // Make sure we catch a potential panic, as
-            // this is called from C.
-            match catch_unwind(AssertUnwindSafe(|| {
-                match StreamOxide::try_new(stream) {
+    pub unsafe extern "C" fn mz_deflateInit2(
+        stream: *mut mz_stream,
+        level: c_int,
+        method: c_int,
+        window_bits: c_int,
+        mem_level: c_int,
+        strategy: c_int,
+    ) -> c_int {
+        match stream.as_mut() {
+            None => MZError::Stream as c_int,
+            Some(stream) => {
+                stream.data_type = StateTypeEnum::Deflate;
+                // Make sure we catch a potential panic, as
+                // this is called from C.
+                match catch_unwind(AssertUnwindSafe(|| match StreamOxide::try_new(stream) {
                     Ok(mut stream_oxide) => {
-                        let status = mz_deflate_init2_oxide(&mut stream_oxide,level, method,
-                                                            window_bits, mem_level, strategy);
+                        let status = mz_deflate_init2_oxide(
+                            &mut stream_oxide,
+                            level,
+                            method,
+                            window_bits,
+                            mem_level,
+                            strategy,
+                        );
                         *stream = stream_oxide.into_mz_stream();
-                        as_c_return_code(status) }
-                    Err(e) => {
-                        e as c_int
+                        as_c_return_code(status)
+                    }
+                    Err(e) => e as c_int,
+                })) {
+                    Ok(res) => res,
+                    Err(_) => {
+                        println!("FATAL ERROR: Caught panic!");
+                        MZError::Stream as c_int
                     }
                 }
-            })) {
-                Ok(res) => res,
-                Err(_) => {
-                    println!("FATAL ERROR: Caught panic!");
-                    MZError::Stream as c_int},
             }
         }
     }
-}
 
-pub unsafe extern "C" fn mz_inflateInit2(stream: *mut mz_stream, window_bits: c_int)
-                                         -> c_int {
-    match stream.as_mut() {
-        None => MZError::Stream as c_int,
-        Some(stream) => {
-            stream.data_type = StateTypeEnum::Inflate;
-            // Make sure we catch a potential panic, as
-            // this is called from C.
-            match catch_unwind(AssertUnwindSafe(|| {
-                match StreamOxide::try_new(stream) {
+    pub unsafe extern "C" fn mz_inflateInit2(stream: *mut mz_stream, window_bits: c_int) -> c_int {
+        match stream.as_mut() {
+            None => MZError::Stream as c_int,
+            Some(stream) => {
+                stream.data_type = StateTypeEnum::Inflate;
+                // Make sure we catch a potential panic, as
+                // this is called from C.
+                match catch_unwind(AssertUnwindSafe(|| match StreamOxide::try_new(stream) {
                     Ok(mut stream_oxide) => {
-                        let status = mz_inflate_init2_oxide(&mut stream_oxide,window_bits);
+                        let status = mz_inflate_init2_oxide(&mut stream_oxide, window_bits);
                         *stream = stream_oxide.into_mz_stream();
-                        as_c_return_code(status) }
-                    Err(e) => {
-                        e as c_int
+                        as_c_return_code(status)
+                    }
+                    Err(e) => e as c_int,
+                })) {
+                    Ok(res) => res,
+                    Err(_) => {
+                        println!("FATAL ERROR: Caught panic!");
+                        MZError::Stream as c_int
                     }
                 }
-            })) {
-                Ok(res) => res,
-                Err(_) => {
-                    println!("FATAL ERROR: Caught panic!");
-                    MZError::Stream as c_int},
             }
         }
     }
-}
 
-pub unsafe extern "C" fn mz_compress(
-    dest: *mut u8,
-    dest_len: *mut c_ulong,
-    source: *const u8,
-    source_len: c_ulong,
-) -> c_int {
-    mz_compress2(
-        dest,
-        dest_len,
-        source,
-        source_len,
-        CompressionLevel::DefaultCompression as c_int,
-    )
-}
+    pub unsafe extern "C" fn mz_compress(
+        dest: *mut u8,
+        dest_len: *mut c_ulong,
+        source: *const u8,
+        source_len: c_ulong,
+    ) -> c_int {
+        mz_compress2(
+            dest,
+            dest_len,
+            source,
+            source_len,
+            CompressionLevel::DefaultCompression as c_int,
+        )
+    }
 
-pub unsafe extern "C" fn mz_compress2(
-    dest: *mut u8,
-    dest_len: *mut c_ulong,
-    source: *const u8,
-    source_len: c_ulong,
-    level: c_int,
-) -> c_int {
-    dest_len.as_mut().map_or(
-        MZError::Param as c_int,
-        |dest_len| {
-            if buffer_too_large(source_len, *dest_len) {
-                return MZError::Param as c_int;
-            }
+    pub unsafe extern "C" fn mz_compress2(
+        dest: *mut u8,
+        dest_len: *mut c_ulong,
+        source: *const u8,
+        source_len: c_ulong,
+        level: c_int,
+    ) -> c_int {
+        dest_len
+            .as_mut()
+            .map_or(MZError::Param as c_int, |dest_len| {
+                if buffer_too_large(source_len, *dest_len) {
+                    return MZError::Param as c_int;
+                }
 
-            let mut stream: mz_stream = mz_stream {
-                next_in: source,
-                avail_in: source_len as c_uint,
-                next_out: dest,
-                avail_out: (*dest_len) as c_uint,
-                data_type: StateTypeEnum::Deflate,
-                ..Default::default()
-            };
+                let mut stream: mz_stream = mz_stream {
+                    next_in: source,
+                    avail_in: source_len as c_uint,
+                    next_out: dest,
+                    avail_out: (*dest_len) as c_uint,
+                    data_type: StateTypeEnum::Deflate,
+                    ..Default::default()
+                };
 
-            let mut stream_oxide = StreamOxide::new(&mut stream);
-            as_c_return_code(mz_compress2_oxide(&mut stream_oxide, level, dest_len))
-        },
-    )
-}
+                let mut stream_oxide = StreamOxide::new(&mut stream);
+                as_c_return_code(mz_compress2_oxide(&mut stream_oxide, level, dest_len))
+            })
+    }
 
-pub extern "C" fn mz_deflateBound(_stream: *mut mz_stream, source_len: c_ulong) -> c_ulong {
-    cmp::max(
-        128 + (source_len * 110) / 100,
-        128 + source_len + ((source_len / (31 * 1024)) + 1) * 5,
-    )
-}
+    pub extern "C" fn mz_deflateBound(_stream: *mut mz_stream, source_len: c_ulong) -> c_ulong {
+        cmp::max(
+            128 + (source_len * 110) / 100,
+            128 + source_len + ((source_len / (31 * 1024)) + 1) * 5,
+        )
+    }
 
-pub unsafe extern "C" fn mz_inflateInit(stream: *mut mz_stream) -> c_int {
-    mz_inflateInit2(stream, MZ_DEFAULT_WINDOW_BITS)
-}
+    pub unsafe extern "C" fn mz_inflateInit(stream: *mut mz_stream) -> c_int {
+        mz_inflateInit2(stream, MZ_DEFAULT_WINDOW_BITS)
+    }
 
-pub unsafe extern "C" fn mz_uncompress(
-    dest: *mut u8,
-    dest_len: *mut c_ulong,
-    source: *const u8,
-    source_len: c_ulong,
-) -> c_int {
-    dest_len.as_mut().map_or(
-        MZError::Param as c_int,
-        |dest_len| {
-            if buffer_too_large(source_len, *dest_len) {
-                return MZError::Param as c_int;
-            }
+    pub unsafe extern "C" fn mz_uncompress(
+        dest: *mut u8,
+        dest_len: *mut c_ulong,
+        source: *const u8,
+        source_len: c_ulong,
+    ) -> c_int {
+        dest_len
+            .as_mut()
+            .map_or(MZError::Param as c_int, |dest_len| {
+                if buffer_too_large(source_len, *dest_len) {
+                    return MZError::Param as c_int;
+                }
 
-            let mut stream: mz_stream = mz_stream {
-                next_in: source,
-                avail_in: source_len as c_uint,
-                next_out: dest,
-                avail_out: (*dest_len) as c_uint,
-                data_type: StateTypeEnum::Inflate,
-                ..Default::default()
-            };
+                let mut stream: mz_stream = mz_stream {
+                    next_in: source,
+                    avail_in: source_len as c_uint,
+                    next_out: dest,
+                    avail_out: (*dest_len) as c_uint,
+                    data_type: StateTypeEnum::Inflate,
+                    ..Default::default()
+                };
 
-            // We don't expect this to fail since we supply the stream ourselves.
-            let mut stream_oxide = StreamOxide::new(&mut stream);
-            as_c_return_code(mz_uncompress2_oxide(&mut stream_oxide, dest_len))
-        },
-    )
-}
+                // We don't expect this to fail since we supply the stream ourselves.
+                let mut stream_oxide = StreamOxide::new(&mut stream);
+                as_c_return_code(mz_uncompress2_oxide(&mut stream_oxide, dest_len))
+            })
+    }
 
-pub extern "C" fn mz_compressBound(source_len: c_ulong) -> c_ulong {
-    mz_deflateBound(ptr::null_mut(), source_len)
-}
-
+    pub extern "C" fn mz_compressBound(source_len: c_ulong) -> c_ulong {
+        mz_deflateBound(ptr::null_mut(), source_len)
+    }
 );
 
 #[cfg(target_bit_width = "64")]

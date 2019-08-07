@@ -1,10 +1,10 @@
 //! Streaming decompression functionality.
 
 use super::*;
-use crate::shared::{HUFFMAN_LENGTH_ORDER, update_adler32};
+use crate::shared::{update_adler32, HUFFMAN_LENGTH_ORDER};
 
-use std::{cmp, slice};
 use std::convert::TryInto;
+use std::{cmp, slice};
 
 use self::output_buffer::OutputBuffer;
 
@@ -101,7 +101,6 @@ const MAX_HUFF_TREE_SIZE: usize = MAX_HUFF_SYMBOLS_0 * 2;
 const LITLEN_TABLE: usize = 0;
 const DIST_TABLE: usize = 1;
 const HUFFLEN_TABLE: usize = 2;
-
 
 pub mod inflate_flags {
     /// Should we try to parse a zlib header?
@@ -206,7 +205,11 @@ impl Default for DecompressorOxide {
             bit_buf: 0,
             dist_from_out_buf_start: 0,
             // TODO:(oyvindln) Check that copies here are optimized out in release mode.
-            tables: [HuffmanTable::new(), HuffmanTable::new(), HuffmanTable::new()],
+            tables: [
+                HuffmanTable::new(),
+                HuffmanTable::new(),
+                HuffmanTable::new(),
+            ],
             raw_header: [0; 4],
             len_codes: [0; MAX_HUFF_SYMBOLS_0 + MAX_HUFF_SYMBOLS_1 + 137],
         }
@@ -415,7 +418,6 @@ fn validate_zlib_header(cmf: u32, flg: u32, flags: u32, mask: usize) -> Action {
     }
 }
 
-
 enum Action {
     None,
     Jump(State),
@@ -467,8 +469,10 @@ where
                 } else if l.num_bits > FAST_LOOKUP_BITS.into() {
                     let mut code_len = u32::from(FAST_LOOKUP_BITS);
                     loop {
-                        temp = i32::from(r.tables[table]
-                            .tree[(!temp + ((l.bit_buf >> code_len) & 1) as i32) as usize]);
+                        temp = i32::from(
+                            r.tables[table].tree
+                                [(!temp + ((l.bit_buf >> code_len) & 1) as i32) as usize],
+                        );
                         code_len += 1;
                         if temp >= 0 || l.num_bits < code_len + 1 {
                             break;
@@ -484,12 +488,10 @@ where
                 // Doing that lets miniz avoid re-doing the lookup that that was done in the
                 // previous call.
                 let mut byte = 0;
-                if let a @ Action::End(_) =
-                    read_byte(in_iter, flags, |b| {
-                        byte = b;
-                        Action::None
-                    })
-                {
+                if let a @ Action::End(_) = read_byte(in_iter, flags, |b| {
+                    byte = b;
+                    Action::None
+                }) {
                     return a;
                 };
 
@@ -676,8 +678,7 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Action {
 
             let mut tree_cur = table.look_up[(rev_code & (FAST_LOOKUP_SIZE - 1)) as usize];
             if tree_cur == 0 {
-                table.look_up[(rev_code & (FAST_LOOKUP_SIZE - 1)) as usize] = tree_next as
-                    i16;
+                table.look_up[(rev_code & (FAST_LOOKUP_SIZE - 1)) as usize] = tree_next as i16;
                 tree_cur = tree_next;
                 tree_next -= 2;
             }
@@ -769,12 +770,12 @@ fn transfer(
         2 => {
             out_slice[out_pos] = out_slice[source_pos & out_buf_size_mask];
             out_slice[out_pos + 1] = out_slice[(source_pos + 1) & out_buf_size_mask];
-        },
-        3 =>  {
+        }
+        3 => {
             out_slice[out_pos] = out_slice[source_pos & out_buf_size_mask];
             out_slice[out_pos + 1] = out_slice[(source_pos + 1) & out_buf_size_mask];
             out_slice[out_pos + 2] = out_slice[(source_pos + 2) & out_buf_size_mask];
-        },
+        }
         _ => unreachable!(),
     }
 }
@@ -961,8 +962,8 @@ fn decompress_fast(
             }
 
             l.dist_from_out_buf_start = out_buf.position();
-            if l.dist as usize > l.dist_from_out_buf_start &&
-                (flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0)
+            if l.dist as usize > l.dist_from_out_buf_start
+                && (flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0)
             {
                 // We encountered a distance that refers a position before
                 // the start of the decoded data, so we can't continue.
@@ -1052,8 +1053,9 @@ fn decompress_inner(
     // is large enough to hold the entire output file (in which case it doesn't
     // matter).
     // Also make sure that the output buffer position is not past the end of the output buffer.
-    if (out_buf_size_mask.wrapping_add(1) & out_buf_size_mask) != 0  ||
-        out_cur.position() > out_cur.get_ref().len() as u64 {
+    if (out_buf_size_mask.wrapping_add(1) & out_buf_size_mask) != 0
+        || out_cur.position() > out_cur.get_ref().len() as u64
+    {
         return (TINFLStatus::BadParam, 0, 0);
     }
 
@@ -1072,7 +1074,6 @@ fn decompress_inner(
         num_extra: r.num_extra,
         dist_from_out_buf_start: r.dist_from_out_buf_start,
     };
-
 
     let mut status = 'state_machine: loop {
         match state {
@@ -1611,8 +1612,8 @@ fn decompress_inner(
         };
     };
 
-    let in_undo = if status != TINFLStatus::NeedsMoreInput &&
-        status != TINFLStatus::FailedCannotMakeProgress
+    let in_undo = if status != TINFLStatus::NeedsMoreInput
+        && status != TINFLStatus::FailedCannotMakeProgress
     {
         undo_bytes(&mut l, (in_buf.len() - in_iter.len()) as u32) as usize
     } else {
@@ -1643,8 +1644,9 @@ fn decompress_inner(
         // before it has a chance to reach interesting parts of code
         if !cfg!(fuzzing) {
             // Once we are done, check if the checksum matches with the one provided in the zlib header.
-            if status == TINFLStatus::Done && flags & TINFL_FLAG_PARSE_ZLIB_HEADER != 0 &&
-                r.check_adler32 != r.z_adler32
+            if status == TINFLStatus::Done
+                && flags & TINFL_FLAG_PARSE_ZLIB_HEADER != 0
+                && r.check_adler32 != r.z_adler32
             {
                 status = TINFLStatus::Adler32Mismatch;
             }
@@ -1658,7 +1660,6 @@ fn decompress_inner(
         out_buf.position() - out_buf_start_pos,
     )
 }
-
 
 #[cfg(test)]
 mod test {
@@ -1680,8 +1681,7 @@ mod test {
     #[test]
     fn decompress_zlib() {
         let encoded = [
-            120, 156, 243, 72, 205, 201, 201, 215, 81, 168,
-            202, 201,  76,  82,  4,   0,  27, 101,  4,  19,
+            120, 156, 243, 72, 205, 201, 201, 215, 81, 168, 202, 201, 76, 82, 4, 0, 27, 101, 4, 19,
         ];
         let flags = TINFL_FLAG_COMPUTE_ADLER32 | TINFL_FLAG_PARSE_ZLIB_HEADER;
 
@@ -1713,8 +1713,13 @@ mod test {
         let encoded = {
             let len = text.len();
             let notlen = !len;
-            let mut encoded =
-                vec![1, len as u8, (len >> 8) as u8, notlen as u8, (notlen >> 8) as u8];
+            let mut encoded = vec![
+                1,
+                len as u8,
+                (len >> 8) as u8,
+                notlen as u8,
+                (notlen >> 8) as u8,
+            ];
             encoded.extend_from_slice(&text[..]);
             encoded
         };
@@ -1775,9 +1780,9 @@ mod test {
             inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER
         } else {
             0
-        } | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF | TINFL_FLAG_HAS_MORE_INPUT;
-        let (d_status, _in_bytes, _out_bytes) =
-            decompress(&mut r, input, &mut out_cursor, flags);
+        } | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF
+            | TINFL_FLAG_HAS_MORE_INPUT;
+        let (d_status, _in_bytes, _out_bytes) = decompress(&mut r, input, &mut out_cursor, flags);
         assert_eq!(expected_status, d_status);
         assert_eq!(expected_state, r.state);
     }
@@ -1814,7 +1819,7 @@ mod test {
         let c = |a, b, c| cr(a, b, c, false);
 
         // Invalid uncompressed/raw block length.
-        c(&[0,0,0,0,0], F, State::BadRawLength);
+        c(&[0, 0, 0, 0, 0], F, State::BadRawLength);
         // Ok empty uncompressed block.
         c(&[3, 0], OK, State::DoneForever);
         // Invalid block type.
@@ -1832,14 +1837,24 @@ mod test {
         // Missing end of block code (should we have a separate error for this?) - fails on futher input
         //    c(&[4, 0, 0x24, 0xe9, 0xff, 0x6d], F, State::BadTotalSymbols);
         // Invalid set of literals/lengths
-        c(&[4, 0x80, 0x49, 0x92, 0x24, 0x49, 0x92, 0x24, 0x71, 0xff, 0xff, 0x93, 0x11, 0], F, State::BadTotalSymbols);
+        c(
+            &[
+                4, 0x80, 0x49, 0x92, 0x24, 0x49, 0x92, 0x24, 0x71, 0xff, 0xff, 0x93, 0x11, 0,
+            ],
+            F,
+            State::BadTotalSymbols,
+        );
         // Invalid set of distances _ needsmoreinput
         // c(&[4, 0x80, 0x49, 0x92, 0x24, 0x49, 0x92, 0x24, 0x0f, 0xb4, 0xff, 0xff, 0xc3, 0x84], F, State::BadTotalSymbols);
         // Invalid distance code
         c(&[2, 0x7e, 0xff, 0xff], F, State::InvalidDist);
 
         // Distance refers to position before the start
-        c(&[0x0c, 0xc0 ,0x81 ,0, 0, 0, 0, 0, 0x90, 0xff, 0x6b, 0x4, 0], F, State::DistanceOutOfBounds);
+        c(
+            &[0x0c, 0xc0, 0x81, 0, 0, 0, 0, 0, 0x90, 0xff, 0x6b, 0x4, 0],
+            F,
+            State::DistanceOutOfBounds,
+        );
 
         // Trailer
         // Bad gzip trailer checksum GZip header not handled by miniz_oxide
@@ -1851,12 +1866,11 @@ mod test {
     #[test]
     fn empty_output_buffer_non_wrapping() {
         let encoded = [
-            120, 156, 243, 72, 205, 201, 201, 215, 81, 168,
-            202, 201,  76, 82,   4,   0,  27, 101,  4,  19,
+            120, 156, 243, 72, 205, 201, 201, 215, 81, 168, 202, 201, 76, 82, 4, 0, 27, 101, 4, 19,
         ];
-        let flags = TINFL_FLAG_COMPUTE_ADLER32 |
-            TINFL_FLAG_PARSE_ZLIB_HEADER |
-            TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
+        let flags = TINFL_FLAG_COMPUTE_ADLER32
+            | TINFL_FLAG_PARSE_ZLIB_HEADER
+            | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
         let mut r = DecompressorOxide::new();
         let mut output_buf = vec![];
         let mut out_cursor = Cursor::new(output_buf.as_mut_slice());
@@ -1868,10 +1882,8 @@ mod test {
 
     #[test]
     fn empty_output_buffer_wrapping() {
-        let encoded =  [
-            0x73, 0x49, 0x4d, 0xcb,
-            0x49, 0x2c, 0x49, 0x55,
-            0x00, 0x11, 0x00
+        let encoded = [
+            0x73, 0x49, 0x4d, 0xcb, 0x49, 0x2c, 0x49, 0x55, 0x00, 0x11, 0x00,
         ];
         let flags = TINFL_FLAG_COMPUTE_ADLER32;
         let mut r = DecompressorOxide::new();

@@ -40,7 +40,7 @@ pub struct LocalBuf {
 impl Default for LocalBuf {
     fn default() -> LocalBuf {
         LocalBuf {
-            b: [0; OUT_BUF_SIZE]
+            b: [0; OUT_BUF_SIZE],
         }
     }
 }

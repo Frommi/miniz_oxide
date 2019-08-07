@@ -2,11 +2,11 @@
 //!
 //! As of now this is mainly inteded for use to build a higher-level wrapper.
 use std::io::Cursor;
-use std::{mem, cmp};
+use std::{cmp, mem};
 
-use crate::{MZResult, MZFlush, MZError, MZStatus, StreamResult, DataFormat};
+use crate::inflate::core::{decompress, inflate_flags, DecompressorOxide, TINFL_LZ_DICT_SIZE};
 use crate::inflate::TINFLStatus;
-use crate::inflate::core::{DecompressorOxide, TINFL_LZ_DICT_SIZE, inflate_flags, decompress};
+use crate::{DataFormat, MZError, MZFlush, MZResult, MZStatus, StreamResult};
 
 /// A struct that compbines a decompressor with extra data for streaming decompression.
 ///
@@ -94,7 +94,6 @@ impl InflateState {
         b.data_format = DataFormat::from_window_bits(window_bits);
         b
     }
-
 }
 
 /// Try to decompress from `input` to `output` with the given `InflateState`
@@ -106,8 +105,12 @@ impl InflateState {
 /// finished without MZFlush::Finish.
 ///
 /// Returns `MZError::Param` if the compressor parameters are set wrong.
-pub fn inflate(state: &mut InflateState, input: &[u8], output: &mut [u8], flush: MZFlush)
-               -> StreamResult {
+pub fn inflate(
+    state: &mut InflateState,
+    input: &[u8],
+    output: &mut [u8],
+    flush: MZFlush,
+) -> StreamResult {
     let mut bytes_consumed = 0;
     let mut bytes_written = 0;
     let mut next_in = input;
@@ -165,7 +168,7 @@ pub fn inflate(state: &mut InflateState, input: &[u8], output: &mut [u8], flush:
         return StreamResult {
             bytes_consumed,
             bytes_written,
-            status:ret_status,
+            status: ret_status,
         };
     }
 
@@ -183,30 +186,42 @@ pub fn inflate(state: &mut InflateState, input: &[u8], output: &mut [u8], flush:
                     MZStatus::StreamEnd
                 } else {
                     MZStatus::Ok
-                }
-            )
+                },
+            ),
         };
     }
 
-    let status = inflate_loop(state, &mut next_in, &mut next_out, &mut bytes_consumed,
-                              &mut bytes_written, decomp_flags, flush);
-    StreamResult{
+    let status = inflate_loop(
+        state,
+        &mut next_in,
+        &mut next_out,
+        &mut bytes_consumed,
+        &mut bytes_written,
+        decomp_flags,
+        flush,
+    );
+    StreamResult {
         bytes_consumed,
         bytes_written,
         status,
     }
 }
 
-fn inflate_loop(state: &mut InflateState, next_in: &mut &[u8], next_out: &mut &mut [u8],
-                    total_in: &mut usize, total_out: &mut usize, decomp_flags: u32, flush: MZFlush)
-                -> MZResult {
+fn inflate_loop(
+    state: &mut InflateState,
+    next_in: &mut &[u8],
+    next_out: &mut &mut [u8],
+    total_in: &mut usize,
+    total_out: &mut usize,
+    decomp_flags: u32,
+    flush: MZFlush,
+) -> MZResult {
     let orig_in_len = next_in.len();
     loop {
         let status = {
             let mut cursor = Cursor::new(&mut state.dict[..]);
             cursor.set_position(state.dict_ofs as u64);
-            decompress(&mut state.decomp, *next_in,
-                                 &mut cursor, decomp_flags)
+            decompress(&mut state.decomp, *next_in, &mut cursor, decomp_flags)
         };
 
         let in_bytes = status.1;
@@ -241,7 +256,7 @@ fn inflate_loop(state: &mut InflateState, next_in: &mut &[u8], next_out: &mut &m
                 } else {
                     Ok(MZStatus::StreamEnd)
                 };
-                // No more space in the output buffer, but we're not done.
+            // No more space in the output buffer, but we're not done.
             } else if next_out.is_empty() {
                 return Err(MZError::Buf);
             }
@@ -261,28 +276,24 @@ fn inflate_loop(state: &mut InflateState, next_in: &mut &[u8], next_out: &mut &m
     }
 }
 
-
 fn push_dict_out(state: &mut InflateState, next_out: &mut &mut [u8]) -> usize {
     let n = cmp::min(state.dict_avail as usize, next_out.len());
-    (next_out[..n]).copy_from_slice(
-        &state.dict[state.dict_ofs..state.dict_ofs + n],
-    );
+    (next_out[..n]).copy_from_slice(&state.dict[state.dict_ofs..state.dict_ofs + n]);
     *next_out = &mut mem::replace(next_out, &mut [])[n..];
     state.dict_avail -= n;
-    state.dict_ofs = (state.dict_ofs + (n)) &
-        ((TINFL_LZ_DICT_SIZE - 1));
+    state.dict_ofs = (state.dict_ofs + (n)) & (TINFL_LZ_DICT_SIZE - 1);
     n
 }
 
 #[cfg(test)]
 mod test {
-    use super::{InflateState, inflate};
-    use crate::{MZFlush, MZStatus, DataFormat};
+    use super::{inflate, InflateState};
+    use crate::{DataFormat, MZFlush, MZStatus};
     #[test]
     fn test_state() {
         let encoded = [
-            120u8, 156, 243, 72, 205, 201, 201, 215, 81, 168,
-            202, 201,  76,  82,  4,   0,  27, 101,  4,  19,
+            120u8, 156, 243, 72, 205, 201, 201, 215, 81, 168, 202, 201, 76, 82, 4, 0, 27, 101, 4,
+            19,
         ];
         let mut out = vec![0; 50];
         let mut state = InflateState::new_boxed(DataFormat::Zlib);

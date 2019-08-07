@@ -5,11 +5,10 @@ extern crate miniz_oxide;
 extern crate miniz_oxide_c_api;
 extern crate test;
 
-
-use test::Bencher;
+use libc::c_void;
 use std::io::Read;
 use std::{ops, ptr};
-use libc::c_void;
+use test::Bencher;
 
 use miniz_oxide::deflate::compress_to_vec;
 use miniz_oxide::deflate::core::{create_comp_flags_from_zip_params, CompressorOxide};
@@ -142,13 +141,13 @@ mod oxide {
         tdefl_compress_mem_to_heap,
         1,
         "benches/data/compressed"
-);
+    );
     compress_bench!(
         compress_compressed_lvl_6,
         tdefl_compress_mem_to_heap,
         6,
         "benches/data/compressed"
-);
+    );
     compress_bench!(
         compress_compressed_lvl_9,
         tdefl_compress_mem_to_heap,
@@ -221,7 +220,7 @@ mod oxide {
 }
 
 mod miniz {
-    use libc::{c_void, c_int};
+    use libc::{c_int, c_void};
 
     /// Functions from miniz
     /// We add the link attribute to make sure
@@ -263,13 +262,13 @@ mod miniz {
         1,
         "benches/data/bin"
     );
-        compress_bench!(
+    compress_bench!(
         compress_bin_lvl_6,
         tdefl_compress_mem_to_heap,
         6,
         "benches/data/bin"
     );
-        compress_bench!(
+    compress_bench!(
         compress_bin_lvl_9,
         tdefl_compress_mem_to_heap,
         9,

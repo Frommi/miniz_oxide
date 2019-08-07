@@ -3,8 +3,8 @@ extern crate miniz_oxide_c_api;
 
 use std::io::Read;
 
-use miniz_oxide::inflate::decompress_to_vec;
 use miniz_oxide::deflate::compress_to_vec;
+use miniz_oxide::inflate::decompress_to_vec;
 
 fn get_test_file_data(name: &str) -> Vec<u8> {
     use std::fs::File;
@@ -54,11 +54,11 @@ fn roundtrip_level_1() {
 /// Roundtrip test using the C API.
 #[test]
 fn c_api() {
-    use miniz_oxide_c_api::{mz_deflateInit, mz_deflate, mz_deflateEnd,
-                            mz_deflateReset,
-                            mz_inflateInit, mz_inflate, mz_inflateEnd,
-                            mz_stream};
-    use miniz_oxide::{MZStatus, MZError};
+    use miniz_oxide::{MZError, MZStatus};
+    use miniz_oxide_c_api::{
+        mz_deflate, mz_deflateEnd, mz_deflateInit, mz_deflateReset, mz_inflate, mz_inflateEnd,
+        mz_inflateInit, mz_stream,
+    };
     let mut data = get_test_data();
     let mut compressed = vec![0; data.len() + 10];
     let compressed_size;
@@ -98,7 +98,7 @@ fn c_api() {
 
     assert!(compressed_size as usize <= compressed.len());
 
-    let mut decompressed = vec![0;data.len()];
+    let mut decompressed = vec![0; data.len()];
 
     unsafe {
         let mut stream = mz_stream {
@@ -109,9 +109,9 @@ fn c_api() {
             ..Default::default()
         };
 
-        assert_eq!(mz_inflateInit(&mut stream),MZStatus::Ok as i32);
-        assert_eq!(mz_inflate(&mut stream, 4),MZStatus::StreamEnd as i32);
-        assert_eq!(mz_inflateEnd(&mut stream),MZStatus::Ok as i32);
+        assert_eq!(mz_inflateInit(&mut stream), MZStatus::Ok as i32);
+        assert_eq!(mz_inflate(&mut stream, 4), MZStatus::StreamEnd as i32);
+        assert_eq!(mz_inflateEnd(&mut stream), MZStatus::Ok as i32);
 
         decompressed_size = stream.total_out;
         assert_eq!(compressed_size, stream.total_in);
