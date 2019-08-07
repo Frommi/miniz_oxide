@@ -18,51 +18,45 @@ use lib_oxide::{InternalState, StateType, StateTypeEnum, StreamOxide, MZ_ADLER32
 
 use miniz_oxide::{mz_adler32_oxide, MZError};
 
-pub mod return_status {
-    use libc::c_int;
-    use miniz_oxide::MZStatus;
-    use MZError::*;
-    pub const MZ_ERRNO: c_int = ErrNo as c_int;
-    pub const MZ_STREAM_ERROR: c_int = Stream as c_int;
-    pub const MZ_DATA_ERROR: c_int = Data as c_int;
-    pub const MZ_BUF_ERROR: c_int = Buf as c_int;
-    pub const MZ_VERSION_ERROR: c_int = Version as c_int;
-    pub const MZ_PARAM_ERROR: c_int = Param as c_int;
-
-    pub const MZ_OK: c_int = MZStatus::Ok as c_int;
-    pub const MZ_STREAM_END: c_int = MZStatus::StreamEnd as c_int;
-    pub const MZ_NEED_DICT: c_int = MZStatus::NeedDict as c_int;
+#[allow(bad_style)]
+#[repr(C)]
+#[derive(PartialEq, Eq)]
+pub enum CAPIReturnStatus {
+    MZ_PARAM_ERROR = -10000,
+    MZ_VERSION_ERROR = -6,
+    MZ_BUF_ERROR = -5,
+    MZ_MEM_ERROR = -4,
+    MZ_DATA_ERROR = -3,
+    MZ_STREAM_ERROR = -2,
+    MZ_ERRNO = -1,
+    MZ_OK = 0,
+    MZ_STREAM_END = 1,
+    MZ_NEED_DICT = 2,
 }
-
-pub use return_status::*;
 
 /// Deflate flush modes.
-pub mod flush_modes {
-    use libc::c_int;
-    use miniz_oxide::deflate::core::TDEFLFlush;
-    pub const MZ_NO_FLUSH: c_int = TDEFLFlush::None as c_int;
-    // TODO: This is simply sync flush for now, miniz also treats it as such.
-    pub const MZ_PARTIAL_FLUSH: c_int = 1;
-    pub const MZ_SYNC_FLUSH: c_int = TDEFLFlush::Sync as c_int;
-    pub const MZ_FULL_FLUSH: c_int = TDEFLFlush::Full as c_int;
-    pub const MZ_FINISH: c_int = TDEFLFlush::Finish as c_int;
-    // TODO: Doesn't seem to be implemented by miniz.
-    pub const MZ_BLOCK: c_int = 5;
+#[allow(bad_style)]
+#[repr(C)]
+#[derive(PartialEq, Eq)]
+pub enum CAPIFlush {
+    MZ_NO_FLUSH = 0,
+    MZ_PARTIAL_FLUSH = 1,
+    MZ_SYNC_FLUSH = 2,
+    MZ_FULL_FLUSH = 3,
+    MZ_FINISH = 4,
+    MZ_BLOCK = 5,
 }
 
-pub use flush_modes::*;
-
-pub mod strategy {
-    use libc::c_int;
-    use miniz_oxide::deflate::core::CompressionStrategy::*;
-    pub const MZ_DEFAULT_STRATEGY: c_int = Default as c_int;
-    pub const MZ_FILTERED: c_int = Filtered as c_int;
-    pub const MZ_HUFFMAN_ONLY: c_int = HuffmanOnly as c_int;
-    pub const MZ_RLE: c_int = RLE as c_int;
-    pub const MZ_FIXED: c_int = Fixed as c_int;
+#[allow(bad_style)]
+#[repr(C)]
+#[derive(PartialEq, Eq)]
+pub enum CAPICompressionStrategy {
+    MZ_DEFAULT_STRATEGY = 0,
+    MZ_FILTERED = 1,
+    MZ_HUFFMAN_ONLY = 2,
+    MZ_RLE = 3,
+    MZ_FIXED = 4
 }
-
-pub use strategy::*;
 
 pub const MZ_CRC32_INIT: c_ulong = 0;
 

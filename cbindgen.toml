@@ -8,9 +8,12 @@ autogen_warning = """/* DO NOT MODIFY THIS MANUALLY! This file was generated usi
 include_version = true
 language = "C"
 
+[export]
+include = ["CAPIReturnStatus", "CAPIFlush", "CAPICompressionStrategy"]
+
 [export.rename]
 "DecompressorOxide" = "tinfl_decompressor"
-
+"Compressor" = "tinfl_compressor"
 
 [parse]
 # Whether to parse dependent crates and include their types in the output
@@ -24,6 +27,7 @@ include = ["miniz_oxide"]
 # A black list of crate names that are not allowed to be parsed.
 exclude = ["libc"]
 
-[parse.expand]
-crates = ["miniz_oxide_c_api"]
+extra_bindings = ["miniz_oxide"]
 
+[parse.expand]
+crates = ["miniz_oxide_c_api", "miniz_oxide"]
