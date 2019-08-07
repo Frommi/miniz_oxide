@@ -347,7 +347,7 @@ impl CompressorOxide {
         if (self.params.flags & TDEFL_WRITE_ZLIB_HEADER) != 0 {
             DataFormat::Zlib
         } else {
-            DataFormat::None
+            DataFormat::Raw
         }
     }
 
@@ -366,10 +366,21 @@ impl CompressorOxide {
     /// Set the compression level of the compressor.
     ///
     /// Using this to change level after compresson has started is supported.
-    /// Note that the compression strategy will be reset to the default one.
-    pub fn set_level(&mut self, level: u8) {
+    /// # Notes
+    /// The compression strategy will be reset to the default one when this is called.
+    pub fn set_compression_level(&mut self, level: CompressionLevel) {
         let format = self.data_format();
-        self.set_format_and_level(format, level.into());
+        self.set_format_and_level(format, level as u8);
+    }
+
+    /// Set the compression level of the compressor using an integer value.
+    ///
+    /// Using this to change level after compresson has started is supported.
+    /// # Notes
+    /// The compression strategy will be reset to the default one when this is called.
+    pub fn set_compression_level_raw(&mut self, level: u8) {
+        let format = self.data_format();
+        self.set_format_and_level(format, level);
     }
 
     /// Update the compression settings of the compressor.

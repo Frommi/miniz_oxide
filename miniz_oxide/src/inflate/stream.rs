@@ -3,7 +3,6 @@
 //! As of now this is mainly inteded for use to build a higher-level wrapper.
 use std::io::Cursor;
 use std::{mem, cmp};
-use std::convert::{AsMut, AsRef};
 
 use crate::{MZResult, MZFlush, MZError, MZStatus, StreamResult, DataFormat};
 use crate::inflate::TINFLStatus;
@@ -44,7 +43,7 @@ impl Default for InflateState {
             dict_avail: 0,
             first_call: true,
             has_flushed: false,
-            data_format: DataFormat::None,
+            data_format: DataFormat::Raw,
             last_status: TINFLStatus::NeedsMoreInput,
         }
     }
@@ -107,13 +106,12 @@ impl InflateState {
 /// finished without MZFlush::Finish.
 ///
 /// Returns `MZError::Param` if the compressor parameters are set wrong.
-pub fn inflate<I: AsRef<[u8]>, O: AsMut<[u8]>>(state: &mut InflateState, input: &I, output: &mut O,
-           flush: MZFlush)
+pub fn inflate(state: &mut InflateState, input: &[u8], output: &mut [u8], flush: MZFlush)
                -> StreamResult {
     let mut bytes_consumed = 0;
     let mut bytes_written = 0;
-    let mut next_in = input.as_ref();
-    let mut next_out = output.as_mut();
+    let mut next_in = input;
+    let mut next_out = output;
 
     if flush == MZFlush::Full {
         return StreamResult::error(MZError::Stream);
@@ -155,6 +153,7 @@ pub fn inflate<I: AsRef<[u8]>, O: AsMut<[u8]>>(state: &mut InflateState, input: 
 
         let ret_status = {
             if (status as i32) < 0 {
+                println!("Status: {:?}", status);
                 Err(MZError::Data)
             } else if status != TINFLStatus::Done {
                 state.last_status = TINFLStatus::Failed;

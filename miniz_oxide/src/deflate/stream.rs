@@ -17,11 +17,11 @@ use crate::deflate::core::{TDEFLStatus, TDEFLFlush, CompressorOxide, compress};
 /// MZFlush::Finish.
 ///
 /// Returns `MZError::Param` if the compressor parameters are set wrong.
-pub fn deflate<I: AsRef<[u8]>, O: AsMut<[u8]>>(compressor: &mut CompressorOxide, input: &I,
-               output: &mut O,
+pub fn deflate(compressor: &mut CompressorOxide, input: &[u8],
+               output: &mut [u8],
                flush: MZFlush) -> StreamResult {
 
-    if output.as_mut().is_empty() {
+    if output.is_empty() {
         return StreamResult::error(MZError::Buf)
     }
 

@@ -99,7 +99,7 @@ pub enum DataFormat {
     /// Wrapped using the [zlib](http://www.zlib.org/rfc-zlib.html) format.
     Zlib,
     /// Raw DEFLATE.
-    None,
+    Raw,
 }
 
 impl DataFormat {
@@ -107,14 +107,14 @@ impl DataFormat {
         if window_bits > 0 {
             DataFormat::Zlib
         } else {
-            DataFormat::None
+            DataFormat::Raw
         }
     }
 
     pub(crate) fn to_window_bits(self) -> i32 {
         match self {
             DataFormat::Zlib => shared::MZ_DEFAULT_WINDOW_BITS,
-            DataFormat::None => -shared::MZ_DEFAULT_WINDOW_BITS,
+            DataFormat::Raw => -shared::MZ_DEFAULT_WINDOW_BITS,
         }
     }
 }
