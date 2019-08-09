@@ -21,6 +21,8 @@
 //!
 //! ```
 
+#![forbid(unsafe_code)]
+
 extern crate adler32;
 
 pub mod deflate;
