@@ -171,6 +171,7 @@ impl DecompressorOxide {
     /// Set the current state to `Start`.
     #[inline]
     pub fn init(&mut self) {
+        // The rest of the data is reset or overwritten when used.
         self.state = core::State::Start;
     }
 

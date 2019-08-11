@@ -94,6 +94,19 @@ impl InflateState {
         b.data_format = DataFormat::from_window_bits(window_bits);
         b
     }
+
+    /// Reset the decompressor without re-allocating memory, using the given
+    /// data format.
+    pub fn reset(&mut self, data_format: DataFormat) {
+        self.decompressor().init();
+        self.dict = [0; TINFL_LZ_DICT_SIZE];
+        self.dict_ofs = 0;
+        self.dict_avail = 0;
+        self.first_call = true;
+        self.has_flushed = false;
+        self.data_format = data_format;
+        self.last_status = TINFLStatus::NeedsMoreInput;
+    }
 }
 
 /// Try to decompress from `input` to `output` with the given `InflateState`
@@ -298,6 +311,12 @@ mod test {
         let mut out = vec![0; 50];
         let mut state = InflateState::new_boxed(DataFormat::Zlib);
         let res = inflate(&mut state, &encoded, &mut out, MZFlush::Finish);
+        let status = res.status.expect("Failed to decompress!");
+        assert_eq!(status, MZStatus::StreamEnd);
+        assert_eq!(out[..res.bytes_written as usize], b"Hello, zlib!"[..]);
+        assert_eq!(res.bytes_consumed, encoded.len());
+
+        state.reset(DataFormat::Zlib);
         let status = res.status.expect("Failed to decompress!");
         assert_eq!(status, MZStatus::StreamEnd);
         assert_eq!(out[..res.bytes_written as usize], b"Hello, zlib!"[..]);
