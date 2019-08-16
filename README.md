@@ -4,8 +4,15 @@ Rust replacement for the [miniz](https://github.com/richgel999/miniz) deflate/zl
 This project is organized into a C API shell and a rust crate.
 The Rust crate is found in the [miniz_oxide subdirectory](https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide).
 
+As of version 0.3, miniz_oxide requires at least rust 1.34 to compile.
+
+For a friendlier streaming API using readers and writers, [flate2](https://crates.io/crates/flate2) can be used, which can use miniz_oxide as a rust-only back-end.
+
 ## miniz_oxide_C_API
-The C API is intented to replicate the api exported from miniz.
+The C API is intented to replicate the api exported from miniz. 
+
+NOTE for usage from C: 
+Using from C is currently partly broken as the data structures no longer have the exact same layout that is specified in miniz.h (from the original miniz). Automated headers with CBindgen currently do not work due to an [issue](https://github.com/eqrion/cbindgen/issues/326) in cbindgen, which needs to be fixed worked around so that a proper header can be generated. As such, treat them as opaque pointers, that should be allocated and operated on only by the exported functions. 
 
 ### API documentation
 
