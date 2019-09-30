@@ -169,7 +169,6 @@ pub fn inflate(
 
         let ret_status = {
             if (status as i32) < 0 {
-                println!("Status: {:?}", status);
                 Err(MZError::Data)
             } else if status != TINFLStatus::Done {
                 state.last_status = TINFLStatus::Failed;
