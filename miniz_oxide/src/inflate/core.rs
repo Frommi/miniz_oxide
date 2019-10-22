@@ -988,9 +988,9 @@ fn decompress_fast(
     (status, state)
 }
 
-/// Main decompression function. Keeps decompressing data from `in_buf` until the in_buf is emtpy,
-/// out_cur is full, the end of the deflate stream is hit, or there is an error in the deflate
-/// stream.
+/// Main decompression function. Keeps decompressing data from `in_buf` until the `in_buf` is
+/// empty, `out_cur` is full, the end of the deflate stream is hit, or there is an error in the
+/// deflate stream.
 ///
 /// # Arguments
 ///
