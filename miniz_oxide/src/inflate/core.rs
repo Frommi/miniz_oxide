@@ -152,8 +152,6 @@ pub struct DecompressorOxide {
     table_sizes: [u32; MAX_HUFF_TABLES],
     /// Buffer of input data.
     bit_buf: BitBuffer,
-    /// Position in the output buffer.
-    dist_from_out_buf_start: usize,
     /// Huffman tables.
     tables: [HuffmanTable; MAX_HUFF_TABLES],
     /// Raw block header.
@@ -204,7 +202,6 @@ impl Default for DecompressorOxide {
             num_extra: 0,
             table_sizes: [0; MAX_HUFF_TABLES],
             bit_buf: 0,
-            dist_from_out_buf_start: 0,
             // TODO:(oyvindln) Check that copies here are optimized out in release mode.
             tables: [
                 HuffmanTable::new(),
@@ -743,7 +740,6 @@ struct LocalVars {
     pub dist: u32,
     pub counter: u32,
     pub num_extra: u32,
-    pub dist_from_out_buf_start: usize,
 }
 
 #[inline]
@@ -754,8 +750,6 @@ fn transfer(
     match_len: usize,
     out_buf_size_mask: usize,
 ) {
-    debug_assert!(out_pos + match_len <= out_slice.len());
-
     for _ in 0..match_len >> 2 {
         out_slice[out_pos] = out_slice[source_pos & out_buf_size_mask];
         out_slice[out_pos + 1] = out_slice[(source_pos + 1) & out_buf_size_mask];
@@ -962,8 +956,8 @@ fn decompress_fast(
                 l.dist += extra_bits as u32;
             }
 
-            l.dist_from_out_buf_start = out_buf.position();
-            if l.dist as usize > l.dist_from_out_buf_start
+            let position = out_buf.position();
+            if l.dist as usize > out_buf.position()
                 && (flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0)
             {
                 // We encountered a distance that refers a position before
@@ -974,13 +968,13 @@ fn decompress_fast(
 
             apply_match(
                 out_buf.get_mut(),
-                l.dist_from_out_buf_start,
+                position,
                 l.dist as usize,
                 l.counter as usize,
                 out_buf_size_mask,
             );
 
-            out_buf.set_position(l.dist_from_out_buf_start + l.counter as usize);
+            out_buf.set_position(position + l.counter as usize);
         }
     };
 
@@ -1001,6 +995,8 @@ fn decompress_fast(
 /// stores previously decompressed data if any.
 /// * The position of the output cursor indicates where in the output buffer slice writing should
 /// start.
+/// * If TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF is not set, the output buffer is used in a
+/// wrapping manner, and it's size is required to be a power of 2.
 /// * The decompression function normally needs access to 32KiB of the previously decompressed data
 ///(or to the beginning of the decompressed data if less than 32KiB has been decompressed.)
 ///     - If this data is not available, decompression may fail.
@@ -1066,14 +1062,14 @@ fn decompress_inner(
 
     let mut out_buf = OutputBuffer::from_slice_and_pos(out_cur.get_mut(), out_buf_start_pos);
 
-    // TODO: Borrow instead of Copy
+
+    // Make a local copy of the important variables here so we can work with them on the stack.
     let mut l = LocalVars {
         bit_buf: r.bit_buf,
         num_bits: r.num_bits,
         dist: r.dist,
         counter: r.counter,
         num_extra: r.num_extra,
-        dist_from_out_buf_start: r.dist_from_out_buf_start,
     };
 
     let mut status = 'state_machine: loop {
@@ -1494,8 +1490,7 @@ fn decompress_inner(
             }),
 
             HuffDecodeOuterLoop2 => generate_state!(state, 'state_machine, {
-                l.dist_from_out_buf_start = out_buf.position();
-                if l.dist as usize > l.dist_from_out_buf_start &&
+                if l.dist as usize > out_buf.position() &&
                     (flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0)
                 {
                     // We encountered a distance that refers a position before
@@ -1503,7 +1498,7 @@ fn decompress_inner(
                     Action::Jump(DistanceOutOfBounds)
                 } else {
                     let out_pos = out_buf.position();
-                    let source_pos = l.dist_from_out_buf_start
+                    let source_pos = out_buf.position()
                         .wrapping_sub(l.dist as usize) & out_buf_size_mask;
 
                     let out_len = out_buf.get_ref().len() as usize;
@@ -1537,14 +1532,18 @@ fn decompress_inner(
 
             WriteLenBytesToEnd => generate_state!(state, 'state_machine, {
                 if out_buf.bytes_left() > 0 {
-                    let source_pos = l.dist_from_out_buf_start
-                        .wrapping_sub(l.dist as usize) & out_buf_size_mask;
                     let out_pos = out_buf.position();
+                    let source_pos = out_buf.position()
+                        .wrapping_sub(l.dist as usize) & out_buf_size_mask;
+
 
                     let len = cmp::min(out_buf.bytes_left(), l.counter as usize);
+                    // If non-wrapping and the match start is ahead of the output position
+                    // something has gone wrong..
+                    debug_assert!((flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0) ^
+                                  (source_pos >= out_pos));
                     transfer(out_buf.get_mut(), source_pos, out_pos, len, out_buf_size_mask);
 
-                    l.dist_from_out_buf_start += len;
                     out_buf.set_position(out_pos + len);
                     l.counter -= len as u32;
                     if l.counter == 0 {
@@ -1627,7 +1626,6 @@ fn decompress_inner(
     r.dist = l.dist;
     r.counter = l.counter;
     r.num_extra = l.num_extra;
-    r.dist_from_out_buf_start = l.dist_from_out_buf_start;
 
     r.bit_buf &= ((1 as BitBuffer) << r.num_bits) - 1;
 
@@ -1753,7 +1751,6 @@ mod test {
             dist: d.dist,
             counter: d.counter,
             num_extra: d.num_extra,
-            dist_from_out_buf_start: d.dist_from_out_buf_start,
         };
         init_tree(&mut d, &mut l);
         let llt = &d.tables[LITLEN_TABLE];
