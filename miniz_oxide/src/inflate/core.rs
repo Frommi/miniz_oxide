@@ -1538,10 +1538,7 @@ fn decompress_inner(
 
 
                     let len = cmp::min(out_buf.bytes_left(), l.counter as usize);
-                    // If non-wrapping and the match start is ahead of the output position
-                    // something has gone wrong..
-                    debug_assert!((flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0) ^
-                                  (source_pos >= out_pos));
+
                     transfer(out_buf.get_mut(), source_pos, out_pos, len, out_buf_size_mask);
 
                     out_buf.set_position(out_pos + len);
