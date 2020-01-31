@@ -279,6 +279,98 @@ pub(crate) const MAX_MATCH_LEN: usize = 258;
 
 const DEFAULT_FLAGS: u32 = NUM_PROBES[4] | TDEFL_WRITE_ZLIB_HEADER;
 
+mod zlib {
+    const DEFAULT_CM: u8 = 8;
+    const DEFAULT_CINFO: u8 = 7 << 4;
+    const _DEFAULT_FDICT: u8 = 0;
+    const DEFAULT_CMF: u8 = DEFAULT_CM | DEFAULT_CINFO;
+    /// The 16-bit value consisting of CMF and FLG must be divisible by this to be valid.
+    const FCHECK_DIVISOR: u8 = 31;
+
+    /// Generate FCHECK from CMF and FLG (without FCKECH )so that they are correct according to the
+    /// specification, i.e (CMF*256 + FCHK) % 31 = 0.
+    /// Returns flg with the FCHKECK bits added (any existing FCHECK bits are ignored).
+    fn add_fcheck(cmf: u8, flg: u8) -> u8 {
+        let rem = ((usize::from(cmf) * 256) + usize::from(flg)) % usize::from(FCHECK_DIVISOR);
+
+        // Clear existing FCHECK if any
+        let flg = flg & 0b11100000;
+
+        // Casting is safe as rem can't overflow since it is a value mod 31
+        // We can simply add the value to flg as (31 - rem) will never be above 2^5
+        flg + (FCHECK_DIVISOR - rem as u8)
+    }
+
+    fn zlib_level_from_flags(flags: u32) -> u8 {
+        use super::NUM_PROBES;
+
+        let num_probes = flags & (super::MAX_PROBES_MASK as u32);
+        if flags & super::TDEFL_GREEDY_PARSING_FLAG != 0 {
+            if num_probes <= 1 {
+                0
+            } else {
+                1
+            }
+        } else if num_probes >= NUM_PROBES[9] {
+            3
+        } else {
+            2
+        }
+    }
+
+    /// Get the zlib header for the level using the default window size and no
+    /// dictionary.
+    fn header_from_level(level: u8) -> [u8; 2] {
+        let cmf = DEFAULT_CMF;
+        [cmf, add_fcheck(cmf, (level as u8) << 6)]
+    }
+
+    /// Create a zlib header from the given compression flags.
+    /// Only level is considered.
+    pub fn header_from_flags(flags: u32) -> [u8; 2] {
+        let level = zlib_level_from_flags(flags);
+        header_from_level(level)
+    }
+
+    #[cfg(test)]
+    mod test {
+        #[test]
+        fn zlib() {
+            use super::super::*;
+            use super::*;
+
+            let test_level = |level, expected| {
+                let flags = create_comp_flags_from_zip_params(
+                    level,
+                    MZ_DEFAULT_WINDOW_BITS,
+                    CompressionStrategy::Default as i32,
+                );
+                assert_eq!(zlib_level_from_flags(flags), expected);
+            };
+
+            assert_eq!(zlib_level_from_flags(DEFAULT_FLAGS), 2);
+            test_level(0, 0);
+            test_level(1, 0);
+            test_level(2, 1);
+            test_level(3, 1);
+            for i in 4..=8 {
+                test_level(i, 2)
+            }
+            test_level(9, 3);
+            test_level(10, 3);
+        }
+
+        #[test]
+        fn test_header() {
+            let header = super::header_from_level(3);
+            assert_eq!(
+                ((usize::from(header[0]) * 256) + usize::from(header[1])) % 31,
+                0
+            );
+        }
+    }
+}
+
 fn memset<T: Copy>(slice: &mut [T], val: T) {
     for x in slice {
         *x = val
@@ -1519,8 +1611,9 @@ fn flush_block(
 
         // If we are at the start of the stream, write the zlib header if requested.
         if d.params.flags & TDEFL_WRITE_ZLIB_HEADER != 0 && d.params.block_index == 0 {
-            output.put_bits(0x78, 8);
-            output.put_bits(0x01, 8);
+            let header = zlib::header_from_flags(d.params.flags as u32);
+            output.put_bits(header[0].into(), 8);
+            output.put_bits(header[1].into(), 8);
         }
 
         // Output the block header.

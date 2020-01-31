@@ -1062,7 +1062,6 @@ fn decompress_inner(
 
     let mut out_buf = OutputBuffer::from_slice_and_pos(out_cur.get_mut(), out_buf_start_pos);
 
-
     // Make a local copy of the important variables here so we can work with them on the stack.
     let mut l = LocalVars {
         bit_buf: r.bit_buf,
