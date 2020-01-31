@@ -80,3 +80,52 @@ fn roundtrip_lvl_1() {
 fn roundtrip_lvl_0() {
     roundtrip(0);
 }
+
+#[test]
+fn need_more_input_has_more_output_at_same_time() {
+    use std::io::Cursor;
+    use miniz_oxide::inflate::core;
+
+    let input = get_test_file_data("tests/test_data/numbers.deflate");
+    let data = get_test_file_data("tests/test_data/numbers.txt");
+
+    let decomp = |input: &[u8]| {
+        let mut decomp = core::DecompressorOxide::new();
+        decomp.init();
+
+        let mut output = [0; core::TINFL_LZ_DICT_SIZE];
+        let mut output_cursor = Cursor::new(&mut output[..]);
+        let flags = core::inflate_flags::TINFL_FLAG_HAS_MORE_INPUT;
+
+        let (status, in_consumed, out_consumed) = core::decompress(&mut decomp, input, &mut output_cursor, flags);
+
+        let input_empty = in_consumed == input.len();
+        let output_full = out_consumed == output.len();
+
+        eprintln!("input len: {}, input_empty: {:?}, output_full: {:?}, status: {:?}", input.len(), input_empty, output_full, status);
+
+        match (input_empty, output_full) {
+            (false, false) => unreachable!("Shouldn't happen in this test case."),
+            (true, false) => assert_eq!(status, TINFLStatus::NeedsMoreInput),
+            (false, true) => assert_eq!(status, TINFLStatus::HasMoreOutput),
+             // NOTE: In case both "NeedsMoreInput" and "HasMoreOutput" are both true,
+             // HasMoreOutput should be preferred as the user generally wants to
+             // read output data before overwriting the buffer with more.
+            (true, true) => assert_eq!(status, TINFLStatus::HasMoreOutput),
+        }
+
+        assert_eq!(&data[..out_consumed], &output[..out_consumed]);
+    };
+
+    // The last "clear" cases in the upper and lower limit
+    decomp(&input[..11730]); // Ok; input_empty: false, output_full: true, status: HasMoreOutput
+    decomp(&input[..11725]); // Ok; input_empty: true, output_full: false, status: NeedsMoreInput
+
+    // A case where both buffers are full but the status is correct
+    decomp(&input[..11729]); // Ok; input_empty: true, output_full: true, status: HasMoreOutput
+
+    // Cases where both buffers are full but the status is incorrect
+    decomp(&input[..11726]); // Fail: NeedsMoreInput even if the output buffer is also full!
+    decomp(&input[..11727]); // Fail: NeedsMoreInput even if the output buffer is also full!
+    decomp(&input[..11728]); // Fail: NeedsMoreInput even if the output buffer is also full!
+}
