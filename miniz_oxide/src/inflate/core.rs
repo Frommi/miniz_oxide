@@ -1617,6 +1617,10 @@ fn decompress_inner(
         0
     };
 
+    if status == TINFLStatus::NeedsMoreInput && out_buf.bytes_left() == 0 {
+        status = TINFLStatus::HasMoreOutput
+    }
+
     r.state = state;
     r.bit_buf = l.bit_buf;
     r.num_bits = l.num_bits;
@@ -1649,7 +1653,6 @@ fn decompress_inner(
         }
     }
 
-    // NOTE: Status here and in miniz_tester doesn't seem to match.
     (
         status,
         in_buf.len() - in_iter.len() - in_undo,
