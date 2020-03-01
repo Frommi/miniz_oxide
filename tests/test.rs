@@ -75,7 +75,7 @@ fn c_api() {
         assert_eq!(mz_deflateInit(&mut stream, 1), MZStatus::Ok as i32);
         assert_eq!(mz_deflate(&mut stream, 4), MZStatus::StreamEnd as i32);
         compressed_size = stream.total_out;
-        assert_eq!(data.len() as u64, stream.total_in);
+        assert_eq!(data.len() as libc::c_ulong, stream.total_in);
 
         // Check that reseting works properly.
         let mut compressed_2 = vec![0; compressed_size as usize];

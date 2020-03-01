@@ -3,6 +3,8 @@
 use std::default::Default;
 use std::{fmt, mem};
 
+use libc::c_ulong;
+
 use miniz_oxide::deflate::core::{
     create_comp_flags_from_zip_params, deflate_flags, CompressionStrategy, CompressorOxide,
 };
@@ -74,10 +76,10 @@ impl StateType for Compressor {
 #[derive(Default)]
 pub struct StreamOxide<'io, ST: StateType> {
     pub next_in: Option<&'io [u8]>,
-    pub total_in: u64,
+    pub total_in: c_ulong,
 
     pub next_out: Option<&'io mut [u8]>,
-    pub total_out: u64,
+    pub total_out: c_ulong,
 
     pub(crate) state: Option<Box<InternalState>>,
 
@@ -103,7 +105,7 @@ fn invalid_window_bits(window_bits: i32) -> bool {
 pub fn mz_compress2_oxide(
     stream_oxide: &mut StreamOxide<Compressor>,
     level: i32,
-    dest_len: &mut u64,
+    dest_len: &mut c_ulong,
 ) -> MZResult {
     mz_deflate_init_oxide(stream_oxide, level)?;
     let status = mz_deflate_oxide(stream_oxide, MZFlush::Finish as i32);
@@ -192,8 +194,13 @@ pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<Compressor>, flush: i32) 
 
     *next_in = &next_in[ret.bytes_consumed as usize..];
     *next_out = &mut mem::replace(next_out, &mut [])[ret.bytes_written as usize..];
-    stream_oxide.total_in += ret.bytes_consumed as u64;
-    stream_oxide.total_out += ret.bytes_written as u64;
+    // Wrapping add to emulate miniz_behaviour, will wrap around >4 GiB on 32-bit.
+    stream_oxide.total_in = stream_oxide
+        .total_in
+        .wrapping_add(ret.bytes_consumed as c_ulong);
+    stream_oxide.total_out = stream_oxide
+        .total_out
+        .wrapping_add(ret.bytes_written as c_ulong);
     stream_oxide.adler = state.adler32();
     ret.into()
 }
@@ -258,15 +265,20 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<InflateState>, flush: i32
     let ret = inflate(state, next_in, next_out, flush);
     *next_in = &next_in[ret.bytes_consumed as usize..];
     *next_out = &mut mem::replace(next_out, &mut [])[ret.bytes_written as usize..];
-    stream_oxide.total_in += ret.bytes_consumed as u64;
-    stream_oxide.total_out += ret.bytes_written as u64;
+    // Wrapping add to emulate miniz_behaviour, will wrap around >4 GiB on 32-bit.
+    stream_oxide.total_in = stream_oxide
+        .total_in
+        .wrapping_add(ret.bytes_consumed as c_ulong);
+    stream_oxide.total_out = stream_oxide
+        .total_out
+        .wrapping_add(ret.bytes_written as c_ulong);
     stream_oxide.adler = state.decompressor().adler32().unwrap_or(0);
     ret.into()
 }
 
 pub fn mz_uncompress2_oxide(
     stream_oxide: &mut StreamOxide<InflateState>,
-    dest_len: &mut u64,
+    dest_len: &mut c_ulong,
 ) -> MZResult {
     mz_inflate_init_oxide(stream_oxide)?;
     let status = mz_inflate_oxide(stream_oxide, MZFlush::Finish as i32);

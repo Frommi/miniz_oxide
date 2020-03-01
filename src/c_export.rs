@@ -55,7 +55,7 @@ pub enum CAPICompressionStrategy {
     MZ_FILTERED = 1,
     MZ_HUFFMAN_ONLY = 2,
     MZ_RLE = 3,
-    MZ_FIXED = 4
+    MZ_FIXED = 4,
 }
 
 pub const MZ_CRC32_INIT: c_ulong = 0;
