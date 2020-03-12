@@ -513,7 +513,7 @@ impl Default for CompressorOxide {
 
 /// Callback function and user used in `compress_to_output`.
 pub struct CallbackFunc<'a> {
-    pub put_buf_func: Box<dyn FnMut(&[u8]) -> bool + 'a>,
+    pub put_buf_func: &'a mut dyn FnMut(&[u8]) -> bool,
 }
 
 impl<'a> CallbackFunc<'a> {
@@ -2179,14 +2179,14 @@ pub fn compress_to_output(
     d: &mut CompressorOxide,
     in_buf: &[u8],
     flush: TDEFLFlush,
-    callback_func: impl FnMut(&[u8]) -> bool,
+    mut callback_func: impl FnMut(&[u8]) -> bool,
 ) -> (TDEFLStatus, usize) {
     let res = compress_inner(
         d,
         &mut CallbackOxide::new_callback_func(
             in_buf,
             CallbackFunc {
-                put_buf_func: Box::new(callback_func),
+                put_buf_func: &mut callback_func,
             },
         ),
         flush,
