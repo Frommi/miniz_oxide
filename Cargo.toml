@@ -43,6 +43,7 @@ panic = "abort"
 
 [profile.release]
 panic = "abort"
+#overflow-checks = true
 
 [badges]
 travis-ci = { repository = "Frommi/miniz_oxide" }
