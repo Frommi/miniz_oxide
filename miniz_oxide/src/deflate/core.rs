@@ -1760,12 +1760,12 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
             let dictb = &mut d.dict.b;
 
             let mut dst_pos = (lookahead_pos + lookahead_size) & LZ_DICT_SIZE_MASK;
-            let mut ins_pos = (lookahead_pos + lookahead_size - 2) & LZ_DICT_SIZE_MASK;
+            let mut ins_pos = lookahead_pos + lookahead_size - 2;
             let mut hash = (u32::from(dictb.dict[(ins_pos & LZ_DICT_SIZE_MASK) as usize])
                 << LZ_HASH_SHIFT)
                 ^ u32::from(dictb.dict[((ins_pos + 1) & LZ_DICT_SIZE_MASK) as usize]);
 
-            lookahead_size = (lookahead_size + num_bytes_to_process as u32) & LZ_DICT_SIZE_MASK;
+            lookahead_size += num_bytes_to_process as u32;
             for &c in &in_buf[src_pos..src_pos + num_bytes_to_process] {
                 dictb.dict[dst_pos as usize] = c;
                 if (dst_pos as usize) < MAX_MATCH_LEN - 1 {
@@ -1889,7 +1889,7 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
             saved_match_len = cur_match_len;
         }
 
-        lookahead_pos = (lookahead_pos + len_to_move) & LZ_DICT_SIZE as u32;
+        lookahead_pos += len_to_move;
         assert!(lookahead_size >= len_to_move);
         lookahead_size -= len_to_move;
         d.dict.size = cmp::min(d.dict.size + len_to_move, LZ_DICT_SIZE as u32);
@@ -2051,7 +2051,7 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
 
                 d.lz.consume_flag();
                 d.lz.total_bytes += cur_match_len;
-                lookahead_pos = (lookahead_pos + cur_match_len) & LZ_DICT_SIZE_MASK;
+                lookahead_pos += cur_match_len;
                 d.dict.size = cmp::min(d.dict.size + cur_match_len, LZ_DICT_SIZE as u32);
                 cur_pos = (cur_pos + cur_match_len) & LZ_DICT_SIZE_MASK;
                 lookahead_size -= cur_match_len;

@@ -82,15 +82,6 @@ fn roundtrip_lvl_0() {
 }
 
 #[test]
-fn large_file() {
-    let data = get_test_file_data("large_file/lf");
-    let enc = compress_to_vec(&data.as_slice()[..], 3);
-
-    let dec = decompress_to_vec(enc.as_slice()).unwrap();
-    assert!(data == dec);
-}
-
-#[test]
 fn zlib_header_level() {
     let level = 6;
     let data = [1, 2, 3];
@@ -156,17 +147,4 @@ fn need_more_input_has_more_output_at_same_time() {
     decomp(&input[..11726]); // Fail: NeedsMoreInput even if the output buffer is also full!
     decomp(&input[..11727]); // Fail: NeedsMoreInput even if the output buffer is also full!
     decomp(&input[..11728]); // Fail: NeedsMoreInput even if the output buffer is also full!
-}
-
-#[test]
-fn issue_75_empty_input_infinite_loop() {
-    // Make sure compression works with empty input,
-    // a bug resulted in this causing an infinite loop in
-    // compress_to_vec_inner.
-    let c = miniz_oxide::deflate::compress_to_vec(&[], 6);
-    let d = miniz_oxide::inflate::decompress_to_vec(&c).expect("decompression failed!");
-    assert_eq!(d.len(), 0);
-    let c = miniz_oxide::deflate::compress_to_vec(&[0], 6);
-    let d = miniz_oxide::inflate::decompress_to_vec(&c).expect("decompression failed!");
-    assert!(&d == &[0]);
 }
