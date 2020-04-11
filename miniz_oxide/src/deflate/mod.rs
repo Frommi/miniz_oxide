@@ -119,7 +119,7 @@ fn compress_to_vec_inner(input: &[u8], level: u8, window_bits: i32, strategy: i3
     // The comp flags function sets the zlib flag if the window_bits parameter is > 0.
     let flags = create_comp_flags_from_zip_params(level.into(), window_bits, strategy);
     let mut compressor = CompressorOxide::new(flags);
-    let mut output = vec![0; input.len() / 2];
+    let mut output = vec![0; std::cmp::max(input.len() / 2, 2)];
 
     let mut in_pos = 0;
     let mut out_pos = 0;

@@ -148,3 +148,16 @@ fn need_more_input_has_more_output_at_same_time() {
     decomp(&input[..11727]); // Fail: NeedsMoreInput even if the output buffer is also full!
     decomp(&input[..11728]); // Fail: NeedsMoreInput even if the output buffer is also full!
 }
+
+#[test]
+fn issue_75_empty_input_infinite_loop() {
+    // Make sure compression works with empty input,
+    // a bug resulted in this causing an infinite loop in
+    // compress_to_vec_inner.
+    let c = miniz_oxide::deflate::compress_to_vec(&[], 6);
+    let d = miniz_oxide::inflate::decompress_to_vec(&c).expect("decompression failed!");
+    assert_eq!(d.len(), 0);
+    let c = miniz_oxide::deflate::compress_to_vec(&[0], 6);
+    let d = miniz_oxide::inflate::decompress_to_vec(&c).expect("decompression failed!");
+    assert!(&d == &[0]);
+}
