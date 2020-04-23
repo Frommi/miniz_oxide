@@ -161,3 +161,15 @@ fn issue_75_empty_input_infinite_loop() {
     let d = miniz_oxide::inflate::decompress_to_vec(&c).expect("decompression failed!");
     assert!(&d == &[0]);
 }
+
+/*
+#[test]
+fn large_file() {
+    let data = get_test_file_data("large_file/lf");
+    let enc = compress_to_vec(&data.as_slice()[..], 3);
+
+    let dec = decompress_to_vec(enc.as_slice()).unwrap();
+    assert!(data == dec);
+}
+
+*/
