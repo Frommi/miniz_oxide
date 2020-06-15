@@ -17,4 +17,4 @@ exclude = ["benches/*", "tests/*"]
 name = "miniz_oxide"
 
 [dependencies]
-adler32 = "1.0.4"
+adler32 = { version = "1.0.4", default-features = false }
