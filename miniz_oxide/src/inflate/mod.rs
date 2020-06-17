@@ -1,7 +1,9 @@
 //! This module contains functionality for decompression.
 
-use std::io::Cursor;
-use std::usize;
+use ::core::usize;
+use alloc::boxed::Box;
+use alloc::vec;
+use alloc::vec::Vec;
 
 pub mod core;
 mod output_buffer;
@@ -79,13 +81,10 @@ fn decompress_to_vec_inner(input: &[u8], flags: u32) -> Result<Vec<u8>, TINFLSta
     let mut in_pos = 0;
     let mut out_pos = 0;
     loop {
-        let (status, in_consumed, out_consumed) = {
-            // Wrap the whole output slice so we know we have enough of the
-            // decompressed data for matches.
-            let mut c = Cursor::new(ret.as_mut_slice());
-            c.set_position(out_pos as u64);
-            decompress(&mut decomp, &input[in_pos..], &mut c, flags)
-        };
+        // Wrap the whole output slice so we know we have enough of the
+        // decompressed data for matches.
+        let (status, in_consumed, out_consumed) =
+            decompress(&mut decomp, &input[in_pos..], &mut ret, out_pos, flags);
         in_pos += in_consumed;
         out_pos += out_consumed;
 

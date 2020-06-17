@@ -3,8 +3,8 @@
 use super::*;
 use crate::shared::{update_adler32, HUFFMAN_LENGTH_ORDER};
 
-use std::convert::TryInto;
-use std::{cmp, slice};
+use ::core::convert::TryInto;
+use ::core::{cmp, slice};
 
 use self::output_buffer::OutputBuffer;
 
@@ -1020,39 +1020,24 @@ fn decompress_fast(
 pub fn decompress(
     r: &mut DecompressorOxide,
     in_buf: &[u8],
-    out_cur: &mut Cursor<&mut [u8]>,
+    out: &mut [u8],
+    out_pos: usize,
     flags: u32,
 ) -> (TINFLStatus, usize, usize) {
-    let res = decompress_inner(r, in_buf, out_cur, flags);
-    let new_pos = out_cur.position() + res.2 as u64;
-    out_cur.set_position(new_pos);
-    res
-}
-
-#[inline]
-fn decompress_inner(
-    r: &mut DecompressorOxide,
-    in_buf: &[u8],
-    out_cur: &mut Cursor<&mut [u8]>,
-    flags: u32,
-) -> (TINFLStatus, usize, usize) {
-    let out_buf_start_pos = out_cur.position() as usize;
     let out_buf_size_mask = if flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0 {
         usize::max_value()
     } else {
         // In the case of zero len, any attempt to write would produce HasMoreOutput,
         // so to gracefully process the case of there really being no output,
         // set the mask to all zeros.
-        out_cur.get_ref().len().saturating_sub(1)
+        out.len().saturating_sub(1)
     };
 
     // Ensure the output buffer's size is a power of 2, unless the output buffer
     // is large enough to hold the entire output file (in which case it doesn't
     // matter).
     // Also make sure that the output buffer position is not past the end of the output buffer.
-    if (out_buf_size_mask.wrapping_add(1) & out_buf_size_mask) != 0
-        || out_cur.position() > out_cur.get_ref().len() as u64
-    {
+    if (out_buf_size_mask.wrapping_add(1) & out_buf_size_mask) != 0 || out_pos > out.len() {
         return (TINFLStatus::BadParam, 0, 0);
     }
 
@@ -1060,7 +1045,7 @@ fn decompress_inner(
 
     let mut state = r.state;
 
-    let mut out_buf = OutputBuffer::from_slice_and_pos(out_cur.get_mut(), out_buf_start_pos);
+    let mut out_buf = OutputBuffer::from_slice_and_pos(out, out_pos);
 
     // Make a local copy of the important variables here so we can work with them on the stack.
     let mut l = LocalVars {
@@ -1634,10 +1619,7 @@ fn decompress_inner(
     let need_adler = flags & (TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_COMPUTE_ADLER32) != 0;
     if need_adler && status as i32 >= 0 {
         let out_buf_pos = out_buf.position();
-        r.check_adler32 = update_adler32(
-            r.check_adler32,
-            &out_buf.get_ref()[out_buf_start_pos..out_buf_pos],
-        );
+        r.check_adler32 = update_adler32(r.check_adler32, &out_buf.get_ref()[out_pos..out_buf_pos]);
 
         // disabled so that random input from fuzzer would not be rejected early,
         // before it has a chance to reach interesting parts of code
@@ -1655,7 +1637,7 @@ fn decompress_inner(
     (
         status,
         in_buf.len() - in_iter.len() - in_undo,
-        out_buf.position() - out_buf_start_pos,
+        out_buf.position() - out_pos,
     )
 }
 
@@ -1671,8 +1653,7 @@ mod test {
         output_buffer: &mut [u8],
         flags: u32,
     ) -> (TINFLStatus, &'i [u8], usize) {
-        let (status, in_pos, out_pos) =
-            decompress(r, input_buffer, &mut Cursor::new(output_buffer), flags);
+        let (status, in_pos, out_pos) = decompress(r, input_buffer, output_buffer, 0, flags);
         (status, &input_buffer[in_pos..], out_pos)
     }
 
@@ -1772,14 +1753,14 @@ mod test {
     fn check_result(input: &[u8], expected_status: TINFLStatus, expected_state: State, zlib: bool) {
         let mut r = DecompressorOxide::default();
         let mut output_buf = vec![0; 1024 * 32];
-        let mut out_cursor = Cursor::new(output_buf.as_mut_slice());
         let flags = if zlib {
             inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER
         } else {
             0
         } | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF
             | TINFL_FLAG_HAS_MORE_INPUT;
-        let (d_status, _in_bytes, _out_bytes) = decompress(&mut r, input, &mut out_cursor, flags);
+        let (d_status, _in_bytes, _out_bytes) =
+            decompress(&mut r, input, &mut output_buf, 0, flags);
         assert_eq!(expected_status, d_status);
         assert_eq!(expected_state, r.state);
     }
@@ -1870,10 +1851,9 @@ mod test {
             | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
         let mut r = DecompressorOxide::new();
         let mut output_buf = vec![];
-        let mut out_cursor = Cursor::new(output_buf.as_mut_slice());
         // Check that we handle an empty buffer properly and not panicking.
         // https://github.com/Frommi/miniz_oxide/issues/23
-        let res = decompress(&mut r, &encoded, &mut out_cursor, flags);
+        let res = decompress(&mut r, &encoded, &mut output_buf, 0, flags);
         assert_eq!(res, (TINFLStatus::HasMoreOutput, 4, 0));
     }
 
@@ -1885,10 +1865,9 @@ mod test {
         let flags = TINFL_FLAG_COMPUTE_ADLER32;
         let mut r = DecompressorOxide::new();
         let mut output_buf = vec![];
-        let mut out_cursor = Cursor::new(output_buf.as_mut_slice());
         // Check that we handle an empty buffer properly and not panicking.
         // https://github.com/Frommi/miniz_oxide/issues/23
-        let res = decompress(&mut r, &encoded, &mut out_cursor, flags);
+        let res = decompress(&mut r, &encoded, &mut output_buf, 0, flags);
         assert_eq!(res, (TINFLStatus::HasMoreOutput, 2, 0));
     }
 }

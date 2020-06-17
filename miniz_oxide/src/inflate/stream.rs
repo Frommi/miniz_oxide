@@ -1,8 +1,8 @@
 //! Extra streaming decompression functionality.
 //!
 //! As of now this is mainly inteded for use to build a higher-level wrapper.
-use std::io::Cursor;
-use std::{cmp, mem};
+use alloc::boxed::Box;
+use core::{cmp, mem};
 
 use crate::inflate::core::{decompress, inflate_flags, DecompressorOxide, TINFL_LZ_DICT_SIZE};
 use crate::inflate::TINFLStatus;
@@ -152,12 +152,7 @@ pub fn inflate(
     if (flush == MZFlush::Finish) && first_call {
         decomp_flags |= inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
 
-        let status = decompress(
-            &mut state.decomp,
-            next_in,
-            &mut Cursor::new(next_out),
-            decomp_flags,
-        );
+        let status = decompress(&mut state.decomp, next_in, next_out, 0, decomp_flags);
         let in_bytes = status.1;
         let out_bytes = status.2;
         let status = status.0;
@@ -230,11 +225,13 @@ fn inflate_loop(
 ) -> MZResult {
     let orig_in_len = next_in.len();
     loop {
-        let status = {
-            let mut cursor = Cursor::new(&mut state.dict[..]);
-            cursor.set_position(state.dict_ofs as u64);
-            decompress(&mut state.decomp, *next_in, &mut cursor, decomp_flags)
-        };
+        let status = decompress(
+            &mut state.decomp,
+            *next_in,
+            &mut state.dict,
+            state.dict_ofs,
+            decomp_flags,
+        );
 
         let in_bytes = status.1;
         let out_bytes = status.2;
@@ -301,6 +298,8 @@ fn push_dict_out(state: &mut InflateState, next_out: &mut &mut [u8]) -> usize {
 mod test {
     use super::{inflate, InflateState};
     use crate::{DataFormat, MZFlush, MZStatus};
+    use std::vec;
+
     #[test]
     fn test_state() {
         let encoded = [

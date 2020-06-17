@@ -96,7 +96,6 @@ fn zlib_header_level() {
 #[test]
 fn need_more_input_has_more_output_at_same_time() {
     use miniz_oxide::inflate::core;
-    use std::io::Cursor;
 
     let input = get_test_file_data("tests/test_data/numbers.deflate");
     let data = get_test_file_data("tests/test_data/numbers.txt");
@@ -106,11 +105,10 @@ fn need_more_input_has_more_output_at_same_time() {
         decomp.init();
 
         let mut output = [0; core::TINFL_LZ_DICT_SIZE];
-        let mut output_cursor = Cursor::new(&mut output[..]);
         let flags = core::inflate_flags::TINFL_FLAG_HAS_MORE_INPUT;
 
         let (status, in_consumed, out_consumed) =
-            core::decompress(&mut decomp, input, &mut output_cursor, flags);
+            core::decompress(&mut decomp, input, &mut output, 0, flags);
 
         let input_empty = in_consumed == input.len();
         let output_full = out_consumed == output.len();

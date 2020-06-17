@@ -5,7 +5,6 @@ use miniz_oxide::inflate::core::DecompressorOxide;
 pub use miniz_oxide::inflate::core::DecompressorOxide as tinfl_decompressor;
 pub use miniz_oxide::inflate::core::{decompress, inflate_flags};
 use miniz_oxide::inflate::TINFLStatus;
-use std::io::Cursor;
 use std::{ptr, slice, usize};
 
 pub const TINFL_DECOMPRESS_MEM_TO_MEM_FAILED: size_t = usize::MAX;
@@ -22,12 +21,11 @@ unmangle!(
     ) -> i32 {
         let next_pos = out_buf_next as usize - out_buf_start as usize;
         let out_size = *out_buf_size + next_pos;
-        let mut out_cursor = Cursor::new(slice::from_raw_parts_mut(out_buf_start, out_size));
-        out_cursor.set_position(next_pos as u64);
         let (status, in_consumed, out_consumed) = decompress(
             r.as_mut().expect("bad decompressor pointer"),
             slice::from_raw_parts(in_buf, *in_buf_size),
-            &mut out_cursor,
+            slice::from_raw_parts_mut(out_buf_start, out_size),
+            next_pos,
             flags,
         );
 
@@ -49,7 +47,8 @@ unmangle!(
         let (status, _, out_consumed) = decompress(
             &mut decomp,
             slice::from_raw_parts(p_src_buf as *const u8, src_buf_len),
-            &mut Cursor::new(slice::from_raw_parts_mut(p_out_buf as *mut u8, out_buf_len)),
+            slice::from_raw_parts_mut(p_out_buf as *mut u8, out_buf_len),
+            0,
             (flags & !inflate_flags::TINFL_FLAG_HAS_MORE_INPUT)
                 | inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF,
         );
@@ -89,18 +88,14 @@ unmangle!(
         // How far into the source buffer we have read.
         let mut src_buf_ofs = 0;
         loop {
-            let mut out_cur = Cursor::new(slice::from_raw_parts_mut(
-                p_buf as *mut u8,
-                out_buf_capacity,
-            ));
-            out_cur.set_position(*p_out_len as u64);
             let (status, in_consumed, out_consumed) = decompress(
                 &mut decomp,
                 slice::from_raw_parts(
                     p_src_buf.offset(src_buf_ofs as isize) as *const u8,
                     src_buf_len - src_buf_ofs,
                 ),
-                &mut out_cur,
+                slice::from_raw_parts_mut(p_buf as *mut u8, out_buf_capacity),
+                *p_out_len,
                 (flags & !inflate_flags::TINFL_FLAG_HAS_MORE_INPUT)
                     | inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF,
             );

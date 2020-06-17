@@ -1,8 +1,8 @@
 //! Streaming compression functionality.
 
-use std::convert::TryInto;
-use std::io::{self, Cursor, Seek, SeekFrom, Write};
-use std::{cmp, mem};
+use alloc::boxed::Box;
+use core::convert::TryInto;
+use core::{cmp, mem};
 
 use super::super::*;
 use super::deflate_flags::*;
@@ -13,6 +13,11 @@ use crate::deflate::buffer::{
 };
 use crate::shared::{update_adler32, HUFFMAN_LENGTH_ORDER, MZ_ADLER32_INIT};
 use crate::DataFormat;
+
+// Currently not bubbled up outside this module, so can fill in with more
+// context eventually if needed.
+type Result<T, E = Error> = core::result::Result<T, E>;
+struct Error {}
 
 const MAX_PROBES_MASK: i32 = 0xFFF;
 
@@ -549,12 +554,12 @@ impl<'a> CallbackBuf<'a> {
                 .copy_from_slice(&params.local_buf.b[..n]);
 
             params.out_buf_ofs += n;
-            if saved_output.pos != n as u64 {
+            if saved_output.pos != n {
                 params.flush_ofs = n as u32;
-                params.flush_remaining = (saved_output.pos - n as u64) as u32;
+                params.flush_remaining = (saved_output.pos - n) as u32;
             }
         } else {
-            params.out_buf_ofs += saved_output.pos as usize;
+            params.out_buf_ofs += saved_output.pos;
         }
 
         params.flush_remaining as i32
@@ -585,9 +590,9 @@ impl<'a> CallbackOut<'a> {
             }
         };
 
-        let cursor = Cursor::new(chosen_buffer);
         OutputBufferOxide {
-            inner: cursor,
+            inner: chosen_buffer,
+            inner_pos: 0,
             local: is_local,
             bit_buffer: 0,
             bits_in: 0,
@@ -649,7 +654,8 @@ impl<'a> CallbackOxide<'a> {
 }
 
 struct OutputBufferOxide<'a> {
-    pub inner: Cursor<&'a mut [u8]>,
+    pub inner: &'a mut [u8],
+    pub inner_pos: usize,
     pub local: bool,
 
     pub bit_buffer: u32,
@@ -662,9 +668,8 @@ impl<'a> OutputBufferOxide<'a> {
         self.bit_buffer |= bits << self.bits_in;
         self.bits_in += len;
         while self.bits_in >= 8 {
-            let pos = self.inner.position();
-            self.inner.get_mut()[pos as usize] = self.bit_buffer as u8;
-            self.inner.set_position(pos + 1);
+            self.inner[self.inner_pos] = self.bit_buffer as u8;
+            self.inner_pos += 1;
             self.bit_buffer >>= 8;
             self.bits_in -= 8;
         }
@@ -672,7 +677,7 @@ impl<'a> OutputBufferOxide<'a> {
 
     fn save(&self) -> SavedOutputBufferOxide {
         SavedOutputBufferOxide {
-            pos: self.inner.position(),
+            pos: self.inner_pos,
             bit_buffer: self.bit_buffer,
             bits_in: self.bits_in,
             local: self.local,
@@ -680,7 +685,7 @@ impl<'a> OutputBufferOxide<'a> {
     }
 
     fn load(&mut self, saved: SavedOutputBufferOxide) {
-        self.inner.set_position(saved.pos);
+        self.inner_pos = saved.pos;
         self.bit_buffer = saved.bit_buffer;
         self.bits_in = saved.bits_in;
         self.local = saved.local;
@@ -695,7 +700,7 @@ impl<'a> OutputBufferOxide<'a> {
 }
 
 struct SavedOutputBufferOxide {
-    pub pos: u64,
+    pub pos: usize,
     pub bit_buffer: u32,
     pub bits_in: u32,
     pub local: bool,
@@ -712,17 +717,18 @@ impl BitBuffer {
         self.bits_in += len;
     }
 
-    fn flush(&mut self, output: &mut OutputBufferOxide) -> io::Result<()> {
-        let pos = output.inner.position() as usize;
+    fn flush(&mut self, output: &mut OutputBufferOxide) -> Result<()> {
+        let pos = output.inner_pos;
         {
             // isolation to please borrow checker
-            let inner = &mut (*output.inner.get_mut())[pos..pos + 8];
+            let inner = &mut output.inner[pos..pos + 8];
             let bytes = u64::to_le_bytes(self.bit_buffer);
             inner.copy_from_slice(&bytes);
         }
-        output
-            .inner
-            .seek(SeekFrom::Current(i64::from(self.bits_in >> 3)))?;
+        match output.inner_pos.checked_add((self.bits_in >> 3) as usize) {
+            Some(n) if n <= output.inner.len() => output.inner_pos = n,
+            _ => return Err(Error {}),
+        }
         self.bit_buffer >>= self.bits_in & !7;
         self.bits_in &= 7;
         Ok(())
@@ -760,19 +766,21 @@ struct RLE {
 impl RLE {
     fn prev_code_size(
         &mut self,
-        packed_code_sizes: &mut Cursor<&mut [u8]>,
+        packed_code_sizes: &mut [u8],
+        packed_pos: &mut usize,
         h: &mut HuffmanOxide,
-    ) -> io::Result<()> {
+    ) -> Result<()> {
+        let mut write = |buf| write(buf, packed_code_sizes, packed_pos);
         let counts = &mut h.count[HUFF_CODES_TABLE];
         if self.repeat_count != 0 {
             if self.repeat_count < 3 {
                 counts[self.prev_code_size as usize] =
                     counts[self.prev_code_size as usize].wrapping_add(self.repeat_count as u16);
                 let code = self.prev_code_size;
-                packed_code_sizes.write_all(&[code, code, code][..self.repeat_count as usize])?;
+                write(&[code, code, code][..self.repeat_count as usize])?;
             } else {
                 counts[16] = counts[16].wrapping_add(1);
-                packed_code_sizes.write_all(&[16, (self.repeat_count - 3) as u8][..])?;
+                write(&[16, (self.repeat_count - 3) as u8][..])?;
             }
             self.repeat_count = 0;
         }
@@ -782,26 +790,37 @@ impl RLE {
 
     fn zero_code_size(
         &mut self,
-        packed_code_sizes: &mut Cursor<&mut [u8]>,
+        packed_code_sizes: &mut [u8],
+        packed_pos: &mut usize,
         h: &mut HuffmanOxide,
-    ) -> io::Result<()> {
+    ) -> Result<()> {
+        let mut write = |buf| write(buf, packed_code_sizes, packed_pos);
         let counts = &mut h.count[HUFF_CODES_TABLE];
         if self.z_count != 0 {
             if self.z_count < 3 {
                 counts[0] = counts[0].wrapping_add(self.z_count as u16);
-                packed_code_sizes.write_all(&[0, 0, 0][..self.z_count as usize])?;
+                write(&[0, 0, 0][..self.z_count as usize])?;
             } else if self.z_count <= 10 {
                 counts[17] = counts[17].wrapping_add(1);
-                packed_code_sizes.write_all(&[17, (self.z_count - 3) as u8][..])?;
+                write(&[17, (self.z_count - 3) as u8][..])?;
             } else {
                 counts[18] = counts[18].wrapping_add(1);
-                packed_code_sizes.write_all(&[18, (self.z_count - 11) as u8][..])?;
+                write(&[18, (self.z_count - 11) as u8][..])?;
             }
             self.z_count = 0;
         }
 
         Ok(())
     }
+}
+
+fn write(src: &[u8], dst: &mut [u8], dst_pos: &mut usize) -> Result<()> {
+    match dst.get_mut(*dst_pos..*dst_pos + src.len()) {
+        Some(s) => s.copy_from_slice(src),
+        None => return Err(Error {}),
+    }
+    *dst_pos += src.len();
+    Ok(())
 }
 
 impl Default for HuffmanOxide {
@@ -1036,7 +1055,7 @@ impl HuffmanOxide {
         output.put_bits(0b01, 2)
     }
 
-    fn start_dynamic_block(&mut self, output: &mut OutputBufferOxide) -> io::Result<()> {
+    fn start_dynamic_block(&mut self, output: &mut OutputBufferOxide) -> Result<()> {
         // There will always be one, and only one end of block code.
         self.count[0][256] = 1;
 
@@ -1075,25 +1094,25 @@ impl HuffmanOxide {
 
         memset(&mut self.count[HUFF_CODES_TABLE][..MAX_HUFF_SYMBOLS_2], 0);
 
-        let mut packed_code_sizes_cursor = Cursor::new(&mut packed_code_sizes[..]);
+        let mut packed_pos = 0;
         for &code_size in &code_sizes_to_pack[..total_code_sizes_to_pack] {
             if code_size == 0 {
-                rle.prev_code_size(&mut packed_code_sizes_cursor, self)?;
+                rle.prev_code_size(&mut packed_code_sizes, &mut packed_pos, self)?;
                 rle.z_count += 1;
                 if rle.z_count == 138 {
-                    rle.zero_code_size(&mut packed_code_sizes_cursor, self)?;
+                    rle.zero_code_size(&mut packed_code_sizes, &mut packed_pos, self)?;
                 }
             } else {
-                rle.zero_code_size(&mut packed_code_sizes_cursor, self)?;
+                rle.zero_code_size(&mut packed_code_sizes, &mut packed_pos, self)?;
                 if code_size != rle.prev_code_size {
-                    rle.prev_code_size(&mut packed_code_sizes_cursor, self)?;
+                    rle.prev_code_size(&mut packed_code_sizes, &mut packed_pos, self)?;
                     self.count[HUFF_CODES_TABLE][code_size as usize] =
                         self.count[HUFF_CODES_TABLE][code_size as usize].wrapping_add(1);
-                    packed_code_sizes_cursor.write_all(&[code_size][..])?;
+                    write(&[code_size], &mut packed_code_sizes, &mut packed_pos)?;
                 } else {
                     rle.repeat_count += 1;
                     if rle.repeat_count == 6 {
-                        rle.prev_code_size(&mut packed_code_sizes_cursor, self)?;
+                        rle.prev_code_size(&mut packed_code_sizes, &mut packed_pos, self)?;
                     }
                 }
             }
@@ -1101,9 +1120,9 @@ impl HuffmanOxide {
         }
 
         if rle.repeat_count != 0 {
-            rle.prev_code_size(&mut packed_code_sizes_cursor, self)?;
+            rle.prev_code_size(&mut packed_code_sizes, &mut packed_pos, self)?;
         } else {
-            rle.zero_code_size(&mut packed_code_sizes_cursor, self)?;
+            rle.zero_code_size(&mut packed_code_sizes, &mut packed_pos, self)?;
         }
 
         self.optimize_table(2, MAX_HUFF_SYMBOLS_2, 7, false);
@@ -1130,8 +1149,7 @@ impl HuffmanOxide {
         }
 
         let mut packed_code_size_index = 0 as usize;
-        let packed_code_sizes = packed_code_sizes_cursor.get_ref();
-        while packed_code_size_index < packed_code_sizes_cursor.position() as usize {
+        while packed_code_size_index < packed_pos {
             let code = packed_code_sizes[packed_code_size_index] as usize;
             packed_code_size_index += 1;
             assert!(code < MAX_HUFF_SYMBOLS_2);
@@ -1474,7 +1492,7 @@ fn compress_lz_codes(
     huff: &HuffmanOxide,
     output: &mut OutputBufferOxide,
     lz_code_buf: &[u8],
-) -> io::Result<bool> {
+) -> Result<bool> {
     let mut flags = 1;
     let mut bb = BitBuffer {
         bit_buffer: u64::from(output.bit_buffer),
@@ -1573,7 +1591,7 @@ fn compress_block(
     output: &mut OutputBufferOxide,
     lz: &LZOxide,
     static_block: bool,
-) -> io::Result<bool> {
+) -> Result<bool> {
     if static_block {
         huff.start_static_block(output);
     } else {
@@ -1587,7 +1605,7 @@ fn flush_block(
     d: &mut CompressorOxide,
     callback: &mut CallbackOxide,
     flush: TDEFLFlush,
-) -> io::Result<i32> {
+) -> Result<i32> {
     let mut saved_buffer;
     {
         let mut output = callback
@@ -1635,7 +1653,7 @@ fn flush_block(
         // (as literals are either 8 or 9 bytes), a raw block will
         // never take up less space if the number of input bytes are less than 32.
         let expanded = (d.lz.total_bytes > 32)
-            && (output.inner.position() - saved_buffer.pos + 1 >= u64::from(d.lz.total_bytes))
+            && (output.inner_pos - saved_buffer.pos + 1 >= (d.lz.total_bytes as usize))
             && (d.dict.lookahead_pos - d.dict.code_buf_dict_pos <= d.dict.size);
 
         if use_raw_block || expanded {
@@ -2339,6 +2357,8 @@ mod test {
         MZ_DEFAULT_WINDOW_BITS,
     };
     use crate::inflate::decompress_to_vec;
+    use std::prelude::v1::*;
+    use std::vec;
 
     #[test]
     fn u16_to_slice() {
