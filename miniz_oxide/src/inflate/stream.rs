@@ -1,7 +1,7 @@
 //! Extra streaming decompression functionality.
 //!
 //! As of now this is mainly inteded for use to build a higher-level wrapper.
-use alloc::boxed::Box;
+use crate::alloc::boxed::Box;
 use core::{cmp, mem};
 
 use crate::inflate::core::{decompress, inflate_flags, DecompressorOxide, TINFL_LZ_DICT_SIZE};

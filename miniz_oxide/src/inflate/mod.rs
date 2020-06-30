@@ -1,9 +1,9 @@
 //! This module contains functionality for decompression.
 
 use ::core::usize;
-use alloc::boxed::Box;
-use alloc::vec;
-use alloc::vec::Vec;
+use crate::alloc::boxed::Box;
+use crate::alloc::vec;
+use crate::alloc::vec::Vec;
 
 pub mod core;
 mod output_buffer;
