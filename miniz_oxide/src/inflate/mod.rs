@@ -78,6 +78,8 @@ pub fn decompress_to_vec_zlib(input: &[u8]) -> Result<Vec<u8>, TINFLStatus> {
 }
 
 /// Decompress the deflate-encoded data in `input` to a vector.
+/// The vector is grown to at most `max_size` bytes; if the data does not fit in that size,
+/// `TINFLStatus::HasMoreOutput` error is returned.
 ///
 /// Returns a status and an integer representing where the decompressor failed on failure.
 #[inline]
@@ -86,6 +88,8 @@ pub fn decompress_to_vec_with_limit(input: &[u8], max_size: usize) -> Result<Vec
 }
 
 /// Decompress the deflate-encoded data (with a zlib wrapper) in `input` to a vector.
+/// The vector is grown to at most `max_size` bytes; if the data does not fit in that size,
+/// `TINFLStatus::HasMoreOutput` error is returned.
 ///
 /// Returns a status and an integer representing where the decompressor failed on failure.
 #[inline]
