@@ -98,8 +98,15 @@ impl InflateState {
     /// Reset the decompressor without re-allocating memory, using the given
     /// data format.
     pub fn reset(&mut self, data_format: DataFormat) {
-        self.decompressor().init();
+        self.reset_without_zeroing_output_buffer(data_format);
         self.dict = [0; TINFL_LZ_DICT_SIZE];
+    }
+
+    /// Reset the decompressor without re-allocating memory, using the given
+    /// data format. It does not not zero the output buffer, which potentially
+    /// leaves decompressed bytes of previous runs in memory, but saves time.
+    pub fn reset_without_zeroing_output_buffer(&mut self, data_format: DataFormat) {
+        self.decompressor().init();
         self.dict_ofs = 0;
         self.dict_avail = 0;
         self.first_call = true;
