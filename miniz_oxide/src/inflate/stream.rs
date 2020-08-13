@@ -14,7 +14,9 @@ pub trait ResetPolicy {
     fn reset(&self, state: &mut InflateState);
 }
 
-/// Resets state, without performing unnecessary expensive ops (e.g. zeroing buffer)
+/// Resets state, without performing expensive ops (e.g. zeroing buffer)
+///
+/// Note that not zeroing buffer can lead to security issues when dealing with untrusted input.
 pub struct MinReset;
 
 impl ResetPolicy for MinReset {
