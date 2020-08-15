@@ -23,9 +23,12 @@
 
 #![allow(warnings)]
 #![forbid(unsafe_code)]
-#![no_std]
+#![cfg_attr(not(feature = "no_extern_crate_alloc"), no_std)]
 
+#[cfg(not(feature = "no_extern_crate_alloc"))]
 extern crate alloc;
+#[cfg(feature = "no_extern_crate_alloc")]
+use std as alloc;
 
 #[cfg(test)]
 extern crate std;
