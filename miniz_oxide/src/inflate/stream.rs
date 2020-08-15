@@ -8,6 +8,52 @@ use crate::inflate::core::{decompress, inflate_flags, DecompressorOxide, TINFL_L
 use crate::inflate::TINFLStatus;
 use crate::{DataFormat, MZError, MZFlush, MZResult, MZStatus, StreamResult};
 
+/// Tag that determines reset policy of [InflateState](struct.InflateState.html)
+pub trait ResetPolicy {
+    /// Performs reset
+    fn reset(&self, state: &mut InflateState);
+}
+
+/// Resets state, without performing expensive ops (e.g. zeroing buffer)
+///
+/// Note that not zeroing buffer can lead to security issues when dealing with untrusted input.
+pub struct MinReset;
+
+impl ResetPolicy for MinReset {
+    fn reset(&self, state: &mut InflateState) {
+        state.decompressor().init();
+        state.dict_ofs = 0;
+        state.dict_avail = 0;
+        state.first_call = true;
+        state.has_flushed = false;
+        state.last_status = TINFLStatus::NeedsMoreInput;
+    }
+}
+
+/// Resets state and zero memory, continuing to use the same data format.
+pub struct ZeroReset;
+
+impl ResetPolicy for ZeroReset {
+    #[inline]
+    fn reset(&self, state: &mut InflateState) {
+        MinReset.reset(state);
+        state.dict = [0; TINFL_LZ_DICT_SIZE];
+    }
+}
+
+/// Full reset of the state, including zeroing memory.
+///
+/// Requires to provide new data format.
+pub struct FullReset(DataFormat);
+
+impl ResetPolicy for FullReset {
+    #[inline]
+    fn reset(&self, state: &mut InflateState) {
+        ZeroReset.reset(state);
+        state.data_format = self.0;
+    }
+}
+
 /// A struct that compbines a decompressor with extra data for streaming decompression.
 ///
 pub struct InflateState {
@@ -95,17 +141,17 @@ impl InflateState {
         b
     }
 
+    #[inline]
     /// Reset the decompressor without re-allocating memory, using the given
     /// data format.
     pub fn reset(&mut self, data_format: DataFormat) {
-        self.decompressor().init();
-        self.dict = [0; TINFL_LZ_DICT_SIZE];
-        self.dict_ofs = 0;
-        self.dict_avail = 0;
-        self.first_call = true;
-        self.has_flushed = false;
-        self.data_format = data_format;
-        self.last_status = TINFLStatus::NeedsMoreInput;
+        self.reset_as(FullReset(data_format));
+    }
+
+    #[inline]
+    /// Resets the state according to specified policy.
+    pub fn reset_as<T: ResetPolicy>(&mut self, policy: T) {
+        policy.reset(self)
     }
 }
 
@@ -314,7 +360,17 @@ mod test {
         assert_eq!(out[..res.bytes_written as usize], b"Hello, zlib!"[..]);
         assert_eq!(res.bytes_consumed, encoded.len());
 
-        state.reset(DataFormat::Zlib);
+        state.reset_as(super::ZeroReset);
+        out.iter_mut().map(|x| *x = 0).count();
+        let res = inflate(&mut state, &encoded, &mut out, MZFlush::Finish);
+        let status = res.status.expect("Failed to decompress!");
+        assert_eq!(status, MZStatus::StreamEnd);
+        assert_eq!(out[..res.bytes_written as usize], b"Hello, zlib!"[..]);
+        assert_eq!(res.bytes_consumed, encoded.len());
+
+        state.reset_as(super::MinReset);
+        out.iter_mut().map(|x| *x = 0).count();
+        let res = inflate(&mut state, &encoded, &mut out, MZFlush::Finish);
         let status = res.status.expect("Failed to decompress!");
         assert_eq!(status, MZStatus::StreamEnd);
         assert_eq!(out[..res.bytes_written as usize], b"Hello, zlib!"[..]);
