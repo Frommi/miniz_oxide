@@ -1,3 +1,15 @@
+<a name="0.4.1"></a>
+### 0.4.1 (2020-08-22)
+
+#### Features
+
+* **inflate:**
+  * Add support for limiting output size when decompressing to vec  ([f8c25f3f](f8c25f3f))
+  * Introduce reset policy to control InflateState::reset ([1f95a16f](1f95a16f)), closes [#89](89))
+
+* **core:**
+  * Add an optional feature for 1.34.2 backwards compatibility ([d18e847d](d18e847d))
+
 <a name="0.4.0"></a>
 ## 0.4.0 (2020-06-28)
 
