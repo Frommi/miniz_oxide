@@ -44,7 +44,7 @@ impl ResetPolicy for ZeroReset {
 /// Full reset of the state, including zeroing memory.
 ///
 /// Requires to provide new data format.
-pub struct FullReset(DataFormat);
+pub struct FullReset(pub DataFormat);
 
 impl ResetPolicy for FullReset {
     #[inline]
