@@ -1,4 +1,4 @@
-Main library [![Build Status](https://travis-ci.org/frommi/miniz_oxide.svg)](https://travis-ci.org/frommi/miniz_oxide.svg)[![Crates.io](https://img.shields.io/crates/v/miniz_oxide.svg)](https://crates.io/crates/miniz_oxide)[![Docs](https://docs.rs/miniz_oxide/badge.svg)](https://docs.rs/miniz_oxide)
+Main library [![Build Status](https://travis-ci.org/Frommi/miniz_oxide.svg?branch=master)](https://travis-ci.org/Frommi/miniz_oxide)[![Crates.io](https://img.shields.io/crates/v/miniz_oxide.svg)](https://crates.io/crates/miniz_oxide)[![Docs](https://docs.rs/miniz_oxide/badge.svg)](https://docs.rs/miniz_oxide)
 
 C API [![Crates.io](https://img.shields.io/crates/v/miniz_oxide_c_api.svg)](https://crates.io/crates/miniz_oxide_c_api)[![Docs](https://docs.rs/miniz_oxide_c_api/badge.svg)](https://docs.rs/miniz_oxide_c_api)
 
