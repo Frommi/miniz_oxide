@@ -1,3 +1,16 @@
+<a name="0.4.2"></a>
+### 0.4.2 (2020-09-13)
+
+#### Features
+
+* **core:**
+  * Add automatic alloc detection ([0c67dc5c](https://github.com/Frommi/miniz_oxide/commit/0c67dc5c))
+
+#### Bug Fixes
+
+* **inflate:**
+  * Add missing pub to FullReset's data format ([743d6d37](https://github.com/Frommi/miniz_oxide/commit/743d6d37))
+
 <a name="0.4.1"></a>
 ### 0.4.1 (2020-08-22)
 
