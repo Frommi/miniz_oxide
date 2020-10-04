@@ -7,6 +7,7 @@ compiler:
 rust:
   - stable
   - nightly
+  - 1.34.0
 before_install:
   - sudo apt-get update
   - sudo apt-get install valgrind
@@ -16,3 +17,4 @@ script:
   - ./test.sh
 after_success:
   - ./travis-after-success.sh
+cache: cargo
