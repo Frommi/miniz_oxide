@@ -23,11 +23,12 @@
 
 #![allow(warnings)]
 #![forbid(unsafe_code)]
-#![cfg_attr(has_alloc, no_std)]
+#![cfg_attr(any(has_alloc, feature = "rustc-dep-of-std"), no_std)]
 
-#[cfg(has_alloc)]
+// autocfg does not work when building in libstd, so manually enable this for that use case now.
+#[cfg(any(has_alloc, feature = "rustc-dep-of-std"))]
 extern crate alloc;
-#[cfg(not(has_alloc))]
+#[cfg(all(not(has_alloc), not(feature = "rustc-dep-of-std")))]
 use std as alloc;
 
 #[cfg(test)]

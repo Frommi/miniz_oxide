@@ -1,10 +1,10 @@
 //! This module contains functionality for decompression.
 
-use ::core::cmp::min;
-use ::core::usize;
 use crate::alloc::boxed::Box;
 use crate::alloc::vec;
 use crate::alloc::vec::Vec;
+use ::core::cmp::min;
+use ::core::usize;
 
 pub mod core;
 mod output_buffer;
