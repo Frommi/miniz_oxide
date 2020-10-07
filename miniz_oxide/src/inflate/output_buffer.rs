@@ -15,7 +15,7 @@ impl<'a> OutputBuffer<'a> {
     }
 
     #[inline]
-    pub fn position(&self) -> usize {
+    pub const fn position(&self) -> usize {
         self.position
     }
 
@@ -44,12 +44,12 @@ impl<'a> OutputBuffer<'a> {
     }
 
     #[inline]
-    pub fn bytes_left(&self) -> usize {
+    pub const fn bytes_left(&self) -> usize {
         self.slice.len() - self.position
     }
 
     #[inline]
-    pub fn get_ref(&self) -> &[u8] {
+    pub const fn get_ref(&self) -> &[u8] {
         self.slice
     }
 
