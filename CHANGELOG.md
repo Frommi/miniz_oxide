@@ -1,3 +1,18 @@
+<a name="0.4.3"></a>
+### 0.4.3 (2020-10-07)
+
+#### Features
+
+* **core:**
+  * Increase the license options ([78d13b47](https://github.com/Frommi/miniz_oxide/commit/78d13b47))
+  * Add forbid unsafe code to build ([80859093](https://github.com/Frommi/miniz_oxide/commit/80859093c1298ff5a97e149d9e3a882ce92fbde5))
+
+#### Bug Fixes
+
+* **core:**
+  * in-libstd build attempting to use std ([5a5522de](https://github.com/Frommi/miniz_oxide//commit/5a5522de50129513cb059e73020c8f1aad047200))
+  * Run CI on 1.34 ([c6f6cd42](https://github.com/Frommi/miniz_oxide/commit/c6f6cd42e8225ca2f32d6e8fd5a2ce6e99b9c7b1))
+
 <a name="0.4.2"></a>
 ### 0.4.2 (2020-09-13)
 
