@@ -1,3 +1,12 @@
+<a name="0.4.4"></a>
+### 0.4.4 (2021-02-25)
+
+#### Features
+
+* **core:**
+  * Update adler to 1.0 ([b4c67ba0](https://github.com/Frommi/miniz_oxide/commit/b4c67ba06fc526a012d078efc925494d788b88d0))
+  * Mark some internal functions as const ([52ce377a](https://github.com/Frommi/miniz_oxide/commit/28514ec09f0b1ce74bfb2d561de52a6652ce377a))
+
 <a name="0.4.3"></a>
 ### 0.4.3 (2020-10-07)
 
