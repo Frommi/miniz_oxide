@@ -38,6 +38,8 @@ build_stub_miniz = []
 no_c_export = []
 libc_stub = []
 
+simd = ['miniz_oxide/simd']
+
 [profile.dev]
 panic = "abort"
 
