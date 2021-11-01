@@ -179,8 +179,15 @@ pub fn inflate(
         return StreamResult::error(MZError::Stream);
     }
 
-    let mut decomp_flags = inflate_flags::TINFL_FLAG_COMPUTE_ADLER32;
-    if state.data_format == DataFormat::Zlib {
+    let mut decomp_flags = if state.data_format == DataFormat::Zlib {
+        inflate_flags::TINFL_FLAG_COMPUTE_ADLER32
+    } else {
+        inflate_flags::TINFL_FLAG_IGNORE_ADLER32
+    };
+
+    if (state.data_format == DataFormat::Zlib)
+        | (state.data_format == DataFormat::ZLibIgnoreChecksum)
+    {
         decomp_flags |= inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER;
     }
 
@@ -375,5 +382,19 @@ mod test {
         assert_eq!(status, MZStatus::StreamEnd);
         assert_eq!(out[..res.bytes_written as usize], b"Hello, zlib!"[..]);
         assert_eq!(res.bytes_consumed, encoded.len());
+        assert_eq!(state.decompressor().adler32(), Some(459605011));
+
+        // Test state when not computing adler.
+        state = InflateState::new_boxed(DataFormat::ZLibIgnoreChecksum);
+        out.iter_mut().map(|x| *x = 0).count();
+        let res = inflate(&mut state, &encoded, &mut out, MZFlush::Finish);
+        let status = res.status.expect("Failed to decompress!");
+        assert_eq!(status, MZStatus::StreamEnd);
+        assert_eq!(out[..res.bytes_written as usize], b"Hello, zlib!"[..]);
+        assert_eq!(res.bytes_consumed, encoded.len());
+        // Not computed, so should be Some(1)
+        assert_eq!(state.decompressor().adler32(), Some(1));
+        // Should still have the checksum read from the header file.
+        assert_eq!(state.decompressor().adler32_header(), Some(459605011))
     }
 }

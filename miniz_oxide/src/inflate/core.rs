@@ -109,8 +109,20 @@ pub mod inflate_flags {
     pub const TINFL_FLAG_HAS_MORE_INPUT: u32 = 2;
     /// The output buffer should not wrap around.
     pub const TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF: u32 = 4;
-    /// Should we calculate the adler32 checksum of the output data?
+    /// Should we calculate the adler32 checksum of the output data even if we're not inflating a
+    /// zlib stream?
+    ///
+    /// NOTE: Enable/disabling this between calls to decompress will result in an incorect checksum.
     pub const TINFL_FLAG_COMPUTE_ADLER32: u32 = 8;
+    /// Should we ignore adler32 checksum even if we are inflating a zlib stream.
+    /// Overrides TINFL_FLAG_COMPUTE_ADLER32 if both are enabled.
+    ///
+    /// NOTE: This flag does not exist in miniz as it does not support this and is a
+    /// custom addition for miniz_oxide.
+    /// NOTE: Should not be changed from enabled to disabled after decompression has started,
+    /// this will result in checksum failure (outside the unlikely event where the checksum happens
+    /// to match anyway).
+    pub const TINFL_FLAG_IGNORE_ADLER32: u32 = 64;
 }
 
 use self::inflate_flags::*;
@@ -174,10 +186,21 @@ impl DecompressorOxide {
     }
 
     /// Returns the adler32 checksum of the currently decompressed data.
+    /// Note: Will return Some(1) if decompressing zlib but ignoring adler32.
     #[inline]
     pub fn adler32(&self) -> Option<u32> {
         if self.state != State::Start && !self.state.is_failure() && self.z_header0 != 0 {
             Some(self.check_adler32)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the adler32 that was read from the zlib header if it exists.
+    #[inline]
+    pub fn adler32_header(&self) -> Option<u32> {
+        if self.state != State::Start && self.state != State::BadZlibHeader && self.z_header0 != 0 {
+            Some(self.z_adler32)
         } else {
             None
         }
@@ -1616,7 +1639,12 @@ pub fn decompress(
 
     // If this is a zlib stream, and update the adler32 checksum with the decompressed bytes if
     // requested.
-    let need_adler = flags & (TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_COMPUTE_ADLER32) != 0;
+    let need_adler = if (flags & TINFL_FLAG_IGNORE_ADLER32) == 0 {
+        flags & (TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_COMPUTE_ADLER32) != 0
+    } else {
+        // If TINFL_FLAG_IGNORE_ADLER32 is enabled, ignore the checksum.
+        false
+    };
     if need_adler && status as i32 >= 0 {
         let out_buf_pos = out_buf.position();
         r.check_adler32 = update_adler32(r.check_adler32, &out_buf.get_ref()[out_pos..out_buf_pos]);

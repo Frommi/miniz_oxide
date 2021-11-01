@@ -105,9 +105,13 @@ pub enum MZError {
 
 /// How compressed data is wrapped.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum DataFormat {
     /// Wrapped using the [zlib](http://www.zlib.org/rfc-zlib.html) format.
     Zlib,
+    /// Zlib wrapped but ignore and don't compute the adler32 checksum.
+    /// Currently only used for inflate, behaves the same as Zlib for compression.
+    ZLibIgnoreChecksum,
     /// Raw DEFLATE.
     Raw,
 }
@@ -123,7 +127,7 @@ impl DataFormat {
 
     pub(crate) fn to_window_bits(self) -> i32 {
         match self {
-            DataFormat::Zlib => shared::MZ_DEFAULT_WINDOW_BITS,
+            DataFormat::Zlib | DataFormat::ZLibIgnoreChecksum => shared::MZ_DEFAULT_WINDOW_BITS,
             DataFormat::Raw => -shared::MZ_DEFAULT_WINDOW_BITS,
         }
     }
