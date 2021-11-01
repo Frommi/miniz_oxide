@@ -12,13 +12,9 @@ documentation = "https://docs.rs/miniz_oxide"
 description = "DEFLATE compression and decompression library rewritten in Rust based on miniz"
 edition = "2018"
 exclude = ["benches/*", "tests/*"]
-build = "build.rs"
 
 [lib]
 name = "miniz_oxide"
-
-[build-dependencies]
-autocfg = "1.0"
 
 [dependencies]
 adler = { version = "1.0", default-features = false }

@@ -2357,8 +2357,7 @@ mod test {
         MZ_DEFAULT_WINDOW_BITS,
     };
     use crate::inflate::decompress_to_vec;
-    use std::prelude::v1::*;
-    use std::vec;
+    use alloc::vec;
 
     #[test]
     fn u16_to_slice() {

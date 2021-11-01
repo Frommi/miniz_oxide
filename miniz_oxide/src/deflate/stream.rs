@@ -100,8 +100,8 @@ mod test {
     use crate::deflate::CompressorOxide;
     use crate::inflate::decompress_to_vec_zlib;
     use crate::{MZFlush, MZStatus};
-    use std::prelude::v1::*;
-    use std::vec;
+    use alloc::vec;
+    use alloc::boxed::Box;
 
     #[test]
     fn test_state() {

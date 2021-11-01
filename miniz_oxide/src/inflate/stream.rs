@@ -351,7 +351,7 @@ fn push_dict_out(state: &mut InflateState, next_out: &mut &mut [u8]) -> usize {
 mod test {
     use super::{inflate, InflateState};
     use crate::{DataFormat, MZFlush, MZStatus};
-    use std::vec;
+    use alloc::vec;
 
     #[test]
     fn test_state() {
