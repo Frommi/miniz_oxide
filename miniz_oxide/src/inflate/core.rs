@@ -1028,8 +1028,7 @@ fn decompress_fast(
 /// and thus allows a smaller output buffer. The window size can be specified in the zlib
 /// header structure, however, the header data should not be relied on to be correct.
 ///
-/// `flags`
-/// Flags to indicate settings and status to the decompression function.
+/// `flags` indicates settings and status to the decompression function.
 /// * The [`TINFL_FLAG_HAS_MORE_INPUT`] has to be specified if more compressed data is to be provided
 /// in a subsequent call to this function.
 /// * See the the [`inflate_flags`] module for details on other flags.
