@@ -7,15 +7,29 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os:
-          - ubuntu-latest
-          - macos-latest
-          - windows-latest
-        rust:
-          - stable
-          - beta
-          - nightly
-          - 1.40.0
+        build: [stable, beta, nightly, 1.40.0, macos, windows, mingw]
+        include:
+          - build: stable
+            os: ubuntu-latest
+            rust: stable
+          - build: beta
+            os: ubuntu-latest
+            rust: beta
+          - build: nightly
+            os: ubuntu-latest
+            rust: nightly
+          - build: 1.40.0
+            os: ubuntu-latest
+            rust: nightly
+          - build: macos
+            os: macos-latest
+            rust: stable
+          - build: windows
+            os: windows-latest
+            rust: stable
+          - build: mingw
+            os: windows-latest
+            rust: stable-x86_64-gnu
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
