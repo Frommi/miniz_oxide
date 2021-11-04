@@ -1035,9 +1035,9 @@ fn decompress_fast(
 /// * See the the [`inflate_flags`] module for details on other flags.
 ///
 /// # Returns
-/// returns a tuple containing the status of the compressor, the number of input bytes read, and the
+///
+/// Returns a tuple containing the status of the compressor, the number of input bytes read, and the
 /// number of bytes output to `out`.
-/// Updates the position of `out` to point to the next free spot in the output buffer.
 ///
 /// This function shouldn't panic pending any bugs.
 pub fn decompress(
