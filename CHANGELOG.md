@@ -1,3 +1,22 @@
+<a name="0.5.0"></a>
+## 0.5.0 (2021-11-04)
+
+
+#### Bug Fixes
+
+* **core:**
+  * Don't use autofcg for alloc ([a9bf654f](https://github.com/Frommi/miniz_oxide/commit/a9bf654f6a6756eed0812e612d19137f5c486444), closes [#106](https://github.com/Frommi/miniz_oxide/issues/106))
+
+#### Features
+
+* **core:**
+  * Add github actions CI and remove unused feature ([694803aa](https://github.com/Frommi/miniz_oxide/commit/694803aaf0bd4af7d00c08c10881bc121f1fb2c7), closes [#107](https://github.com/Frommi/miniz_oxide/issues/107))
+  * Add optional use of simd-adler32 instead of adler behind simd feature flag ([19782aa](https://github.com/Frommi/miniz_oxide/commit/19782aa0833d201eed6bcbc847eefaa741bc2e32))
+
+* **inflate:**
+  * add option to ignore and not compute zlib checksum when decompressing ([2e9408ae](https://github.com/Frommi/miniz_oxide/commit/2e9408ae4cad10a00c604a008bd4f8c0704f0ac7), closes [#102](https://github.com/Frommi/miniz_oxide/issues/102))
+
+
 <a name="0.4.4"></a>
 ### 0.4.4 (2021-02-25)
 
