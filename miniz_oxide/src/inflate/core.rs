@@ -1006,7 +1006,7 @@ fn decompress_fast(
 }
 
 /// Main decompression function. Keeps decompressing data from `in_buf` until the `in_buf` is
-/// empty, `out_cur` is full, the end of the deflate stream is hit, or there is an error in the
+/// empty, `out` is full, the end of the deflate stream is hit, or there is an error in the
 /// deflate stream.
 ///
 /// # Arguments
@@ -1014,7 +1014,7 @@ fn decompress_fast(
 /// `in_buf` is a reference to the compressed data that is to be decompressed. The decompressor will
 /// start at the first byte of this buffer.
 ///
-/// `out_cur` is a mutable cursor into the buffer that will store the decompressed data, and that
+/// `out` is a mutable cursor into the buffer that will store the decompressed data, and that
 /// stores previously decompressed data if any.
 /// * The position of the output cursor indicates where in the output buffer slice writing should
 /// start.
@@ -1036,8 +1036,8 @@ fn decompress_fast(
 ///
 /// # Returns
 /// returns a tuple containing the status of the compressor, the number of input bytes read, and the
-/// number of bytes output to `out_cur`.
-/// Updates the position of `out_cur` to point to the next free spot in the output buffer.
+/// number of bytes output to `out`.
+/// Updates the position of `out` to point to the next free spot in the output buffer.
 ///
 /// This function shouldn't panic pending any bugs.
 pub fn decompress(
