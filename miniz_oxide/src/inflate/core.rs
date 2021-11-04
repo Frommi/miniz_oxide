@@ -1034,6 +1034,8 @@ fn decompress_fast(
 ///
 /// # Arguments
 ///
+/// `r` is a [`DecompressorOxide`] struct with the state of this stream.
+///
 /// `in_buf` is a reference to the compressed data that is to be decompressed. The decompressor will
 /// start at the first byte of this buffer.
 ///
