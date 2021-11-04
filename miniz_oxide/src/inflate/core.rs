@@ -1014,10 +1014,10 @@ fn decompress_fast(
 /// `in_buf` is a reference to the compressed data that is to be decompressed. The decompressor will
 /// start at the first byte of this buffer.
 ///
-/// `out` is a mutable cursor into the buffer that will store the decompressed data, and that
+/// `out` is a reference to the buffer that will store the decompressed data, and that
 /// stores previously decompressed data if any.
-/// * The position of the output cursor indicates where in the output buffer slice writing should
-/// start.
+///
+/// * The offset given by `out_pos` indicates where in the output buffer slice writing should start.
 /// * If [`TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF`] is not set, the output buffer is used in a
 /// wrapping manner, and it's size is required to be a power of 2.
 /// * The decompression function normally needs access to 32KiB of the previously decompressed data
