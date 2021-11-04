@@ -80,7 +80,7 @@ impl TINFLStatus {
 
 /// Decompress the deflate-encoded data in `input` to a vector.
 ///
-/// Returns a status and an integer representing where the decompressor failed on failure.
+/// Returns a tuple of the [`Vec`] of decompressed data and the [status result][TINFLStatus].
 #[inline]
 pub fn decompress_to_vec(input: &[u8]) -> Result<Vec<u8>, TINFLStatus> {
     decompress_to_vec_inner(input, 0, usize::max_value())
@@ -88,7 +88,7 @@ pub fn decompress_to_vec(input: &[u8]) -> Result<Vec<u8>, TINFLStatus> {
 
 /// Decompress the deflate-encoded data (with a zlib wrapper) in `input` to a vector.
 ///
-/// Returns a status and an integer representing where the decompressor failed on failure.
+/// Returns a tuple of the [`Vec`] of decompressed data and the [status result][TINFLStatus].
 #[inline]
 pub fn decompress_to_vec_zlib(input: &[u8]) -> Result<Vec<u8>, TINFLStatus> {
     decompress_to_vec_inner(
@@ -102,7 +102,7 @@ pub fn decompress_to_vec_zlib(input: &[u8]) -> Result<Vec<u8>, TINFLStatus> {
 /// The vector is grown to at most `max_size` bytes; if the data does not fit in that size,
 /// [`TINFLStatus::HasMoreOutput`] error is returned.
 ///
-/// Returns a status and an integer representing where the decompressor failed on failure.
+/// Returns a tuple of the [`Vec`] of decompressed data and the [status result][TINFLStatus].
 #[inline]
 pub fn decompress_to_vec_with_limit(input: &[u8], max_size: usize) -> Result<Vec<u8>, TINFLStatus> {
     decompress_to_vec_inner(input, 0, max_size)
@@ -112,7 +112,7 @@ pub fn decompress_to_vec_with_limit(input: &[u8], max_size: usize) -> Result<Vec
 /// The vector is grown to at most `max_size` bytes; if the data does not fit in that size,
 /// [`TINFLStatus::HasMoreOutput`] error is returned.
 ///
-/// Returns a status and an integer representing where the decompressor failed on failure.
+/// Returns a tuple of the [`Vec`] of decompressed data and the [status result][TINFLStatus].
 #[inline]
 pub fn decompress_to_vec_zlib_with_limit(
     input: &[u8],
@@ -121,6 +121,9 @@ pub fn decompress_to_vec_zlib_with_limit(
     decompress_to_vec_inner(input, inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER, max_size)
 }
 
+/// Backend of various to-[`Vec`] decompressions.
+///
+/// Returns a tuple of the [`Vec`] of decompressed data and the [status result][TINFLStatus].
 fn decompress_to_vec_inner(
     input: &[u8],
     flags: u32,
