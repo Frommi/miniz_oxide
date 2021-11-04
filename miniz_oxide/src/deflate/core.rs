@@ -415,13 +415,13 @@ impl CompressorOxide {
     }
 
     /// Get the adler32 checksum of the currently encoded data.
-    pub fn adler32(&self) -> u32 {
+    pub const fn adler32(&self) -> u32 {
         self.params.adler32
     }
 
     /// Get the return status of the previous [`compress`](fn.compress.html)
     /// call with this compressor.
-    pub fn prev_return_status(&self) -> TDEFLStatus {
+    pub const fn prev_return_status(&self) -> TDEFLStatus {
         self.params.prev_return_status
     }
 
@@ -429,7 +429,7 @@ impl CompressorOxide {
     ///
     /// # Notes
     /// This function may be deprecated or changed in the future to use more rust-style flags.
-    pub fn flags(&self) -> i32 {
+    pub const fn flags(&self) -> i32 {
         self.params.flags as i32
     }
 

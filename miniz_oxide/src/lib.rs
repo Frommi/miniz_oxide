@@ -142,7 +142,7 @@ pub struct StreamResult {
 
 impl StreamResult {
     #[inline]
-    pub(crate) fn error(error: MZError) -> StreamResult {
+    pub(crate) const fn error(error: MZError) -> StreamResult {
         StreamResult {
             bytes_consumed: 0,
             bytes_written: 0,
