@@ -32,17 +32,22 @@ pub enum TINFLStatus {
     /// and so reaching the end of the input data without finding the end of the compressed stream
     /// would instead return a [`NeedsMoreInput`][Self::NeedsMoreInput] status.
     FailedCannotMakeProgress = TINFL_STATUS_FAILED_CANNOT_MAKE_PROGRESS as i8,
+
     /// The output buffer is an invalid size; consider the `flags` parameter.
     BadParam = TINFL_STATUS_BAD_PARAM as i8,
+
     /// The decompression went fine, but the adler32 checksum did not match the one
     /// provided in the header.
     Adler32Mismatch = TINFL_STATUS_ADLER32_MISMATCH as i8,
+
     /// Failed to decompress due to invalid data.
     Failed = TINFL_STATUS_FAILED as i8,
+
     /// Finished decompression without issues.
     ///
     /// This indicates the end of the compressed stream has been reached.
     Done = TINFL_STATUS_DONE as i8,
+
     /// The decompressor needs more input data to continue decompressing.
     ///
     /// This occurs when there's no more consumable input, but the end of the stream hasn't been
@@ -52,6 +57,7 @@ pub enum TINFLStatus {
     /// believed all the data was available) you would have gotten a
     /// [`FailedCannotMakeProcess`][Self::FailedCannotMakeProgress] instead.
     NeedsMoreInput = TINFL_STATUS_NEEDS_MORE_INPUT as i8,
+
     /// There is still pending data that didn't fit in the output buffer.
     HasMoreOutput = TINFL_STATUS_HAS_MORE_OUTPUT as i8,
 }
