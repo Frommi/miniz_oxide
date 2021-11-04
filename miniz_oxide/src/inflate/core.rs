@@ -1018,7 +1018,7 @@ fn decompress_fast(
 /// stores previously decompressed data if any.
 /// * The position of the output cursor indicates where in the output buffer slice writing should
 /// start.
-/// * If TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF is not set, the output buffer is used in a
+/// * If [`TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF`] is not set, the output buffer is used in a
 /// wrapping manner, and it's size is required to be a power of 2.
 /// * The decompression function normally needs access to 32KiB of the previously decompressed data
 ///(or to the beginning of the decompressed data if less than 32KiB has been decompressed.)
@@ -1030,7 +1030,7 @@ fn decompress_fast(
 ///
 /// `flags`
 /// Flags to indicate settings and status to the decompression function.
-/// * The `TINFL_FLAG_HAS_MORE_INPUT` has to be specified if more compressed data is to be provided
+/// * The [`TINFL_FLAG_HAS_MORE_INPUT`] has to be specified if more compressed data is to be provided
 /// in a subsequent call to this function.
 /// * See the the [`inflate_flags`](inflate_flags/index.html) module for details on other flags.
 ///
