@@ -23,19 +23,34 @@ const TINFL_STATUS_HAS_MORE_OUTPUT: i32 = 2;
 #[repr(i8)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TINFLStatus {
-    /// More input data was expected, but the caller indicated that there was more data, so the
+    /// More input data was expected, but the caller indicated that there was no more data, so the
     /// input stream is likely truncated.
+    ///
+    /// This can't happen if you have provided the
+    /// [`TINFL_FLAG_HAS_MORE_INPUT`][core::inflate_flags::TINFL_FLAG_HAS_MORE_INPUT] flag to the
+    /// decompression.  By setting that flag, you indicate more input exists but is not provided,
+    /// and so reaching the end of the input data without finding the end of the compressed stream
+    /// would instead return a [`NeedsMoreInput`][Self::NeedsMoreInput] status.
     FailedCannotMakeProgress = TINFL_STATUS_FAILED_CANNOT_MAKE_PROGRESS as i8,
-    /// One or more of the input parameters were invalid.
+    /// The output buffer is an invalid size; consider the `flags` parameter.
     BadParam = TINFL_STATUS_BAD_PARAM as i8,
     /// The decompression went fine, but the adler32 checksum did not match the one
     /// provided in the header.
     Adler32Mismatch = TINFL_STATUS_ADLER32_MISMATCH as i8,
     /// Failed to decompress due to invalid data.
     Failed = TINFL_STATUS_FAILED as i8,
-    /// Finished decomression without issues.
+    /// Finished decompression without issues.
+    ///
+    /// This indicates the end of the compressed stream has been reached.
     Done = TINFL_STATUS_DONE as i8,
     /// The decompressor needs more input data to continue decompressing.
+    ///
+    /// This occurs when there's no more consumable input, but the end of the stream hasn't been
+    /// reached, and you have supplied the
+    /// [`TINFL_FLAG_HAS_MORE_INPUT`][core::inflate_flags::TINFL_FLAG_HAS_MORE_INPUT] flag to the
+    /// decompressor.  Had you not supplied that flag (which would mean you were asserting that you
+    /// believed all the data was available) you would have gotten a
+    /// [`FailedCannotMakeProcess`][Self::FailedCannotMakeProgress] instead.
     NeedsMoreInput = TINFL_STATUS_NEEDS_MORE_INPUT as i8,
     /// There is still pending data that didn't fit in the output buffer.
     HasMoreOutput = TINFL_STATUS_HAS_MORE_OUTPUT as i8,
