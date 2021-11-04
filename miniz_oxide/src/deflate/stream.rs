@@ -100,8 +100,8 @@ mod test {
     use crate::deflate::CompressorOxide;
     use crate::inflate::decompress_to_vec_zlib;
     use crate::{MZFlush, MZStatus};
-    use alloc::vec;
     use alloc::boxed::Box;
+    use alloc::vec;
 
     #[test]
     fn test_state() {

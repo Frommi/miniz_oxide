@@ -1,0 +1,55 @@
+name: CI tests
+on: [push, pull_request]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+        rust:
+          - stable
+          - beta
+          - nightly
+          - 1.40.0
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: ${{ matrix.rust }}
+      - run: cargo test -p miniz_oxide
+      - run: cargo test --manifest-path ./miniz_oxide/Cargo.toml --features simd
+      - run: cargo test
+
+  # rustfmt:
+  #   name: Rustfmt
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v2
+  #     - uses: actions-rs/toolchain@v1
+  #       with:
+  #         profile: minimal
+  #         components: rustfmt # seems to not work?
+  #         toolchain: stable
+  #     - run: rustup toolchain install stable --component rustfmt
+  #     - run: cargo fmt -p miniz_oxide -- --check
+
+  wasm:
+    name: WebAssembly
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [wasm32-unknown-unknown, wasm32-wasi]
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          target: ${{ matrix.target }}
+      - run: cargo build -p miniz_oxide --target ${{ matrix.target }}
