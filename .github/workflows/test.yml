@@ -22,7 +22,7 @@ jobs:
         with:
           profile: minimal
           toolchain: ${{ matrix.rust }}
-      - run: cargo test -p miniz_oxide
+      - run: cargo test --manifest-path ./miniz_oxide/Cargo.toml
       - run: cargo test --manifest-path ./miniz_oxide/Cargo.toml --features simd
       - run: cargo test
 
