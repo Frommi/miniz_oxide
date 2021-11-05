@@ -257,7 +257,7 @@ impl TDEFLFlush {
 pub enum TDEFLStatus {
     /// Usage error.
     ///
-    /// This indicates that either the [`CompressorOxide`] experience a previous error, or the
+    /// This indicates that either the [`CompressorOxide`] experienced a previous error, or the
     /// stream has already been [`TDEFLFlush::Finish`]'d.
     BadParam = -2,
 
