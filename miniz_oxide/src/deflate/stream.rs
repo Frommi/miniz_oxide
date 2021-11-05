@@ -12,11 +12,14 @@ use crate::{MZError, MZFlush, MZStatus, StreamResult};
 ///
 /// # Errors
 ///
-/// Returns `MZError::Buf` If the size of the `output` slice is empty or no progress was made due to
-/// lack of expected input data or called after the compression was finished without
-/// MZFlush::Finish.
+/// Returns [`MZError::Buf`] If the size of the `output` slice is empty or no progress was made due
+/// to lack of expected input data, or if called without [`MZFlush::Finish`] after the compression
+/// was already finished.
 ///
-/// Returns `MZError::Param` if the compressor parameters are set wrong.
+/// Returns [`MZError::Param`] if the compressor parameters are set wrong.
+///
+/// Returns [`MZError::Stream`] when lower-level decompressor returns a
+/// [`TDEFLStatus::PutBufFailed`]; may not actually be possible.
 pub fn deflate(
     compressor: &mut CompressorOxide,
     input: &[u8],

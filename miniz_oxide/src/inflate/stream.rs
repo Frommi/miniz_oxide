@@ -155,15 +155,20 @@ impl InflateState {
     }
 }
 
-/// Try to decompress from `input` to `output` with the given `InflateState`
+/// Try to decompress from `input` to `output` with the given [`InflateState`]
 ///
 /// # Errors
 ///
-/// Returns `MZError::Buf` If the size of the `output` slice is empty or no progress was made due to
-/// lack of expected input data or called after the decompression was
-/// finished without MZFlush::Finish.
+/// Returns [`MZError::Buf`] if the size of the `output` slice is empty or no progress was made due
+/// to lack of expected input data, or if called with [`MZFlush::Finish`] and input wasn't all
+/// consumed.
 ///
-/// Returns `MZError::Param` if the compressor parameters are set wrong.
+/// Returns [`MZError::Data`] if this or a a previous call failed with an error return from
+/// [`TINFLStatus`]; probably indicates corrupted data.
+///
+/// Returns [`MZError::Stream`] when called with [`MZFlush::Full`] (meaningless on
+/// decompression), or when called without [`MZFlush::Finish`] after an earlier call with
+/// [`MZFlush::Finish`] has been made.
 pub fn inflate(
     state: &mut InflateState,
     input: &[u8],

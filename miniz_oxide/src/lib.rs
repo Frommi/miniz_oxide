@@ -51,7 +51,8 @@ pub enum MZFlush {
     Sync = 2,
     /// Same as [`Sync`], but resets the compression dictionary so that further compressed
     /// data does not depend on data compressed before the flush.
-    /// Has no use in decompression.
+    ///
+    /// Has no use in decompression, and is an error to supply in that case.
     Full = 3,
     /// Attempt to flush the remaining data and end the stream.
     Finish = 4,
@@ -75,24 +76,68 @@ impl MZFlush {
 }
 
 /// A list of miniz successful status codes.
+///
+/// These are emitted as the [`Ok`] side of a [`MZResult`] in the [`StreamResult`] returned from
+/// [`deflate::stream::deflate()`] or [`inflate::stream::inflate()`].
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum MZStatus {
+    /// Operation succeeded.
+    ///
+    /// Some data was decompressed or compressed; see the byte counters in the [`StreamResult`] for
+    /// details.
     Ok = 0,
+
+    /// Operation succeeded and end of deflate stream was found.
+    ///
+    /// X-ref [`TINFLStatus::Done`][inflate::TINFLStatus::Done] or
+    /// [`TDEFLStatus::Done`][deflate::core::TDEFLStatus::Done] for `inflate` or `deflate`
+    /// respectively.
     StreamEnd = 1,
+
+    /// Unused
     NeedDict = 2,
 }
 
 /// A list of miniz failed status codes.
+///
+/// These are emitted as the [`Err`] side of a [`MZResult`] in the [`StreamResult`] returned from
+/// [`deflate::stream::deflate()`] or [`inflate::stream::inflate()`].
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum MZError {
+    /// Unused
     ErrNo = -1,
+
+    /// General stream error.
+    ///
+    /// See [`inflate::stream::inflate()`] docs for details of how it can occur there.
+    ///
+    /// See [`deflate::stream::deflate()`] docs for how it can in principle occur there, though it's
+    /// believed impossible in practice.
     Stream = -2,
+
+    /// Error in inflation; see [`inflate::stream::inflate()`] for details.
+    ///
+    /// Not returned from [`deflate::stream::deflate()`].
     Data = -3,
+
+    /// Unused
     Mem = -4,
+
+    /// Buffer-related error.
+    ///
+    /// See the docs of [`deflate::stream::deflate()`] or [`inflate::stream::inflate()`] for details
+    /// of when it would trigger in the one you're using.
     Buf = -5,
+
+    /// Unused
     Version = -6,
+
+    /// Bad parameters.
+    ///
+    /// This can be returned from [`deflate::stream::deflate()`] in the case of bad parameters.  See
+    /// [`TDEFLStatus::BadParam`][deflate::core::TDEFLStatus::BadParam].
     Param = -10_000,
 }
 
