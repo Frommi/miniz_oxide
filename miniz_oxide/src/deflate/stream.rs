@@ -8,7 +8,7 @@ use core::convert::{AsMut, AsRef};
 use crate::deflate::core::{compress, CompressorOxide, TDEFLFlush, TDEFLStatus};
 use crate::{MZError, MZFlush, MZStatus, StreamResult};
 
-/// Try to compress from input to output with the given Compressor
+/// Try to compress from input to output with the given [`CompressorOxide`].
 ///
 /// # Errors
 ///
