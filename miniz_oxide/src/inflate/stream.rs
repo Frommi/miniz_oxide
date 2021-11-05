@@ -1,6 +1,6 @@
 //! Extra streaming decompression functionality.
 //!
-//! As of now this is mainly inteded for use to build a higher-level wrapper.
+//! As of now this is mainly intended for use to build a higher-level wrapper.
 use crate::alloc::boxed::Box;
 use core::{cmp, mem};
 
@@ -155,15 +155,29 @@ impl InflateState {
     }
 }
 
-/// Try to decompress from `input` to `output` with the given `InflateState`
+/// Try to decompress from `input` to `output` with the given [`InflateState`]
+///
+/// # `flush`
+///
+/// Generally, the various [`MZFlush`] flags have meaning only on the compression side.  They can be
+/// supplied here, but the only one that has any semantic meaning is [`MZFlush::Finish`], which is a
+/// signal that the stream is expected to finish, and failing to do so is an error.  It isn't
+/// necessary to specify it when the stream ends; you'll still get returned a
+/// [`MZStatus::StreamEnd`] anyway.  Other values either have no effect or cause errors.  It's
+/// likely that you'll almost always just want to use [`MZFlush::None`].
 ///
 /// # Errors
 ///
-/// Returns `MZError::Buf` If the size of the `output` slice is empty or no progress was made due to
-/// lack of expected input data or called after the decompression was
-/// finished without MZFlush::Finish.
+/// Returns [`MZError::Buf`] if the size of the `output` slice is empty or no progress was made due
+/// to lack of expected input data, or if called with [`MZFlush::Finish`] and input wasn't all
+/// consumed.
 ///
-/// Returns `MZError::Param` if the compressor parameters are set wrong.
+/// Returns [`MZError::Data`] if this or a a previous call failed with an error return from
+/// [`TINFLStatus`]; probably indicates corrupted data.
+///
+/// Returns [`MZError::Stream`] when called with [`MZFlush::Full`] (meaningless on
+/// decompression), or when called without [`MZFlush::Finish`] after an earlier call with
+/// [`MZFlush::Finish`] has been made.
 pub fn inflate(
     state: &mut InflateState,
     input: &[u8],

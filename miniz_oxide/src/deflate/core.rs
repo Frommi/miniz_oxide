@@ -209,15 +209,21 @@ pub enum CompressionStrategy {
 /// A list of deflate flush types.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TDEFLFlush {
-    /// Compress as much as there is space for, and then return
-    /// waiting for more input.
+    /// Normal operation.
+    ///
+    /// Compress as much as there is space for, and then return waiting for more input.
     None = 0,
-    /// Try to flush the current data and output an empty raw block.
+
+    /// Try to flush all the current data and output an empty raw block.
     Sync = 2,
-    /// Same as sync, but reset the dictionary so that the following data does not depend
-    /// on previous data.
+
+    /// Same as [`Sync`][Self::Sync], but reset the dictionary so that the following data does not
+    /// depend on previous data.
     Full = 3,
-    /// Try to flush everything and end the stream.
+
+    /// Try to flush everything and end the deflate stream.
+    ///
+    /// On success this will yield a [`TDEFLStatus::Done`] return status.
     Finish = 4,
 }
 
@@ -245,13 +251,27 @@ impl TDEFLFlush {
     }
 }
 
-/// Return status codes.
+/// Return status of compression.
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TDEFLStatus {
+    /// Usage error.
+    ///
+    /// This indicates that either the [`CompressorOxide`] experienced a previous error, or the
+    /// stream has already been [`TDEFLFlush::Finish`]'d.
     BadParam = -2,
+
+    /// Error putting data into output buffer.
+    ///
+    /// This usually indicates a too-small buffer.
     PutBufFailed = -1,
+
+    /// Compression succeeded normally.
     Okay = 0,
+
+    /// Compression succeeded and the deflate stream was ended.
+    ///
+    /// This is the result of calling compression with [`TDEFLFlush::Finish`].
     Done = 1,
 }
 
@@ -2172,7 +2192,7 @@ fn flush_output_buffer(c: &mut CallbackOxide, p: &mut ParamsOxide) -> (TDEFLStat
 ///
 /// The value of `flush` determines if the compressor should attempt to flush all output
 /// and alternatively try to finish the stream.
-/// Should be `TDeflflush::Finish` on the final call.
+/// Should be [`TDEFLFlush::Finish`] on the final call.
 ///
 /// # Returns
 /// Returns a tuple containing the current status of the compressor, the current position
