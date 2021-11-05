@@ -1,6 +1,6 @@
 //! Extra streaming decompression functionality.
 //!
-//! As of now this is mainly inteded for use to build a higher-level wrapper.
+//! As of now this is mainly intended for use to build a higher-level wrapper.
 use crate::alloc::boxed::Box;
 use core::{cmp, mem};
 

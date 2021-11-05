@@ -1,6 +1,6 @@
 //! Extra streaming compression functionality.
 //!
-//! As of now this is mainly inteded for use to build a higher-level wrapper.
+//! As of now this is mainly intended for use to build a higher-level wrapper.
 //!
 //! There is no DeflateState as the needed state is contained in the compressor struct itself.
 use core::convert::{AsMut, AsRef};
