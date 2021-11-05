@@ -36,7 +36,7 @@ pub use crate::shared::{MZ_ADLER32_INIT, MZ_DEFAULT_WINDOW_BITS};
 
 /// A list of flush types.
 ///
-/// See [http://www.bolet.org/~pornin/deflate-flush.html] for more in-depth info.
+/// See <http://www.bolet.org/~pornin/deflate-flush.html> for more in-depth info.
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum MZFlush {
@@ -44,12 +44,12 @@ pub enum MZFlush {
     /// Used when more input data is expected.
     None = 0,
     /// Zlib partial flush.
-    /// Currently treated as `Sync`.
+    /// Currently treated as [`Sync`].
     Partial = 1,
     /// Finish compressing the currently buffered data, and output an empty raw block.
     /// Has no use in decompression.
     Sync = 2,
-    /// Same as `Sync`, but resets the compression dictionary so that further compressed
+    /// Same as [`Sync`], but resets the compression dictionary so that further compressed
     /// data does not depend on data compressed before the flush.
     /// Has no use in decompression.
     Full = 3,
