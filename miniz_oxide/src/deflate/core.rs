@@ -2176,7 +2176,7 @@ fn flush_output_buffer(c: &mut CallbackOxide, p: &mut ParamsOxide) -> (TDEFLStat
 ///
 /// The value of `flush` determines if the compressor should attempt to flush all output
 /// and alternatively try to finish the stream.
-/// Should be `TDeflflush::Finish` on the final call.
+/// Should be [`TDEFLFlush::Finish`] on the final call.
 ///
 /// # Returns
 /// Returns a tuple containing the current status of the compressor, the current position
