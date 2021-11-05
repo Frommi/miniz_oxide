@@ -209,15 +209,19 @@ pub enum CompressionStrategy {
 /// A list of deflate flush types.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TDEFLFlush {
-    /// Compress as much as there is space for, and then return
-    /// waiting for more input.
+    /// Normal operation.
+    ///
+    /// Compress as much as there is space for, and then return waiting for more input.
     None = 0,
-    /// Try to flush the current data and output an empty raw block.
+
+    /// Try to flush all the current data and output an empty raw block.
     Sync = 2,
-    /// Same as sync, but reset the dictionary so that the following data does not depend
-    /// on previous data.
+
+    /// Same as [`Sync`][Self::Sync], but reset the dictionary so that the following data does not
+    /// depend on previous data.
     Full = 3,
-    /// Try to flush everything and end the stream.
+
+    /// Try to flush everything and end the deflate stream.
     Finish = 4,
 }
 
