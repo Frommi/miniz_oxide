@@ -222,6 +222,8 @@ pub enum TDEFLFlush {
     Full = 3,
 
     /// Try to flush everything and end the deflate stream.
+    ///
+    /// On success this will yield a [`TDEFLStatus::Done`] return status.
     Finish = 4,
 }
 
@@ -249,13 +251,27 @@ impl TDEFLFlush {
     }
 }
 
-/// Return status codes.
+/// Return status of compression.
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TDEFLStatus {
+    /// Usage error.
+    ///
+    /// This indicates that either the [`CompressorOxide`] experience a previous error, or the
+    /// stream has already been [`TDEFLFlush::Finish`]'d.
     BadParam = -2,
+
+    /// Error putting data into output buffer.
+    ///
+    /// This usually indicates a too-small buffer.
     PutBufFailed = -1,
+
+    /// Compression succeeded normally.
     Okay = 0,
+
+    /// Compression succeeded and the deflate stream was ended.
+    ///
+    /// This is the result of calling compression with [`TDEFLFlush::Finish`].
     Done = 1,
 }
 
