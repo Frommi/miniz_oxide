@@ -2032,7 +2032,7 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
                     // Trigram was tested, so we can start with "+ 3" displacement.
                     let mut p = cur_pos + 3;
                     let mut q = probe_pos + 3;
-                    cur_match_len = 'find_match: loop {
+                    cur_match_len = (|| {
                         for _ in 0..32 {
                             let p_data: u64 = d.dict.read_unaligned_u64(p);
                             let q_data: u64 = d.dict.read_unaligned_u64(q);
@@ -2042,16 +2042,16 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
                                 q += 8;
                             } else {
                                 let trailing = xor_data.trailing_zeros();
-                                break 'find_match p as u32 - cur_pos as u32 + (trailing >> 3);
+                                return p as u32 - cur_pos as u32 + (trailing >> 3);
                             }
                         }
 
-                        break 'find_match if cur_match_dist == 0 {
+                        if cur_match_dist == 0 {
                             0
                         } else {
                             MAX_MATCH_LEN as u32
-                        };
-                    };
+                        }
+                    })();
 
                     if cur_match_len < MIN_MATCH_LEN.into()
                         || (cur_match_len == MIN_MATCH_LEN.into() && cur_match_dist >= 8 * 1024)
@@ -2417,6 +2417,31 @@ mod test {
 
         assert_eq!(status, TDEFLStatus::Done);
         assert_eq!(in_consumed, slice.len());
+
+        let decoded = decompress_to_vec(&encoded[..]).unwrap();
+        assert_eq!(&decoded[..], &slice[..]);
+    }
+
+    #[test]
+    /// Check fast compress mode
+    fn compress_fast() {
+        let slice = [
+            1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 1, 2, 6, 1, 2, 3, 1, 2, 3, 2, 3, 1, 2, 3,
+        ];
+        let mut encoded = vec![];
+        let flags = create_comp_flags_from_zip_params(1, 0, 0);
+        let mut d = CompressorOxide::new(flags);
+        let (status, in_consumed) =
+            compress_to_output(&mut d, &slice, TDEFLFlush::Finish, |out: &[u8]| {
+                encoded.extend_from_slice(out);
+                true
+            });
+
+        assert_eq!(status, TDEFLStatus::Done);
+        assert_eq!(in_consumed, slice.len());
+
+        // Needs to be altered if algorithm improves.
+        assert_eq!(&encoded[..], [99, 100, 98, 102, 1, 98, 48, 98, 3, 147, 204, 76, 204, 140, 76, 204, 0]);
 
         let decoded = decompress_to_vec(&encoded[..]).unwrap();
         assert_eq!(&decoded[..], &slice[..]);
