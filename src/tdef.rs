@@ -274,7 +274,7 @@ unmangle!(
     }
 
     pub unsafe extern "C" fn tdefl_get_adler32(d: Option<&mut Compressor>) -> c_uint {
-        d.map_or(::MZ_ADLER32_INIT as u32, |d| d.adler32())
+        d.map_or(crate::MZ_ADLER32_INIT as u32, |d| d.adler32())
     }
 
     pub unsafe extern "C" fn tdefl_compress_mem_to_output(
@@ -286,7 +286,7 @@ unmangle!(
     ) -> bool {
         if let Some(put_buf_func) = put_buf_func {
             let compressor =
-                ::miniz_def_alloc_func(ptr::null_mut(), 1, mem::size_of::<Compressor>())
+                crate::miniz_def_alloc_func(ptr::null_mut(), 1, mem::size_of::<Compressor>())
                     as *mut Compressor;
 
             ptr::write(
@@ -306,7 +306,7 @@ unmangle!(
             if let Some(c) = compressor.as_mut() {
                 c.drop_inner();
             }
-            ::miniz_def_free_func(ptr::null_mut(), compressor as *mut c_void);
+            crate::miniz_def_free_func(ptr::null_mut(), compressor as *mut c_void);
             res
         } else {
             false
@@ -340,7 +340,7 @@ pub unsafe extern "C" fn output_buffer_putter(
                     new_capacity <<= 1;
                 }
 
-                let new_buf = ::miniz_def_realloc_func(
+                let new_buf = crate::miniz_def_realloc_func(
                     ptr::null_mut(),
                     user.buf as *mut c_void,
                     1,

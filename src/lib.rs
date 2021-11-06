@@ -70,7 +70,7 @@ use miniz_oxide::deflate::CompressionLevel;
 pub use miniz_oxide::{MZError, MZFlush, MZResult, MZStatus};
 
 pub mod lib_oxide;
-use lib_oxide::*;
+use crate::lib_oxide::*;
 
 #[macro_use]
 mod unmangle;
@@ -78,8 +78,8 @@ mod tdef;
 mod tinfl;
 
 mod c_export;
-pub use c_export::*;
-pub use tdef::Compressor as tdefl_compressor;
+pub use crate::c_export::*;
+pub use crate::tdef::Compressor as tdefl_compressor;
 
 pub const MZ_DEFLATED: c_int = 8;
 pub const MZ_DEFAULT_WINDOW_BITS: c_int = 15;

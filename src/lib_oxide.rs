@@ -10,7 +10,7 @@ use miniz_oxide::deflate::core::{
 };
 use miniz_oxide::deflate::stream::deflate;
 use miniz_oxide::inflate::stream::{inflate, InflateState};
-use tdef::Compressor;
+use crate::tdef::Compressor;
 
 use miniz_oxide::*;
 

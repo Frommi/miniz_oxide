@@ -80,7 +80,7 @@ unmangle!(
         let mut decomp = DecompressorOxide::default();
         // Pointer to the buffer to place the decompressed data into.
         let mut p_buf: *mut c_void =
-            ::miniz_def_alloc_func(ptr::null_mut(), MIN_BUFFER_CAPACITY, 1);
+            crate::miniz_def_alloc_func(ptr::null_mut(), MIN_BUFFER_CAPACITY, 1);
         // Capacity of the current output buffer.
         let mut out_buf_capacity = MIN_BUFFER_CAPACITY;
 
@@ -102,7 +102,7 @@ unmangle!(
 
             // If decompression fails or we don't have any input, bail out.
             if (status as i32) < 0 || status == TINFLStatus::NeedsMoreInput {
-                ::miniz_def_free_func(ptr::null_mut(), p_buf);
+                crate::miniz_def_free_func(ptr::null_mut(), p_buf);
                 *p_out_len = 0;
                 return ptr::null_mut();
             }
@@ -124,10 +124,10 @@ unmangle!(
             }
 
             let p_new_buf =
-                ::miniz_def_realloc_func(ptr::null_mut(), p_buf, 1, new_out_buf_capacity);
+                crate::miniz_def_realloc_func(ptr::null_mut(), p_buf, 1, new_out_buf_capacity);
             // Bail out if growing fails.
             if p_new_buf.is_null() {
-                ::miniz_def_free_func(ptr::null_mut(), p_buf);
+                crate::miniz_def_free_func(ptr::null_mut(), p_buf);
                 *p_out_len = 0;
                 return ptr::null_mut();
             }
@@ -191,7 +191,7 @@ mod test {
     impl ops::Drop for TinflHeapBuf {
         fn drop(&mut self) {
             unsafe {
-                ::miniz_def_free_func(ptr::null_mut(), self.buf);
+                crate::miniz_def_free_func(ptr::null_mut(), self.buf);
             }
         }
     }

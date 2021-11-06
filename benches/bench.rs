@@ -23,7 +23,7 @@ pub struct HeapBuf {
 impl ops::Drop for HeapBuf {
     fn drop(&mut self) {
         unsafe {
-            ::miniz_def_free_func(ptr::null_mut(), self.buf);
+            miniz_def_free_func(ptr::null_mut(), self.buf);
         }
     }
 }
@@ -45,14 +45,14 @@ fn get_test_file_data(name: &str) -> Vec<u8> {
 macro_rules! decompress_bench {
     ($bench_name:ident, $decompress_func:ident, $level:expr, $path_to_data:expr) => {
         #[bench]
-        fn $bench_name(b: &mut ::Bencher) {
-            let input = ::get_test_file_data($path_to_data);
-            let compressed = ::compress_to_vec(input.as_slice(), $level);
+        fn $bench_name(b: &mut Bencher) {
+            let input = get_test_file_data($path_to_data);
+            let compressed = compress_to_vec(input.as_slice(), $level);
 
             let mut out_len: usize = 0;
             b.iter(|| unsafe {
-                ::w($decompress_func(
-                    compressed.as_ptr() as *mut ::c_void,
+                w($decompress_func(
+                    compressed.as_ptr() as *mut c_void,
                     compressed.len(),
                     &mut out_len,
                     0,
@@ -65,14 +65,14 @@ macro_rules! decompress_bench {
 macro_rules! compress_bench {
     ($bench_name:ident, $compress_func:ident, $level:expr, $path_to_data:expr) => {
         #[bench]
-        fn $bench_name(b: &mut ::Bencher) {
-            let input = ::get_test_file_data($path_to_data);
+        fn $bench_name(b: &mut Bencher) {
+            let input = get_test_file_data($path_to_data);
 
             let mut out_len: usize = 0;
-            let flags = ::create_comp_flags_from_zip_params($level, -15, 0) as i32;
+            let flags = create_comp_flags_from_zip_params($level, -15, 0) as i32;
             b.iter(|| unsafe {
-                ::w($compress_func(
-                    input.as_ptr() as *mut ::c_void,
+                w($compress_func(
+                    input.as_ptr() as *mut c_void,
                     input.len(),
                     &mut out_len,
                     flags,
@@ -84,6 +84,7 @@ macro_rules! compress_bench {
 
 mod oxide {
     use miniz_oxide_c_api::{tdefl_compress_mem_to_heap, tinfl_decompress_mem_to_heap};
+    use super::*;
 
     compress_bench!(
         compress_short_lvl_1,
@@ -221,6 +222,7 @@ mod oxide {
 
 mod miniz {
     use libc::{c_int, c_void};
+    use super::*;
 
     /// Functions from miniz
     /// We add the link attribute to make sure

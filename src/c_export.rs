@@ -2,19 +2,19 @@ use std::marker::PhantomData;
 /// Module that contains most of the functions exported to C.
 use std::{ptr, slice};
 
-pub use tinfl::{
+pub use crate::tinfl::{
     tinfl_decompress, tinfl_decompress_mem_to_heap, tinfl_decompress_mem_to_mem, tinfl_decompressor,
 };
 
 use libc::*;
-pub use tdef::{
+pub use crate::tdef::{
     tdefl_allocate, tdefl_compress, tdefl_compress_buffer, tdefl_compress_mem_to_heap,
     tdefl_compress_mem_to_mem, tdefl_compress_mem_to_output,
     tdefl_create_comp_flags_from_zip_params, tdefl_deallocate, tdefl_get_adler32,
     tdefl_get_prev_return_status, tdefl_init,
 };
 
-use lib_oxide::{InternalState, StateType, StateTypeEnum, StreamOxide, MZ_ADLER32_INIT};
+use crate::lib_oxide::{InternalState, StateType, StateTypeEnum, StreamOxide, MZ_ADLER32_INIT};
 
 use miniz_oxide::{mz_adler32_oxide, MZError};
 
