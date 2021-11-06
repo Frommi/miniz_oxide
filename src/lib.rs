@@ -79,7 +79,6 @@ mod tinfl;
 
 mod c_export;
 pub use c_export::*;
-#[allow(bad_style)]
 pub use tdef::Compressor as tdefl_compressor;
 
 pub const MZ_DEFLATED: c_int = 8;

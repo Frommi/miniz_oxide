@@ -2441,7 +2441,10 @@ mod test {
         assert_eq!(in_consumed, slice.len());
 
         // Needs to be altered if algorithm improves.
-        assert_eq!(&encoded[..], [99, 100, 98, 102, 1, 98, 48, 98, 3, 147, 204, 76, 204, 140, 76, 204, 0]);
+        assert_eq!(
+            &encoded[..],
+            [99, 100, 98, 102, 1, 98, 48, 98, 3, 147, 204, 76, 204, 140, 76, 204, 0]
+        );
 
         let decoded = decompress_to_vec(&encoded[..]).unwrap();
         assert_eq!(&decoded[..], &slice[..]);

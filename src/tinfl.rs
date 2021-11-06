@@ -91,7 +91,7 @@ unmangle!(
             let (status, in_consumed, out_consumed) = decompress(
                 &mut decomp,
                 slice::from_raw_parts(
-                    p_src_buf.offset(src_buf_ofs as isize) as *const u8,
+                    p_src_buf.add(src_buf_ofs) as *const u8,
                     src_buf_len - src_buf_ofs,
                 ),
                 slice::from_raw_parts_mut(p_buf as *mut u8, out_buf_capacity),

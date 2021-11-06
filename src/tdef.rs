@@ -119,8 +119,12 @@ unmangle!(
         let flush = i32_to_tdefl_flush(flush);
         match d {
             None => {
-                in_size.map(|size| *size = 0);
-                out_size.map(|size| *size = 0);
+                if let Some(size) = in_size {
+                    *size = 0
+                }
+                if let Some(size) = out_size {
+                    *size = 0
+                }
                 tdefl_status::TDEFL_STATUS_BAD_PARAM
             }
             Some(compressor_wrap) => {
@@ -129,8 +133,12 @@ unmangle!(
                     let out_buf_size = out_size.as_ref().map_or(0, |size| **size);
 
                     if in_buf_size > 0 && in_buf.is_null() {
-                        in_size.map(|size| *size = 0);
-                        out_size.map(|size| *size = 0);
+                        if let Some(size) = in_size {
+                            *size = 0
+                        }
+                        if let Some(size) = out_size {
+                            *size = 0
+                        }
                         return tdefl_status::TDEFL_STATUS_BAD_PARAM;
                     }
 
@@ -147,15 +155,23 @@ unmangle!(
                                 flush,
                             ),
                             None => {
-                                in_size.map(|size| *size = 0);
-                                out_size.map(|size| *size = 0);
+                                if let Some(size) = in_size {
+                                    *size = 0
+                                }
+                                if let Some(size) = out_size {
+                                    *size = 0
+                                }
                                 return tdefl_status::TDEFL_STATUS_BAD_PARAM;
                             }
                         },
                         Some(ref func) => {
                             if out_buf_size > 0 || !out_buf.is_null() {
-                                in_size.map(|size| *size = 0);
-                                out_size.map(|size| *size = 0);
+                                if let Some(size) = in_size {
+                                    *size = 0
+                                }
+                                if let Some(size) = out_size {
+                                    *size = 0
+                                }
                                 return tdefl_status::TDEFL_STATUS_BAD_PARAM;
                             }
                             let res =
@@ -170,8 +186,12 @@ unmangle!(
                         }
                     };
 
-                    in_size.map(|size| *size = res.1);
-                    out_size.map(|size| *size = res.2);
+                    if let Some(size) = in_size {
+                        *size = res.1
+                    }
+                    if let Some(size) = out_size {
+                        *size = res.2
+                    }
                     res.0.into()
                 } else {
                     tdefl_status::TDEFL_STATUS_BAD_PARAM
@@ -228,7 +248,7 @@ unmangle!(
                 if let Some(f) = put_buf_func {
                     d.callback = Some(CallbackFunc {
                         put_buf_func: f,
-                        put_buf_user: put_buf_user,
+                        put_buf_user,
                     })
                 } else {
                     d.callback = None;
@@ -274,8 +294,8 @@ unmangle!(
                 Compressor::new_with_callback(
                     flags as u32,
                     CallbackFunc {
-                        put_buf_func: put_buf_func,
-                        put_buf_user: put_buf_user,
+                        put_buf_func,
+                        put_buf_user,
                     },
                 ),
             );
@@ -283,7 +303,9 @@ unmangle!(
             let res =
                 tdefl_compress_buffer(compressor.as_mut(), buf, buf_len, TDEFLFlush::Finish as i32)
                     == tdefl_status::TDEFL_STATUS_DONE;
-            compressor.as_mut().map(|c| c.drop_inner());
+            if let Some(c) = compressor.as_mut() {
+                c.drop_inner();
+            }
             ::miniz_def_free_func(ptr::null_mut(), compressor as *mut c_void);
             res
         } else {
@@ -335,7 +357,7 @@ pub unsafe extern "C" fn output_buffer_putter(
 
             ptr::copy_nonoverlapping(
                 buf as *const u8,
-                user.buf.offset(user.size as isize),
+                user.buf.add(user.size),
                 len as usize,
             );
             user.size = new_size;

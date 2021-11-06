@@ -48,7 +48,7 @@ pub enum StateTypeEnum {
 /// Trait used for states that can be carried by BoxedState.
 pub trait StateType {
     const STATE_TYPE: StateTypeEnum;
-    fn from_enum(&mut InternalState) -> Option<&mut Self>;
+    fn from_enum(value: &mut InternalState) -> Option<&mut Self>;
 }
 
 impl StateType for InflateState {
@@ -159,7 +159,7 @@ pub fn mz_deflate_init2_oxide(
     let comp_flags = deflate_flags::TDEFL_COMPUTE_ADLER32
         | create_comp_flags_from_zip_params(level, window_bits, strategy);
 
-    let invalid_level = (mem_level < 1) || (mem_level > 9);
+    let invalid_level = !(1..=9).contains(&mem_level);
     if (method != MZ_DEFLATED) || invalid_level || invalid_window_bits(window_bits) {
         return Err(MZError::Param);
     }
