@@ -24,6 +24,7 @@
  * THE SOFTWARE.
  *
  **************************************************************************/
+#define MINIZ_OXIDE_UNIMPLEMENTED
 #include "../miniz_zip.h"
 
 #ifndef MINIZ_NO_ARCHIVE_APIS

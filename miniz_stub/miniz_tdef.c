@@ -24,7 +24,7 @@
  *
  **************************************************************************/
 
-#include "../miniz_tdef.h"
+/* #include "../miniz_tdef.h" */
 #include "../miniz.h"
 
 #ifdef __cplusplus
@@ -1481,8 +1481,8 @@ size_t tdefl_compress_mem_to_mem(void *pOut_buf, size_t out_buf_len, const void 
 #pragma warning(disable : 4204) /* nonstandard extension used : non-constant aggregate initializer (also supported by GNU C and C99, so no big deal) */
 #endif
 
-tdefl_compressor* tdefl_allocate();
-void tdefl_deallocate(tdefl_compressor* c);
+/* tdefl_compressor* tdefl_allocate(); */
+/* void tdefl_deallocate(tdefl_compressor* c); */
 
 /* Simple PNG writer function by Alex Evans, 2011. Released into the public domain: https://gist.github.com/908299, more context at
  http://altdevblogaday.org/2011/04/06/a-smaller-jpg-encoder/.

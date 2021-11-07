@@ -1,4 +1,4 @@
-header = """/* This library (excluding the miniz C code used for tests) is licensed under the MIT license. The library is based on the miniz C library, of which the parts used are dual-licensed under the MIT license and also the unlicense. The parts of miniz that are not covered by the unlicense is some Zip64 code which is only MIT licensed. This and other Zip functionality in miniz is not part of the miniz_oxidde and miniz_oxide_c_api rust libraries."""
+header = """/* This library (excluding the miniz C code used for tests) is licensed under the MIT license. The library is based on the miniz C library, of which the parts used are dual-licensed under the MIT license and also the unlicense. The parts of miniz that are not covered by the unlicense is some Zip64 code which is only MIT licensed. This and other Zip functionality in miniz is not part of the miniz_oxidde and miniz_oxide_c_api rust libraries.*/"""
 autogen_warning = """/* DO NOT MODIFY THIS MANUALLY! This file was generated using cbindgen.
  * To generate this file:
  *   1. Get the latest cbindgen using `cargo install --force cbindgen`
@@ -7,13 +7,22 @@ autogen_warning = """/* DO NOT MODIFY THIS MANUALLY! This file was generated usi
  */"""
 include_version = true
 language = "C"
+includes = ["miniz_extra_defs.h"]
+# An optional name to use as an include guard
+# default: doesn't emit an include guard
+# include_guard = "MINIZ_OXIDE_INCLUDED"
+
+# Whether to add a `#pragma once` guard
+# default: doesn't emit a `#pragma once`
+pragma_once = true
+cpp_compat = true
 
 [export]
-include = ["CAPIReturnStatus", "CAPIFlush", "CAPICompressionStrategy"]
+include = ["CAPIReturnStatus", "CAPIFlush", "CAPICompressionStrategy", "CAPICompressionLevel", "mz_alloc_func", "mz_free_func", "mz_realloc_func", "tinfl_status", "tdefl_flush"]
 
 [export.rename]
-"DecompressorOxide" = "tinfl_decompressor"
-"Compressor" = "tinfl_compressor"
+# "DecompressorOxide" = "tinfl_decompressor"
+"Compressor" = "tdefl_compressor"
 
 [parse]
 # Whether to parse dependent crates and include their types in the output

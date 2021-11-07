@@ -21,9 +21,6 @@ fn main() {
     cc::Build::new()
         .files(&[
             "miniz/miniz.c",
-            "miniz/miniz_zip.c",
-            "miniz/miniz_tinfl.c",
-            "miniz/miniz_tdef.c",
         ])
         .compile("miniz");
 }

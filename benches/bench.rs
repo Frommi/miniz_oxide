@@ -83,8 +83,8 @@ macro_rules! compress_bench {
 }
 
 mod oxide {
-    use miniz_oxide_c_api::{tdefl_compress_mem_to_heap, tinfl_decompress_mem_to_heap};
     use super::*;
+    use miniz_oxide_c_api::{tdefl_compress_mem_to_heap, tinfl_decompress_mem_to_heap};
 
     compress_bench!(
         compress_short_lvl_1,
@@ -221,8 +221,8 @@ mod oxide {
 }
 
 mod miniz {
-    use libc::{c_int, c_void};
     use super::*;
+    use libc::{c_int, c_void};
 
     /// Functions from miniz
     /// We add the link attribute to make sure

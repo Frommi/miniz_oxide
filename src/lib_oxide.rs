@@ -5,20 +5,19 @@ use std::{fmt, mem};
 
 use libc::c_ulong;
 
+use crate::tdef::Compressor;
 use miniz_oxide::deflate::core::{
     create_comp_flags_from_zip_params, deflate_flags, CompressionStrategy, CompressorOxide,
 };
 use miniz_oxide::deflate::stream::deflate;
 use miniz_oxide::inflate::stream::{inflate, InflateState};
-use crate::tdef::Compressor;
 
 use miniz_oxide::*;
 
 const MZ_DEFLATED: i32 = 8;
 
-pub const MZ_ADLER32_INIT: u32 = 1;
+pub use miniz_oxide::MZ_ADLER32_INIT;
 
-#[repr(C)]
 pub enum InternalState {
     Inflate(Box<InflateState>),
     Deflate(Box<Compressor>),
@@ -41,8 +40,8 @@ pub type MZResult = Result<MZStatus, MZError>;
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum StateTypeEnum {
     None = 0,
-    Inflate,
-    Deflate,
+    InflateType,
+    DeflateType,
 }
 
 /// Trait used for states that can be carried by BoxedState.
@@ -52,7 +51,7 @@ pub trait StateType {
 }
 
 impl StateType for InflateState {
-    const STATE_TYPE: StateTypeEnum = StateTypeEnum::Inflate;
+    const STATE_TYPE: StateTypeEnum = StateTypeEnum::InflateType;
     fn from_enum(value: &mut InternalState) -> Option<&mut Self> {
         if let InternalState::Inflate(state) = value {
             Some(state.as_mut())
@@ -63,7 +62,7 @@ impl StateType for InflateState {
 }
 
 impl StateType for Compressor {
-    const STATE_TYPE: StateTypeEnum = StateTypeEnum::Deflate;
+    const STATE_TYPE: StateTypeEnum = StateTypeEnum::DeflateType;
     fn from_enum(value: &mut InternalState) -> Option<&mut Self> {
         if let InternalState::Deflate(state) = value {
             Some(state.as_mut())

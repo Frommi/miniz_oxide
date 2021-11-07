@@ -82,7 +82,7 @@ pub use crate::c_export::*;
 pub use crate::tdef::Compressor as tdefl_compressor;
 
 pub const MZ_DEFLATED: c_int = 8;
-pub const MZ_DEFAULT_WINDOW_BITS: c_int = 15;
+pub use miniz_oxide::MZ_DEFAULT_WINDOW_BITS;
 
 fn as_c_return_code(r: MZResult) -> c_int {
     match r {
@@ -156,7 +156,7 @@ unmangle!(
         match stream.as_mut() {
             None => MZError::Stream as c_int,
             Some(stream) => {
-                stream.data_type = StateTypeEnum::Deflate;
+                stream.data_type = StateTypeEnum::DeflateType;
                 // Make sure we catch a potential panic, as
                 // this is called from C.
                 match catch_unwind(AssertUnwindSafe(|| match StreamOxide::try_new(stream) {
@@ -188,7 +188,7 @@ unmangle!(
         match stream.as_mut() {
             None => MZError::Stream as c_int,
             Some(stream) => {
-                stream.data_type = StateTypeEnum::Inflate;
+                stream.data_type = StateTypeEnum::InflateType;
                 // Make sure we catch a potential panic, as
                 // this is called from C.
                 match catch_unwind(AssertUnwindSafe(|| match StreamOxide::try_new(stream) {
@@ -243,7 +243,7 @@ unmangle!(
                     avail_in: source_len as c_uint,
                     next_out: dest,
                     avail_out: (*dest_len) as c_uint,
-                    data_type: StateTypeEnum::Deflate,
+                    data_type: StateTypeEnum::DeflateType,
                     ..Default::default()
                 };
 
@@ -281,7 +281,7 @@ unmangle!(
                     avail_in: source_len as c_uint,
                     next_out: dest,
                     avail_out: (*dest_len) as c_uint,
-                    data_type: StateTypeEnum::Inflate,
+                    data_type: StateTypeEnum::InflateType,
                     ..Default::default()
                 };
 

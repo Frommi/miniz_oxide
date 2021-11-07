@@ -8,9 +8,12 @@ use miniz_oxide::deflate::core::{
 };
 
 /// Compression callback function type.
-pub type PutBufFuncPtrNotNull = unsafe extern "C" fn(*const c_void, c_int, *mut c_void) -> bool;
+pub type PutBufFuncPtrNotNull = unsafe extern "C" fn(*const c_void, c_int, *mut c_void) -> i32;
+#[allow(bad_style)]
+pub type tdefl_put_buf_func_ptr = Option<unsafe extern "C" fn(*const c_void, c_int, *mut c_void) -> i32>;
 /// `Option` alias for compression callback function type.
-pub type PutBufFuncPtr = Option<PutBufFuncPtrNotNull>;
+/// cbindgen.rename = "SnakeCase""
+// typedef mz_bool (*tdefl_put_buf_func_ptr)(const void *pBuf, int len, void *pUser);
 
 pub struct CallbackFunc {
     pub put_buf_func: PutBufFuncPtrNotNull,
@@ -18,7 +21,7 @@ pub struct CallbackFunc {
 }
 
 /// Main compression struct. Not the same as `CompressorOxide`
-#[repr(C)]
+/// #[repr(C)]
 pub struct Compressor {
     pub(crate) inner: Option<CompressorOxide>,
     pub(crate) callback: Option<CallbackFunc>,
@@ -55,18 +58,48 @@ impl From<TDEFLStatus> for tdefl_status {
     }
 }
 
+#[allow(bad_style)]
+#[repr(C)]
+#[derive(PartialEq, Eq)]
+pub enum tdefl_flush {
+    TDEFL_NO_FLUSH = 0,
+    TDEFL_SYNC_FLUSH = 2,
+    TDEFL_FULL_FLUSH = 3,
+    TDEFL_FINISH = 4,
+}
+
+impl From<tdefl_flush> for TDEFLFlush {
+    fn from(flush: tdefl_flush) -> TDEFLFlush {
+        use tdefl_flush::*;
+        match flush {
+            TDEFL_NO_FLUSH => TDEFLFlush::None,
+            TDEFL_SYNC_FLUSH => TDEFLFlush::Sync,
+            TDEFL_FULL_FLUSH => TDEFLFlush::Full,
+            TDEFL_FINISH => TDEFLFlush::Finish,
+        }
+    }
+}
+
+// pub type tdefl_flush = c_int;
+// pub mod tdefl_flush_e {
+//     pub const TDEFL_NO_FLUSH: tdefl_flush = 0;
+//     pub const TDEFL_SYNC_FLUSH: tdefl_flush = 2;
+//     pub const TDEFL_FULL_FLUSH: tdefl_flush = 3;
+//     pub const TDEFL_FINISH: tdefl_flush = 4;
+// }
+
 /// Convert an i32 to a TDEFLFlush
 ///
 /// Returns TDEFLFLush::None flush value is unknown.
 /// For use with c interface.
-pub fn i32_to_tdefl_flush(flush: i32) -> TDEFLFlush {
-    match flush {
-        2 => TDEFLFlush::Sync,
-        3 => TDEFLFlush::Full,
-        4 => TDEFLFlush::Finish,
-        _ => TDEFLFlush::None,
-    }
-}
+// pub fn i32_to_tdefl_flush(flush: i32) -> TDEFLFlush {
+//     match flush {
+//         2 => TDEFLFlush::Sync,
+//         3 => TDEFLFlush::Full,
+//         4 => TDEFLFlush::Finish,
+//         _ => TDEFLFlush::None,
+//     }
+// }
 
 impl Compressor {
     pub(crate) fn new_with_callback(flags: u32, func: CallbackFunc) -> Self {
@@ -114,9 +147,11 @@ unmangle!(
         in_size: Option<&mut usize>,
         out_buf: *mut c_void,
         out_size: Option<&mut usize>,
-        flush: i32,
+        // TODO: See if we should use an enum here or not as it could
+        // cause UB.
+        flush: tdefl_flush,
     ) -> tdefl_status {
-        let flush = i32_to_tdefl_flush(flush);
+        let flush = flush.into();
         match d {
             None => {
                 if let Some(size) = in_size {
@@ -180,7 +215,7 @@ unmangle!(
                                         &(out[0]) as *const u8 as *const c_void,
                                         out.len() as i32,
                                         func.put_buf_user,
-                                    )
+                                    ) != 0
                                 });
                             (res.0, res.1, 0)
                         }
@@ -204,7 +239,7 @@ unmangle!(
         d: Option<&mut Compressor>,
         in_buf: *const c_void,
         mut in_size: usize,
-        flush: i32,
+        flush: tdefl_flush,
     ) -> tdefl_status {
         tdefl_compress(d, in_buf, Some(&mut in_size), ptr::null_mut(), None, flush)
     }
@@ -238,7 +273,7 @@ unmangle!(
     /// tdefl_allocate and tdefl_deallocate
     pub unsafe extern "C" fn tdefl_init(
         d: Option<&mut Compressor>,
-        put_buf_func: PutBufFuncPtr,
+        put_buf_func: tdefl_put_buf_func_ptr,
         put_buf_user: *mut c_void,
         flags: c_int,
     ) -> tdefl_status {
@@ -280,10 +315,10 @@ unmangle!(
     pub unsafe extern "C" fn tdefl_compress_mem_to_output(
         buf: *const c_void,
         buf_len: usize,
-        put_buf_func: PutBufFuncPtr,
+        put_buf_func: tdefl_put_buf_func_ptr,
         put_buf_user: *mut c_void,
         flags: c_int,
-    ) -> bool {
+    ) -> c_int {
         if let Some(put_buf_func) = put_buf_func {
             let compressor =
                 crate::miniz_def_alloc_func(ptr::null_mut(), 1, mem::size_of::<Compressor>())
@@ -301,15 +336,15 @@ unmangle!(
             );
 
             let res =
-                tdefl_compress_buffer(compressor.as_mut(), buf, buf_len, TDEFLFlush::Finish as i32)
+                tdefl_compress_buffer(compressor.as_mut(), buf, buf_len, tdefl_flush::TDEFL_FINISH)
                     == tdefl_status::TDEFL_STATUS_DONE;
             if let Some(c) = compressor.as_mut() {
                 c.drop_inner();
             }
             crate::miniz_def_free_func(ptr::null_mut(), compressor as *mut c_void);
-            res
+            res.into()
         } else {
-            false
+            false.into()
         }
     }
 );
@@ -325,15 +360,15 @@ pub unsafe extern "C" fn output_buffer_putter(
     buf: *const c_void,
     len: c_int,
     user: *mut c_void,
-) -> bool {
+) -> i32 {
     let user = (user as *mut BufferUser).as_mut();
     match user {
-        None => false,
+        None => false.into(),
         Some(user) => {
             let new_size = user.size + len as usize;
             if new_size > user.capacity {
                 if !user.expandable {
-                    return false;
+                    return false.into();
                 }
                 let mut new_capacity = cmp::max(user.capacity, 128);
                 while new_size > new_capacity {
@@ -348,20 +383,16 @@ pub unsafe extern "C" fn output_buffer_putter(
                 );
 
                 if new_buf.is_null() {
-                    return false;
+                    return false.into();
                 }
 
                 user.buf = new_buf as *mut u8;
                 user.capacity = new_capacity;
             }
 
-            ptr::copy_nonoverlapping(
-                buf as *const u8,
-                user.buf.add(user.size),
-                len as usize,
-            );
+            ptr::copy_nonoverlapping(buf as *const u8, user.buf.add(user.size), len as usize);
             user.size = new_size;
-            true
+            true.into()
         }
     }
 }
@@ -385,13 +416,13 @@ unmangle!(
                     expandable: true,
                 };
 
-                if !tdefl_compress_mem_to_output(
+                if tdefl_compress_mem_to_output(
                     src_buf,
                     src_buf_len,
                     Some(output_buffer_putter),
                     &mut buffer_user as *mut BufferUser as *mut c_void,
                     flags,
-                ) {
+                ) == 0 {
                     ptr::null_mut()
                 } else {
                     *len = buffer_user.size;
@@ -424,7 +455,7 @@ unmangle!(
             Some(output_buffer_putter),
             &mut buffer_user as *mut BufferUser as *mut c_void,
             flags,
-        ) {
+        ) != 0 {
             buffer_user.size
         } else {
             0

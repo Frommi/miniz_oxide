@@ -1,5 +1,5 @@
-
 #pragma once
+#include <time.h>
 #include "miniz.h"
 
 /* ------------------- ZIP archive reading/writing */

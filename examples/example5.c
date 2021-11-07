@@ -39,7 +39,8 @@ static uint8 s_outbuf[OUT_BUF_SIZE];
 
 // tdefl_compressor contains all the state needed by the low-level compressor so it's a pretty big struct (~300k).
 // This example makes it a global vs. putting it on the stack, of course in real-world usage you'll probably malloc() or new it.
-tdefl_compressor g_deflator;
+// NOTE: miniz_oxide: changed to dynamic alloc for now, TODO: See whether we will support alloc on stack or not.
+// tdefl_compressor g_deflator;
 
 int main(int argc, char *argv[])
 {
@@ -165,7 +166,8 @@ int main(int argc, char *argv[])
          comp_flags |= TDEFL_FORCE_ALL_RAW_BLOCKS;
 
       // Initialize the low-level compressor.
-      status = tdefl_init(&g_deflator, NULL, NULL, comp_flags);
+      tdefl_compressor* g_deflator = tdefl_allocate();
+      status = tdefl_init(g_deflator, NULL, NULL, comp_flags);
       if (status != TDEFL_STATUS_OKAY)
       {
          printf("tdefl_init() failed!\n");
@@ -200,7 +202,7 @@ int main(int argc, char *argv[])
          in_bytes = avail_in;
          out_bytes = avail_out;
          // Compress as much of the input as possible (or all of it) to the output buffer.
-         status = tdefl_compress(&g_deflator, next_in, &in_bytes, next_out, &out_bytes, infile_remaining ? TDEFL_NO_FLUSH : TDEFL_FINISH);
+         status = tdefl_compress(g_deflator, next_in, &in_bytes, next_out, &out_bytes, infile_remaining ? TDEFL_NO_FLUSH : TDEFL_FINISH);
 
          next_in = (const char *)next_in + in_bytes;
          avail_in -= in_bytes;
@@ -235,6 +237,7 @@ int main(int argc, char *argv[])
             return EXIT_FAILURE;
          }
       }
+      tdefl_deallocate(g_deflator);
    }
    else if ((pMode[0] == 'd') || (pMode[0] == 'D'))
    {

@@ -3,20 +3,31 @@ use std::marker::PhantomData;
 use std::{ptr, slice};
 
 pub use crate::tinfl::{
-    tinfl_decompress, tinfl_decompress_mem_to_heap, tinfl_decompress_mem_to_mem, tinfl_decompressor,
+    tinfl_decompress, tinfl_decompress_mem_to_heap, tinfl_decompress_mem_to_mem,
+    tinfl_decompressor, tinfl_status,
 };
 
-use libc::*;
 pub use crate::tdef::{
     tdefl_allocate, tdefl_compress, tdefl_compress_buffer, tdefl_compress_mem_to_heap,
     tdefl_compress_mem_to_mem, tdefl_compress_mem_to_output,
     tdefl_create_comp_flags_from_zip_params, tdefl_deallocate, tdefl_get_adler32,
-    tdefl_get_prev_return_status, tdefl_init,
+    tdefl_get_prev_return_status, tdefl_init, tdefl_flush,
 };
+use libc::*;
 
 use crate::lib_oxide::{InternalState, StateType, StateTypeEnum, StreamOxide, MZ_ADLER32_INIT};
 
 use miniz_oxide::{mz_adler32_oxide, MZError};
+
+#[allow(bad_style)]
+mod mz_typedefs {
+    use libc::*;
+
+    pub type mz_uint32 = c_uint;
+    pub type mz_uint = c_uint;
+    pub type mz_bool = c_int;
+}
+pub use mz_typedefs::*;
 
 #[allow(bad_style)]
 #[repr(C)]
@@ -58,6 +69,19 @@ pub enum CAPICompressionStrategy {
     MZ_FIXED = 4,
 }
 
+/* Compression levels: 0-9 are the standard zlib-style levels, 10 is best possible compression (not zlib compatible, and may be very slow), MZ_DEFAULT_COMPRESSION=MZ_DEFAULT_LEVEL. */
+#[allow(bad_style)]
+#[repr(C)]
+#[derive(PartialEq, Eq)]
+pub enum CAPICompressionLevel {
+    MZ_NO_COMPRESSION = 0,
+    MZ_BEST_SPEED = 1,
+    MZ_BEST_COMPRESSION = 9,
+    MZ_UBER_COMPRESSION = 10,
+    MZ_DEFAULT_LEVEL = 6,
+    MZ_DEFAULT_COMPRESSION = -1
+}
+
 pub const MZ_CRC32_INIT: c_ulong = 0;
 
 pub fn mz_crc32_oxide(crc32: c_uint, data: &[u8]) -> c_uint {
@@ -72,6 +96,17 @@ pub type mz_alloc_func = unsafe extern "C" fn(*mut c_void, size_t, size_t) -> *m
 /// Signature of function used to free the compressor/decompressor structs.
 #[allow(bad_style)]
 pub type mz_free_func = unsafe extern "C" fn(*mut c_void, *mut c_void);
+
+#[allow(bad_style)]
+pub type mz_realloc_func =
+    unsafe extern "C" fn(*mut c_void, *mut c_void, size_t, size_t) -> *mut c_void;
+
+#[allow(bad_style)]
+pub type mz_alloc_callback =
+    Option<unsafe extern "C" fn(*mut c_void, size_t, size_t) -> *mut c_void>;
+
+#[allow(bad_style)]
+pub type mz_free_callback = Option<unsafe extern "C" fn(*mut c_void, *mut c_void)>;
 
 /// Inner stream state containing pointers to the used buffers and internal state.
 #[repr(C)]
@@ -99,10 +134,10 @@ pub struct mz_stream {
 
     /// Allocation function to use for allocating the internal compressor/decompressor.
     /// Uses `mz_default_alloc_func` if set to `None`.
-    pub zalloc: Option<mz_alloc_func>,
+    pub zalloc: mz_alloc_callback,
     /// Free function to use for allocating the internal compressor/decompressor.
     /// Uses `mz_default_free_func` if `None`.
-    pub zfree: Option<mz_free_func>,
+    pub zfree: mz_free_callback,
     /// Extra data to provide the allocation/deallocation functions.
     /// (Not used for the default ones)
     pub opaque: *mut c_void,
