@@ -1799,7 +1799,7 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
             let mut ins_pos = lookahead_pos + lookahead_size as usize - 2;
             // Start the hash value from the first two bytes
             let mut hash = update_hash(
-                u32::from(dictb.dict[(ins_pos & LZ_DICT_SIZE_MASK) as usize]),
+                u16::from(dictb.dict[(ins_pos & LZ_DICT_SIZE_MASK) as usize]),
                 dictb.dict[((ins_pos + 1) & LZ_DICT_SIZE_MASK) as usize],
             );
 
