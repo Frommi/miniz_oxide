@@ -1,3 +1,8 @@
+<a name="0.5.1"></a>
+### 0.5.1 (2021-11-11)
+
+Doc updates and minor refactor
+
 <a name="0.5.0"></a>
 ## 0.5.0 (2021-11-04)
 
