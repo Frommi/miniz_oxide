@@ -1,7 +1,7 @@
 // example1.c - Demonstrates miniz.c's compress() and uncompress() functions (same as zlib's).
 // Public domain, May 15 2011, Rich Geldreich, richgel99@gmail.com. See "unlicense" statement at the end of tinfl.c.
 #include <stdio.h>
-#include "miniz_test.h"
+#include "miniz.h"
 typedef unsigned char uint8;
 typedef unsigned short uint16;
 typedef unsigned int uint;
