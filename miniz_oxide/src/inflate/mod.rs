@@ -255,14 +255,10 @@ mod test {
     fn test_decompress_slice_iter_to_slice() {
         // one slice
         let mut out = [0_u8; 12_usize];
-        let r = decompress_slice_iter_to_slice(
-            &mut out,
-            Some(encoded.as_slice()).into_iter(),
-            true,
-            false,
-        );
+        let r =
+            decompress_slice_iter_to_slice(&mut out, Some(&encoded[..]).into_iter(), true, false);
         assert_eq!(r, Ok(12));
-        assert_eq!(out.as_slice(), b"Hello, zlib!".as_slice());
+        assert_eq!(out.as_slice(), &b"Hello, zlib!"[..]);
 
         // some chunks at a time
         for chunk_size in 1..13 {
@@ -273,7 +269,7 @@ mod test {
             let r =
                 decompress_slice_iter_to_slice(&mut out, encoded.chunks(chunk_size), true, false);
             assert_eq!(r, Ok(12));
-            assert_eq!(&out[..12], b"Hello, zlib!".as_slice());
+            assert_eq!(&out[..12], &b"Hello, zlib!"[..]);
         }
 
         // output buffer too small
