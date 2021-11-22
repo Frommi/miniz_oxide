@@ -258,7 +258,7 @@ mod test {
         let r =
             decompress_slice_iter_to_slice(&mut out, Some(&encoded[..]).into_iter(), true, false);
         assert_eq!(r, Ok(12));
-        assert_eq!(out.as_slice(), &b"Hello, zlib!"[..]);
+        assert_eq!(&out[..12], &b"Hello, zlib!"[..]);
 
         // some chunks at a time
         for chunk_size in 1..13 {
