@@ -1648,7 +1648,13 @@ pub fn decompress(
         0
     };
 
-    if status == TINFLStatus::NeedsMoreInput && out_buf.bytes_left() == 0 {
+    // Make sure HasMoreOutput overrides NeedsMoreInput if the output buffer is full.
+    // (Unless the missing input is the adler32 value in which case we don't need to write anything.)
+    // TODO: May want to see if we can do this in a better way.
+    if status == TINFLStatus::NeedsMoreInput
+        && out_buf.bytes_left() == 0
+        && state != State::ReadAdler32
+    {
         status = TINFLStatus::HasMoreOutput
     }
 
