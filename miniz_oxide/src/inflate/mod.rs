@@ -183,7 +183,7 @@ fn decompress_to_vec_inner(
 pub fn decompress_slice_iter_to_slice<'out, 'inp>(
     out: &'out mut [u8],
     it: impl Iterator<Item = &'inp [u8]>,
-    mut zlib_header: bool,
+    zlib_header: bool,
     ignore_adler32: bool,
 ) -> Result<usize, TINFLStatus> {
     use self::core::inflate_flags::*;
@@ -207,7 +207,6 @@ pub fn decompress_slice_iter_to_slice<'out, 'inp>(
             f
         };
         let (status, _input_read, bytes_written) = decompress(r, in_buf, out, out_pos, flags);
-        zlib_header = false;
         out_pos += bytes_written;
         match status {
             TINFLStatus::NeedsMoreInput => continue,
