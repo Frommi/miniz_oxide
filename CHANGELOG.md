@@ -1,3 +1,16 @@
+<a name="0.5.2"></a>
+### 0.5.2 (2021-12-04)
+
+
+#### Bug Fixes
+
+* **inflate:**  Don't return HasMoreOutput if we are waiting for more input to read adler32 ([5869904c](https://github.com/Frommi/miniz_oxide/commit/5869904c7f789580ace18f7e9084acbcd54a95be))
+
+#### Features
+
+* **inflate:**   Add decompress_slice_iter_to_slice function. ([a359d678](https://github.com/Frommi/miniz_oxide/commit/a359d678c8d83565844ac5075e50c43d67d29879))
+
+
 <a name="0.5.1"></a>
 ### 0.5.1 (2021-11-11)
 
