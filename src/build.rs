@@ -18,9 +18,5 @@ fn main() {
 
 #[cfg(feature = "build_orig_miniz")]
 fn main() {
-    cc::Build::new()
-        .files(&[
-            "miniz/miniz.c",
-        ])
-        .compile("miniz");
+    cc::Build::new().files(&["miniz/miniz.c"]).compile("miniz");
 }

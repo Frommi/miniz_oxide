@@ -10,8 +10,8 @@ pub use crate::tinfl::{
 pub use crate::tdef::{
     tdefl_allocate, tdefl_compress, tdefl_compress_buffer, tdefl_compress_mem_to_heap,
     tdefl_compress_mem_to_mem, tdefl_compress_mem_to_output,
-    tdefl_create_comp_flags_from_zip_params, tdefl_deallocate, tdefl_get_adler32,
-    tdefl_get_prev_return_status, tdefl_init, tdefl_flush,
+    tdefl_create_comp_flags_from_zip_params, tdefl_deallocate, tdefl_flush, tdefl_get_adler32,
+    tdefl_get_prev_return_status, tdefl_init,
 };
 use libc::*;
 
@@ -79,7 +79,7 @@ pub enum CAPICompressionLevel {
     MZ_BEST_COMPRESSION = 9,
     MZ_UBER_COMPRESSION = 10,
     MZ_DEFAULT_LEVEL = 6,
-    MZ_DEFAULT_COMPRESSION = -1
+    MZ_DEFAULT_COMPRESSION = -1,
 }
 
 pub const MZ_CRC32_INIT: c_ulong = 0;

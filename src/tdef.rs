@@ -10,7 +10,8 @@ use miniz_oxide::deflate::core::{
 /// Compression callback function type.
 pub type PutBufFuncPtrNotNull = unsafe extern "C" fn(*const c_void, c_int, *mut c_void) -> i32;
 #[allow(bad_style)]
-pub type tdefl_put_buf_func_ptr = Option<unsafe extern "C" fn(*const c_void, c_int, *mut c_void) -> i32>;
+pub type tdefl_put_buf_func_ptr =
+    Option<unsafe extern "C" fn(*const c_void, c_int, *mut c_void) -> i32>;
 /// `Option` alias for compression callback function type.
 /// cbindgen.rename = "SnakeCase""
 // typedef mz_bool (*tdefl_put_buf_func_ptr)(const void *pBuf, int len, void *pUser);
@@ -422,7 +423,8 @@ unmangle!(
                     Some(output_buffer_putter),
                     &mut buffer_user as *mut BufferUser as *mut c_void,
                     flags,
-                ) == 0 {
+                ) == 0
+                {
                     ptr::null_mut()
                 } else {
                     *len = buffer_user.size;
@@ -455,7 +457,8 @@ unmangle!(
             Some(output_buffer_putter),
             &mut buffer_user as *mut BufferUser as *mut c_void,
             flags,
-        ) != 0 {
+        ) != 0
+        {
             buffer_user.size
         } else {
             0
