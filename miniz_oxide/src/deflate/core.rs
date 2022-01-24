@@ -476,7 +476,7 @@ impl CompressorOxide {
 
     /// Set the compression level of the compressor.
     ///
-    /// Using this to change level after compresson has started is supported.
+    /// Using this to change level after compression has started is supported.
     /// # Notes
     /// The compression strategy will be reset to the default one when this is called.
     pub fn set_compression_level(&mut self, level: CompressionLevel) {
@@ -486,7 +486,7 @@ impl CompressorOxide {
 
     /// Set the compression level of the compressor using an integer value.
     ///
-    /// Using this to change level after compresson has started is supported.
+    /// Using this to change level after compression has started is supported.
     /// # Notes
     /// The compression strategy will be reset to the default one when this is called.
     pub fn set_compression_level_raw(&mut self, level: u8) {
@@ -500,7 +500,7 @@ impl CompressorOxide {
     /// a corrupted stream.
     ///
     /// # Notes
-    /// This function mainly intented for setting the initial settings after e.g creating with
+    /// This function mainly intended for setting the initial settings after e.g creating with
     /// `default` or after calling `CompressorOxide::reset()`, and behaviour may be changed
     /// to disallow calling it after starting compression in the future.
     pub fn set_format_and_level(&mut self, data_format: DataFormat, level: u8) {
@@ -773,7 +773,7 @@ struct HuffmanOxide {
 const LITLEN_TABLE: usize = 0;
 /// Tables for distances.
 const DIST_TABLE: usize = 1;
-/// Tables for the run-length encoded huffman lenghts for literals/lengths/distances.
+/// Tables for the run-length encoded huffman lengths for literals/lengths/distances.
 const HUFF_CODES_TABLE: usize = 2;
 
 /// Status of RLE encoding of huffman code lengths.
@@ -2332,11 +2332,11 @@ fn compress_inner(
 }
 
 /// Create a set of compression flags using parameters used by zlib and other compressors.
-/// Mainly intented for use with transition from c libraries as it deals with raw integers.
+/// Mainly intended for use with transition from c libraries as it deals with raw integers.
 ///
 /// # Parameters
 /// `level` determines compression level. Clamped to maximum of 10. Negative values result in
-/// `Compressionlevel::DefaultLevel`.
+/// `CompressionLevel::DefaultLevel`.
 /// `window_bits`: Above 0, wraps the stream in a zlib wrapper, 0 or negative for a raw deflate
 /// stream.
 /// `strategy`: Sets the strategy if this conforms to any of the values in `CompressionStrategy`.
