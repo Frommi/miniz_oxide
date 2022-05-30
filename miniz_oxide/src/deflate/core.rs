@@ -777,13 +777,13 @@ const DIST_TABLE: usize = 1;
 const HUFF_CODES_TABLE: usize = 2;
 
 /// Status of RLE encoding of huffman code lengths.
-struct RLE {
+struct Rle {
     pub z_count: u32,
     pub repeat_count: u32,
     pub prev_code_size: u8,
 }
 
-impl RLE {
+impl Rle {
     fn prev_code_size(
         &mut self,
         packed_code_sizes: &mut [u8],
@@ -873,12 +873,12 @@ impl HuffmanOxide {
         let mut current_symbols = symbols0;
         let mut new_symbols = symbols1;
 
-        for pass in 0..n_passes {
+        for (pass, hist_item) in hist.iter().enumerate().take(n_passes) {
             let mut offsets = [0; 256];
             let mut offset = 0;
             for i in 0..256 {
                 offsets[i] = offset;
-                offset += hist[pass][i];
+                offset += hist_item[i];
             }
 
             for sym in current_symbols.iter() {
@@ -1024,8 +1024,13 @@ impl HuffmanOxide {
             memset(&mut self.codes[table_num][..], 0);
 
             let mut last = num_used_symbols;
-            for i in 1..=code_size_limit {
-                let first = last - num_codes[i] as usize;
+            for (i, &num_item) in num_codes
+                .iter()
+                .enumerate()
+                .take(code_size_limit + 1)
+                .skip(1)
+            {
+                let first = last - num_item as usize;
                 for symbol in &symbols[first..last] {
                     self.code_sizes[table_num][symbol.sym_index as usize] = i as u8;
                 }
@@ -1106,7 +1111,7 @@ impl HuffmanOxide {
         code_sizes_to_pack[num_lit_codes..total_code_sizes_to_pack]
             .copy_from_slice(&self.code_sizes[1][..num_dist_codes]);
 
-        let mut rle = RLE {
+        let mut rle = Rle {
             z_count: 0,
             repeat_count: 0,
             prev_code_size: 0xFF,
@@ -1168,7 +1173,7 @@ impl HuffmanOxide {
             );
         }
 
-        let mut packed_code_size_index = 0 as usize;
+        let mut packed_code_size_index = 0;
         while packed_code_size_index < packed_pos {
             let code = packed_code_sizes[packed_code_size_index] as usize;
             packed_code_size_index += 1;
