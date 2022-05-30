@@ -1,3 +1,12 @@
+<a name="0.5.3"></a>
+### 0.5.3 (2022-05-30)
+
+Clippy warnings and doc fixes (thanks @hellow554 and @MichaelMcDonnell)
+
+#### Bug Fixes
+
+* **core:**  Don't use simd-adler32 when building as part of std  ([5869904c](https://github.com/Frommi/miniz_oxide/commit/d3dee8760fd8b390ca079e8a80cb28f71948c379))
+
 <a name="0.5.2"></a>
 ### 0.5.2 (2021-12-04)
 
