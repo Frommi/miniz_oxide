@@ -1,9 +1,7 @@
 //! This module contains functionality for decompression.
 
-use crate::alloc::boxed::Box;
-use crate::alloc::vec;
-use crate::alloc::vec::Vec;
-use ::core::cmp::min;
+#[cfg(feature = "with-alloc")]
+use crate::alloc::{boxed::Box, vec, vec::Vec};
 use ::core::usize;
 
 pub mod core;
@@ -82,6 +80,7 @@ impl TINFLStatus {
 ///
 /// Returns a tuple of the [`Vec`] of decompressed data and the [status result][TINFLStatus].
 #[inline]
+#[cfg(feature = "with-alloc")]
 pub fn decompress_to_vec(input: &[u8]) -> Result<Vec<u8>, TINFLStatus> {
     decompress_to_vec_inner(input, 0, usize::max_value())
 }
@@ -90,6 +89,7 @@ pub fn decompress_to_vec(input: &[u8]) -> Result<Vec<u8>, TINFLStatus> {
 ///
 /// Returns a tuple of the [`Vec`] of decompressed data and the [status result][TINFLStatus].
 #[inline]
+#[cfg(feature = "with-alloc")]
 pub fn decompress_to_vec_zlib(input: &[u8]) -> Result<Vec<u8>, TINFLStatus> {
     decompress_to_vec_inner(
         input,
@@ -104,6 +104,7 @@ pub fn decompress_to_vec_zlib(input: &[u8]) -> Result<Vec<u8>, TINFLStatus> {
 ///
 /// Returns a tuple of the [`Vec`] of decompressed data and the [status result][TINFLStatus].
 #[inline]
+#[cfg(feature = "with-alloc")]
 pub fn decompress_to_vec_with_limit(input: &[u8], max_size: usize) -> Result<Vec<u8>, TINFLStatus> {
     decompress_to_vec_inner(input, 0, max_size)
 }
@@ -114,6 +115,7 @@ pub fn decompress_to_vec_with_limit(input: &[u8], max_size: usize) -> Result<Vec
 ///
 /// Returns a tuple of the [`Vec`] of decompressed data and the [status result][TINFLStatus].
 #[inline]
+#[cfg(feature = "with-alloc")]
 pub fn decompress_to_vec_zlib_with_limit(
     input: &[u8],
     max_size: usize,
@@ -124,13 +126,14 @@ pub fn decompress_to_vec_zlib_with_limit(
 /// Backend of various to-[`Vec`] decompressions.
 ///
 /// Returns a tuple of the [`Vec`] of decompressed data and the [status result][TINFLStatus].
+#[cfg(feature = "with-alloc")]
 fn decompress_to_vec_inner(
     input: &[u8],
     flags: u32,
     max_output_size: usize,
 ) -> Result<Vec<u8>, TINFLStatus> {
     let flags = flags | inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
-    let mut ret: Vec<u8> = vec![0; min(input.len().saturating_mul(2), max_output_size)];
+    let mut ret: Vec<u8> = vec![0; input.len().saturating_mul(2).min(max_output_size)];
 
     let mut decomp = Box::<DecompressorOxide>::default();
 
