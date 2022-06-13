@@ -3,9 +3,16 @@
 A fully safe, pure rust replacement for the [miniz](https://github.com/richgel999/miniz) DEFLATE/zlib encoder/decoder.
 The main intention of this crate is to be used as a back-end for the [flate2](https://github.com/alexcrichton/flate2-rs), but it can also be used on it's own. Using flate2 with the ```rust_backend``` feature provides an easy to use streaming API for miniz_oxide.
 
-The library is fully [no_std](https://docs.rust-embedded.org/book/intro/no-std.html), though it requires the use of the `alloc` and `collection` crates as it allocates memory.
+The library is fully [no_std](https://docs.rust-embedded.org/book/intro/no-std.html). By default, the `with-alloc` feature is enabled, which requires the use of the `alloc` and `collection` crates as it allocates memory.
 
-miniz_oxide 0.5.x Requires at least rust 1.40.0 0.3.x requires at least rust 0.36.0.
+Using the library with `default-features = false` removes the dependency on `alloc`
+and `collection` crates, making it suitable for systems without an allocator.
+Running without allocation reduces crate functionality:
+
+- The `deflate` module is removed complete
+- Some `inflate` functions which return a `Vec` are removed
+
+miniz_oxide 0.5.x and 0.6.x Requires at least rust 1.40.0 0.3.x requires at least rust 0.36.0.
 
 miniz_oxide features no use of unsafe code.
 
