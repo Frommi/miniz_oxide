@@ -154,14 +154,12 @@ fn decompress_to_vec_inner(
             }
 
             TINFLStatus::HasMoreOutput => {
-                // We need more space, so check if we can resize the buffer and do it.
-                let new_len = ret
-                    .len()
-                    .checked_add(out_pos)
-                    .ok_or(TINFLStatus::HasMoreOutput)?;
-                if new_len > max_output_size {
+                // if the buffer has already reached the size limit, return an error
+                if ret.len() >= max_output_size {
                     return Err(TINFLStatus::HasMoreOutput);
-                };
+                }
+                // calculate the new length, capped at `max_output_size`
+                let new_len = ret.len().saturating_mul(2).min(max_output_size);
                 ret.resize(new_len, 0);
             }
 
