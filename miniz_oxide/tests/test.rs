@@ -160,6 +160,19 @@ fn issue_75_empty_input_infinite_loop() {
     assert!(&d == &[0]);
 }
 
+#[test]
+fn decompression_size_limit() {
+    let small_data = [0u8; 15];
+    let exact_data = [0u8; 16];
+    let oversize_data = [0u8; 17];
+    let small_c = miniz_oxide::deflate::compress_to_vec_zlib(&small_data, 6);
+    let exact_c = miniz_oxide::deflate::compress_to_vec_zlib(&exact_data, 6);
+    let oversize_c = miniz_oxide::deflate::compress_to_vec_zlib(&oversize_data, 6);
+    assert!(miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&small_c, 16).is_ok());
+    assert!(miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&exact_c, 16).is_ok());
+    assert!(miniz_oxide::inflate::decompress_to_vec_zlib_with_limit(&oversize_c, 16).is_err());
+}
+
 /*
 #[test]
 fn large_file() {
