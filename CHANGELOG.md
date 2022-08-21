@@ -1,3 +1,18 @@
+<a name="0.6.0"></a>
+## 0.6.0 (2022-08-21)
+
+#### Bug Fixes
+
+* **inflate:**  
+  * Fix output size limit handling (thanks Shnatsel) ([c08ac1c6](https://github.com/Frommi/miniz_oxide/commit/c08ac1c60699025fea9c39250a41be54c6267813)), closes [#119](https://github.com/Frommi/miniz_oxide/issues/119))
+
+#### Features
+
+* **inflate:**
+  * Return currently decompressed data on failure in decompress_to_vec.. functions ([81796330](https://github.com/Frommi/miniz_oxide/commit/8179633092b032b783333c73395490b6b9243823)), closes [#113](https://github.com/Frommi/miniz_oxide/issues/113))
+  * Allow for running without allocator (inflate-only) ([96ad0b80](https://github.com/Frommi/miniz_oxide/commit/96ad0b80e107290be872bf8f010fa21d3ca790fe)), closes [#111](https://github.com/Frommi/miniz_oxide/issues/111))
+
+
 <a name="0.5.3"></a>
 ### 0.5.3 (2022-05-30)
 
