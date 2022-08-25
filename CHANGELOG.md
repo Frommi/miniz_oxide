@@ -1,3 +1,13 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+## [0.6.1] - 2022-08-25
+
+### Bug Fixes
+
+- Make building with --no-default-features actually work
+
 <a name="0.6.0"></a>
 ## 0.6.0 (2022-08-21)
 
