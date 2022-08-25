@@ -38,6 +38,7 @@ jobs:
           toolchain: ${{ matrix.rust }}
       - run: cargo test --manifest-path ./miniz_oxide/Cargo.toml
       - run: cargo test --manifest-path ./miniz_oxide/Cargo.toml --features simd
+      - run: cargo build --manifest-path ./miniz_oxide/Cargo.toml --no-default-features
       - run: cargo test
 
   # rustfmt:
