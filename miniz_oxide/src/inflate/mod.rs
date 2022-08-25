@@ -86,6 +86,7 @@ pub struct DecompressError {
     pub output: Vec<u8>,
 }
 
+#[cfg(feature = "with-alloc")]
 fn decompress_error(status: TINFLStatus, output: Vec<u8>) -> Result<Vec<u8>, DecompressError> {
     Err(DecompressError { status, output })
 }
