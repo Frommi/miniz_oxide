@@ -5,6 +5,8 @@ The main intention of this crate is to be used as a back-end for the [flate2](ht
 
 The library is fully [no_std](https://docs.rust-embedded.org/book/intro/no-std.html). By default, the `with-alloc` feature is enabled, which requires the use of the `alloc` and `collection` crates as it allocates memory.
 
+The `std` feature additionally turns on things only available if `no_std` is not used. Currently this only means implementing [Error](https://doc.rust-lang.org/stable/std/error/trait.Error.html) for the `DecompressError` error struct returned by the simple decompression functions if enabled together with `with-alloc`.
+
 Using the library with `default-features = false` removes the dependency on `alloc`
 and `collection` crates, making it suitable for systems without an allocator.
 Running without allocation reduces crate functionality:
@@ -28,8 +30,8 @@ use miniz_oxide::inflate::decompress_to_vec;
 fn roundtrip(data: &[u8]) {
     // Compress the input
     let compressed = compress_to_vec(data, 6);
-    // Decompress the compressed input
-    let decompressed = decompress_to_vec(compressed.as_slice()).expect("Failed to decompress!");
+    // Decompress the compressed input and limit max output size to avoid going out of memory on large/malformed input.
+    let decompressed = decompress_to_vec_with_limit(compressed.as_slice(), 60000).expect("Failed to decompress!");
     // Check roundtrip succeeded
     assert_eq!(data, decompressed);
 }
@@ -39,4 +41,4 @@ fn main() {
 }
 
 ```
-These simple functions will do everything in one go and are thus not recommended for use cases where the input size may be large or unknown, for that use case consider using miniz_oxide via flate2 or the low-level streaming functions instead.
+These simple functions will do everything in one go and are thus not recommended for use cases outside of prototyping/testing as real world data can have any size and thus result in very large memory allocations for the output Vector. Consider using miniz_oxide via [flate2](https://github.com/alexcrichton/flate2-rs) which makes it easy to do streaming (de)compression or the low-level streaming functions instead.

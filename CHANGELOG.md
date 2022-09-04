@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.2] - 2022-09-04
+
+### Features
+
+- Add std feature to allow error trait for DecompressError and other stuff later down the line
+- impl Display for DecompressError
+
 ## [0.6.1] - 2022-08-25
 
 ### Bug Fixes
@@ -22,6 +29,13 @@ All notable changes to this project will be documented in this file.
   * Return currently decompressed data on failure in decompress_to_vec.. functions ([81796330](https://github.com/Frommi/miniz_oxide/commit/8179633092b032b783333c73395490b6b9243823)), closes [#113](https://github.com/Frommi/miniz_oxide/issues/113))
   * Allow for running without allocator (inflate-only) ([96ad0b80](https://github.com/Frommi/miniz_oxide/commit/96ad0b80e107290be872bf8f010fa21d3ca790fe)), closes [#111](https://github.com/Frommi/miniz_oxide/issues/111))
 
+
+<a name="0.5.4"></a>
+### 0.5.4 (2022-05-30)
+
+#### Bug Fixes
+
+* **inflate:**  Backport fix for [#119](https://github.com/Frommi/miniz_oxide/issues/119)) for 0.5 releases ([7d38417c](https://github.com/Frommi/miniz_oxide/commit/7d38417c8ca18ec0cf38a01f66f7e0776b33a1b1))
 
 <a name="0.5.3"></a>
 ### 0.5.3 (2022-05-30)
