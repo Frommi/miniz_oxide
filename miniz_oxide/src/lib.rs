@@ -22,7 +22,7 @@
 //! ```
 
 #![forbid(unsafe_code)]
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(feature = "with-alloc")]
 extern crate alloc;

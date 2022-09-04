@@ -3,6 +3,8 @@
 #[cfg(feature = "with-alloc")]
 use crate::alloc::{boxed::Box, vec, vec::Vec};
 use ::core::usize;
+#[cfg(all(feature = "std", feature = "with-alloc"))]
+use std::error::Error;
 
 pub mod core;
 mod output_buffer;
@@ -100,6 +102,10 @@ impl alloc::fmt::Display for DecompressError {
         })
     }
 }
+
+/// Implement Error trait only if std feature is requested as it requires std.
+#[cfg(all(feature = "std", feature = "with-alloc"))]
+impl Error for DecompressError {}
 
 #[cfg(feature = "with-alloc")]
 fn decompress_error(status: TINFLStatus, output: Vec<u8>) -> Result<Vec<u8>, DecompressError> {
