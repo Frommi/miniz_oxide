@@ -87,6 +87,21 @@ pub struct DecompressError {
 }
 
 #[cfg(feature = "with-alloc")]
+impl alloc::fmt::Display for DecompressError {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+        f.write_str(match self.status {
+            TINFLStatus::FailedCannotMakeProgress => "Truncated input stream",
+            TINFLStatus::BadParam => "Invalid output buffer size",
+            TINFLStatus::Adler32Mismatch => "Adler32 checksum mismatch",
+            TINFLStatus::Failed => "Invalid input data",
+            TINFLStatus::Done => unreachable!(),
+            TINFLStatus::NeedsMoreInput => "Truncated input stream",
+            TINFLStatus::HasMoreOutput => "Output size exceeded the specified limit",
+        })
+    }
+}
+
+#[cfg(feature = "with-alloc")]
 fn decompress_error(status: TINFLStatus, output: Vec<u8>) -> Result<Vec<u8>, DecompressError> {
     Err(DecompressError { status, output })
 }
