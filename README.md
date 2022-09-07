@@ -3,7 +3,7 @@ Main library [![Crates.io](https://img.shields.io/crates/v/miniz_oxide.svg)](htt
 C API [![Crates.io](https://img.shields.io/crates/v/miniz_oxide_c_api.svg)](https://crates.io/crates/miniz_oxide_c_api)[![Docs](https://docs.rs/miniz_oxide_c_api/badge.svg)](https://docs.rs/miniz_oxide_c_api)
 
 # miniz_oxide
-Pure rust Rust replacement for the [miniz](https://github.com/richgel999/miniz) deflate/zlib encoder/decoder using no unsafe code. Builds in [no_std](https://docs.rust-embedded.org/book/intro/no-std.html) mode, though requires the use of `alloc` and `collections` crates.
+Pure rust replacement for the [miniz](https://github.com/richgel999/miniz) deflate/zlib encoder/decoder using no unsafe code. Builds in [no_std](https://docs.rust-embedded.org/book/intro/no-std.html) mode, though requires the use of `alloc` and `collections` crates.
 
 This project is organized into a C API shell and a rust crate.
 The Rust crate is found in the [miniz_oxide subdirectory](https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide).
