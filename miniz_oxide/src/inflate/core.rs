@@ -131,7 +131,7 @@ pub mod inflate_flags {
     ///
     /// If [`TINFL_FLAG_IGNORE_ADLER32`] is specified, it will override this.
     ///
-    /// NOTE: Enabling/disabling this between calls to decompress will result in an incorect
+    /// NOTE: Enabling/disabling this between calls to decompress will result in an incorrect
     /// checksum.
     pub const TINFL_FLAG_COMPUTE_ADLER32: u32 = 8;
 
@@ -1869,9 +1869,9 @@ mod test {
         // Invalid set of code lengths - TODO Check if this is the correct error for this.
         c(&[4, 0, 0xfe, 0xff], F, State::BadTotalSymbols);
         // Invalid repeat in list of code lengths.
-        // (Try to repeat a non-existant code.)
+        // (Try to repeat a non-existent code.)
         c(&[4, 0, 0x24, 0x49, 0], F, State::BadCodeSizeDistPrevLookup);
-        // Missing end of block code (should we have a separate error for this?) - fails on futher input
+        // Missing end of block code (should we have a separate error for this?) - fails on further input
         //    c(&[4, 0, 0x24, 0xe9, 0xff, 0x6d], F, State::BadTotalSymbols);
         // Invalid set of literals/lengths
         c(

@@ -218,7 +218,7 @@ unmangle!(
     }
     /// Deallocate the compressor. (Does nothing if the argument is null).
     ///
-    /// This also calles the compressor's destructor, freeing the internal memory
+    /// This also calls the compressor's destructor, freeing the internal memory
     /// allocated by it.
     pub unsafe extern "C" fn tinfl_decompressor_free(c: *mut tinfl_decompressor) {
         if !c.is_null() {
