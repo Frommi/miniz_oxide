@@ -174,7 +174,7 @@ impl DataFormat {
 /// `Result` alias for all miniz status codes both successful and failed.
 pub type MZResult = Result<MZStatus, MZError>;
 
-/// A structure containg the result of a call to the inflate or deflate streaming functions.
+/// A structure containing the result of a call to the inflate or deflate streaming functions.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct StreamResult {
     /// The number of bytes consumed from the input slice.

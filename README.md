@@ -13,7 +13,7 @@ miniz_oxide 0.5.x and 0.6.x Requires at least rust 1.40.0, 0.3.x requires at lea
 For a friendlier streaming API using readers and writers, [flate2](https://crates.io/crates/flate2) can be used, which can use miniz_oxide as a rust-only back-end.
 
 ## miniz_oxide_C_API
-The C API is intented to replicate the api exported from miniz, and in turn also part of zlib. The C header is generated using [cbindgen](https://github.com/eqrion/cbindgen). The current implementation has not seen a lot of testing outside of automated test, is a bit weak in ddocumentation and should be seen as experimental.
+The C API is intended to replicate the api exported from miniz, and in turn also part of zlib. The C header is generated using [cbindgen](https://github.com/eqrion/cbindgen). The current implementation has not seen a lot of testing outside of automated test, is a bit weak in documentation and should be seen as experimental.
 
 The data structures do not share the exact same layout that is specified in miniz.h (from the original miniz), and should thus be allocated via the included functions.
 
