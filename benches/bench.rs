@@ -224,10 +224,10 @@ mod miniz {
     use super::*;
     use libc::{c_int, c_void};
 
-    /// Functions from miniz
-    /// We add the link attribute to make sure
-    /// these are linked to the miniz ones rather than
-    /// picking up the rust versions (as they may be exported).
+    // Functions from miniz
+    // We add the link attribute to make sure
+    // these are linked to the miniz ones rather than
+    // picking up the rust versions (as they may be exported).
     #[link(name = "miniz", kind = "static")]
     extern "C" {
         fn tinfl_decompress_mem_to_heap(

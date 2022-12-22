@@ -222,7 +222,7 @@ unmangle!(
     /// allocated by it.
     pub unsafe extern "C" fn tinfl_decompressor_free(c: *mut tinfl_decompressor) {
         if !c.is_null() {
-            Box::from_raw(c);
+            drop(Box::from_raw(c));
         }
     }
 

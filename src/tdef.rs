@@ -262,7 +262,7 @@ unmangle!(
     /// allocated by it.
     pub unsafe extern "C" fn tdefl_deallocate(c: *mut Compressor) {
         if !c.is_null() {
-            Box::from_raw(c);
+            drop(Box::from_raw(c));
         }
     }
 
