@@ -261,6 +261,7 @@ impl Default for DecompressorOxide {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[non_exhaustive]
 enum State {
     Start = 0,
     ReadZlibCmf,
@@ -292,6 +293,7 @@ enum State {
     // Failure states.
     BlockTypeUnexpected,
     BadCodeSizeSum,
+    BadDistOrLiteralTableLength,
     BadTotalSymbols,
     BadZlibHeader,
     DistanceOutOfBounds,
@@ -307,6 +309,7 @@ impl State {
         match self {
             BlockTypeUnexpected => true,
             BadCodeSizeSum => true,
+            BadDistOrLiteralTableLength => true,
             BadTotalSymbols => true,
             BadZlibHeader => true,
             DistanceOutOfBounds => true,
@@ -1279,7 +1282,18 @@ pub fn decompress(
                 } else {
                     memset(&mut r.tables[HUFFLEN_TABLE].code_size[..], 0);
                     l.counter = 0;
-                    Action::Jump(ReadHufflenTableCodeSize)
+                    // Check that the litlen and distance are within spec.
+                    // litlen table should be <=286 acc to the RFC and
+                    // additionally zlib rejects dist table sizes larger than 30.
+                    // NOTE this the final sizes after adding back predefined values, not
+                    // raw value in the data.
+                    // See miniz_oxide issue #130 and https://github.com/madler/zlib/issues/82.
+                    if r.table_sizes[LITLEN_TABLE] <= 286 && r.table_sizes[DIST_TABLE] <= 30 {
+                        Action::Jump(ReadHufflenTableCodeSize)
+                    }
+                    else {
+                        Action::Jump(BadDistOrLiteralTableLength)
+                    }
                 }
             }),
 
@@ -1634,7 +1648,8 @@ pub fn decompress(
             DoneForever => break TINFLStatus::Done,
 
             // Anything else indicates failure.
-            // BadZlibHeader | BadRawLength | BlockTypeUnexpected | DistanceOutOfBounds |
+            // BadZlibHeader | BadRawLength | BadDistOrLiteralTableLength | BlockTypeUnexpected |
+            // DistanceOutOfBounds |
             // BadTotalSymbols | BadCodeSizeDistPrevLookup | BadCodeSizeSum | InvalidLitlen |
             // InvalidDist | InvalidCodeLen
             _ => break TINFLStatus::Failed,
@@ -1836,18 +1851,20 @@ mod test {
         // Bad check bits.
         cr(&[0x78, 0x98], F, State::BadZlibHeader, true);
 
+
         // Too many code lengths. (From inflate library issues)
         cr(
             b"M\xff\xffM*\xad\xad\xad\xad\xad\xad\xad\xcd\xcd\xcdM",
             F,
-            State::BadTotalSymbols,
+            State::BadDistOrLiteralTableLength,
             false,
         );
+
         // Bad CLEN (also from inflate library issues)
         cr(
             b"\xdd\xff\xff*M\x94ffffffffff",
             F,
-            State::BadTotalSymbols,
+            State::BadDistOrLiteralTableLength,
             false,
         );
 

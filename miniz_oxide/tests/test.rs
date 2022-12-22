@@ -209,6 +209,18 @@ fn issue_119_inflate_with_exact_limit() {
     );
 }
 
+#[test]
+fn issue_130_reject_invalid_table_sizes() {
+    let input = get_test_file_data("tests/test_data/issue_130_table_size.bin");
+
+
+    let result = decompress_to_vec_zlib(input.as_slice());
+    println!("{:?}", result);
+    assert!(result.is_err());
+    let error = result.unwrap_err();
+    assert_eq!(error.status, TINFLStatus::Failed);
+}
+
 /*
 #[test]
 fn large_file() {
