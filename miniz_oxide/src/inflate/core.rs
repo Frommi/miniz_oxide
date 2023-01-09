@@ -799,13 +799,34 @@ fn transfer(
     match_len: usize,
     out_buf_size_mask: usize,
 ) {
-    for _ in 0..match_len >> 2 {
-        out_slice[out_pos] = out_slice[source_pos & out_buf_size_mask];
-        out_slice[out_pos + 1] = out_slice[(source_pos + 1) & out_buf_size_mask];
-        out_slice[out_pos + 2] = out_slice[(source_pos + 2) & out_buf_size_mask];
-        out_slice[out_pos + 3] = out_slice[(source_pos + 3) & out_buf_size_mask];
-        source_pos += 4;
-        out_pos += 4;
+    debug_assert!(out_pos > source_pos);
+    // special case that comes up surprisingly often. in the case that `source_pos`
+    // is 1 less than `out_pos`, we can say that the entire range will be the same
+    // value and optimize this to be a simple `memset`
+    if out_buf_size_mask == usize::MAX && source_pos.abs_diff(out_pos) == 1 {
+        let init = out_slice[out_pos - 1];
+        let end = (match_len >> 2) * 4 + out_pos;
+
+        out_slice[out_pos..end].fill(init);
+        out_pos = end;
+        source_pos = end - 1;
+    // if the difference between `source_pos` and `out_pos` is greater than 3, we
+    // can do slightly better than the naive case by copying everything at once
+    } else if out_buf_size_mask == usize::MAX && source_pos.abs_diff(out_pos) >= 4 {
+        for _ in 0..match_len >> 2 {
+            out_slice.copy_within(source_pos..=source_pos + 3, out_pos);
+            source_pos += 4;
+            out_pos += 4;
+        }
+    } else {
+        for _ in 0..match_len >> 2 {
+            out_slice[out_pos] = out_slice[source_pos & out_buf_size_mask];
+            out_slice[out_pos + 1] = out_slice[(source_pos + 1) & out_buf_size_mask];
+            out_slice[out_pos + 2] = out_slice[(source_pos + 2) & out_buf_size_mask];
+            out_slice[out_pos + 3] = out_slice[(source_pos + 3) & out_buf_size_mask];
+            source_pos += 4;
+            out_pos += 4;
+        }
     }
 
     match match_len & 3 {
@@ -1850,7 +1871,6 @@ mod test {
         cr(&[0x88, 0x98], F, State::BadZlibHeader, true);
         // Bad check bits.
         cr(&[0x78, 0x98], F, State::BadZlibHeader, true);
-
 
         // Too many code lengths. (From inflate library issues)
         cr(
