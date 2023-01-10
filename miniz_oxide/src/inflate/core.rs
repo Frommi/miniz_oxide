@@ -672,6 +672,22 @@ fn start_static_table(r: &mut DecompressorOxide) {
     memset(&mut r.tables[DIST_TABLE].code_size[0..32], 5);
 }
 
+/// Equivalent to (0..1024).map(|n| n.reverse_bits())
+static REVERSED_BITS_LOOKUP: [u32; 1024] = {
+    // Use const expressions to build this table.
+    let mut reversed_bits = [0u32; 1024];
+
+    // Reverse the bits in each byte.
+    let mut i = 0usize;
+    while i < 1024 {
+        reversed_bits[i] = (i as u32).reverse_bits();
+        i += 1;
+    }
+
+    // Return the filled array.
+    reversed_bits
+};
+
 fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Action {
     loop {
         let table = &mut r.tables[r.block_type as usize];
@@ -709,10 +725,17 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Action {
             let mut cur_code = next_code[code_size as usize];
             next_code[code_size as usize] += 1;
 
-            for _ in 0..code_size {
-                rev_code = (rev_code << 1) | (cur_code & 1);
-                cur_code >>= 1;
-            }
+            let n = cur_code & (u32::MAX >> (32 - code_size));
+
+            let mut rev_code = if n < 1024 {
+                REVERSED_BITS_LOOKUP[n as usize] >> (32 - code_size)
+            } else {
+                for _ in 0..code_size {
+                    rev_code = (rev_code << 1) | (cur_code & 1);
+                    cur_code >>= 1;
+                }
+                rev_code
+            };
 
             if code_size <= FAST_LOOKUP_BITS {
                 let k = (i16::from(code_size) << 9) | symbol_index as i16;
