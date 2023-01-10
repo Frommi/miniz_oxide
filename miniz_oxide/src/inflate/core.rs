@@ -817,19 +817,16 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Action {
             total_symbols[code_size as usize] += 1;
         }
 
+        let mut used_symbols = 0;
         let mut total = 0;
         for i in 1..16 {
+            used_symbols += total_symbols[i];
             total += total_symbols[i];
             total <<= 1;
             next_code[i + 1] = total;
         }
 
-        // ignore the first element in the check immediately below. doing this
-        // rather than slicing off or skipping the first element helps with
-        // autovectorization
-        total_symbols[0] = 0;
-
-        if total != 65_536 && total_symbols.iter().any(|&n| n > 0) {
+        if total != 65_536 && used_symbols > 1 {
             return Action::Jump(BadTotalSymbols);
         }
 
