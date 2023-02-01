@@ -818,11 +818,10 @@ fn transfer(
     match_len: usize,
     out_buf_size_mask: usize,
 ) {
-    debug_assert!(out_pos > source_pos);
     // special case that comes up surprisingly often. in the case that `source_pos`
     // is 1 less than `out_pos`, we can say that the entire range will be the same
     // value and optimize this to be a simple `memset`
-    if out_buf_size_mask == usize::MAX && source_pos.abs_diff(out_pos) == 1 {
+    if out_buf_size_mask == usize::MAX && source_pos.abs_diff(out_pos) == 1 && out_pos > source_pos {
         let init = out_slice[out_pos - 1];
         let end = (match_len >> 2) * 4 + out_pos;
 
@@ -831,7 +830,7 @@ fn transfer(
         source_pos = end - 1;
     // if the difference between `source_pos` and `out_pos` is greater than 3, we
     // can do slightly better than the naive case by copying everything at once
-    } else if out_buf_size_mask == usize::MAX && source_pos.abs_diff(out_pos) >= 4 {
+    } else if out_buf_size_mask == usize::MAX && source_pos.abs_diff(out_pos) >= 4 && out_pos > source_pos {
         for _ in 0..match_len >> 2 {
             out_slice.copy_within(source_pos..=source_pos + 3, out_pos);
             source_pos += 4;
