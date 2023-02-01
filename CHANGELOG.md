@@ -1,5 +1,12 @@
-<a name="0.7.0"></a>
+<a name="0.6.4"></a>
+## 0.6.4 (2023-02-01)
+* **inflate:**
+  * move debug assert condition to if stmt  (thanks connorskees) ([b6d8824a](https://github.com/Frommi/miniz_oxide/commit/b6d8824a316522c292968f807c6455c1ec421bea))
+
+<a name="0.6.3"></a>
 ## 0.6.3 (2023-02-01)
+
+## Yanked release due to incorrect debug assertion.
 
 #### Bug Fixes
 
