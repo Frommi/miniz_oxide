@@ -4,12 +4,12 @@
 #### Bug Fixes
 
 * **inflate:**
-  *  Reject input with too many litlen codes as per spec/zlib ([f4ee585e](https://github.com/Frommi/miniz_oxide/commit/f4ee585eb382eeb7ea1db16458438c637de48349)), , closes [#130](https://github.com/Frommi/miniz_oxide/issues/130)
+  *  Reject input with too many litlen codes as per spec/zlib ([f4ee585e](https://github.com/Frommi/miniz_oxide/commit/f4ee585eb382eeb7ea1db16458438c637de48349)), closes [#130](https://github.com/Frommi/miniz_oxide/issues/130)
 * **deflate:**
   * Remove #\[inline(always)\] from CompressorOxide::default() (thanks jrmuizel) ([c7643aa2](https://github.com/Frommi/miniz_oxide/commit/c7643aa2ddd5c2ca45f6f506b281ee988ea8a296))
 #### Features
 * **inflate:**
-  *  optimize inflate::core::transfer (thanks connorskees) ([dd2fa3e3](https://github.com/Frommi/miniz_oxide/commit/dd2fa3e33c7d8ce1bb8bbd7329a0dd571f4e2df6)
+  *  optimize inflate::core::transfer (thanks connorskees) ([dd2fa3e3](https://github.com/Frommi/miniz_oxide/commit/dd2fa3e33c7d8ce1bb8bbd7329a0dd571f4e2df6))
   *  optimize inflate::core::init_tree by precomputing reversed bits (thanks connorskees) ([bf660972](https://github.com/Frommi/miniz_oxide/commit/bf660972bcad23717e811e44b7ad8388ba5f29ec)), closes [#82](https://github.com/Frommi/miniz_oxide/issues/82)
 
 #### Other
