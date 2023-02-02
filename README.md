@@ -8,7 +8,8 @@ Pure rust replacement for the [miniz](https://github.com/richgel999/miniz) defla
 This project is organized into a C API shell and a rust crate.
 The Rust crate is found in the [miniz_oxide subdirectory](https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide).
 
-miniz_oxide 0.5.x and 0.6.x Requires at least rust 1.40.0, 0.3.x requires at least rust 0.36.0.
+miniz_oxide 0.7.x requires at least Rust 1.50.0
+Older versions 0.5.x and 0.6.x require at least rust 1.40.0, 0.3.x requires at least rust 0.36.0.
 
 For a friendlier streaming API using readers and writers, [flate2](https://crates.io/crates/flate2) can be used, which can use miniz_oxide as a rust-only back-end.
 

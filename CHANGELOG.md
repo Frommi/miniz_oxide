@@ -1,12 +1,25 @@
+<a name="0.7.1"></a>
+### 0.7.1 (2023-02-02)
+* **inflate:**
+  * Fix for older versions of Rust (thanks jasonish) ([a65d0751](https://github.com/Frommi/miniz_oxide/commit/a65d0751f83c4e518cfecbf18e19de22692ae2b7))
+
+<a name="0.7.0"></a>
+### 0.7.0 (2023-02-01)
+
+Yanked release
+
 <a name="0.6.4"></a>
 ## 0.6.4 (2023-02-01)
+
+Yanked release due to version requirement bump
+
 * **inflate:**
   * move debug assert condition to if stmt  (thanks connorskees) ([b6d8824a](https://github.com/Frommi/miniz_oxide/commit/b6d8824a316522c292968f807c6455c1ec421bea))
 
 <a name="0.6.3"></a>
 ## 0.6.3 (2023-02-01)
 
-## Yanked release due to incorrect debug assertion.
+Yanked release due to version requirement bump
 
 #### Bug Fixes
 

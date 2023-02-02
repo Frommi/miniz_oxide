@@ -164,7 +164,7 @@ fn issue_75_empty_input_infinite_loop() {
 fn issue_119_inflate_with_exact_limit() {
     use miniz_oxide::inflate::{decompress_to_vec_zlib, decompress_to_vec_zlib_with_limit};
 
-    let compressed_data = [
+    let compressed_data = &[
         120, 156, 237, 217, 65, 17, 194, 0, 16, 192, 192, 122, 193, 94, 13, 240, 232, 128, 12, 28,
         160, 2, 53, 53, 130, 139, 220, 227, 118, 21, 228, 159, 227, 13, 0, 212, 126, 211, 1, 0,
         176, 208, 99, 58, 0, 0, 22, 122, 78, 7, 0, 192, 66, 223, 233, 0, 0, 88, 200, 255, 5, 128,
@@ -193,8 +193,7 @@ fn issue_119_inflate_with_exact_limit() {
         207, 255, 5, 128, 158, 255, 11, 0, 61, 255, 23, 0, 122, 254, 47, 0, 244, 252, 95, 0, 232,
         249, 191, 0, 208, 243, 127, 1, 160, 231, 255, 2, 64, 207, 255, 5, 128, 158, 255, 11, 0, 61,
         255, 23, 0, 122, 254, 47, 0, 244, 254, 53, 209, 27, 197,
-    ]
-    .as_slice();
+    ];
 
     let decompressed_size = decompress_to_vec_zlib(compressed_data)
         .expect("test is not valid, data must correctly decompress when not limited")
@@ -212,7 +211,6 @@ fn issue_119_inflate_with_exact_limit() {
 #[test]
 fn issue_130_reject_invalid_table_sizes() {
     let input = get_test_file_data("tests/test_data/issue_130_table_size.bin");
-
 
     let result = decompress_to_vec_zlib(input.as_slice());
     println!("{:?}", result);
