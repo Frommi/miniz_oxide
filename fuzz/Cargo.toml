@@ -26,11 +26,14 @@ members = ["."]
 name = "fuzz_high"
 path = "fuzz_targets/fuzz_high.rs"
 
-[features]
-default = ["fuzzing"]
-fuzzing = ["miniz_oxide_c_api/fuzzing"]
-
-
 [[bin]]
 name = "inflate_nonwrapping"
 path = "fuzz_targets/inflate_nonwrapping.rs"
+
+[[bin]]
+name = "roundtrip"
+path = "fuzz_targets/roundtrip.rs"
+
+[features]
+default = ["fuzzing"]
+fuzzing = ["miniz_oxide_c_api/fuzzing"]
