@@ -684,7 +684,7 @@ static REVERSED_BITS_LOOKUP: [u32; 1024] = {
     table
 };
 
-fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Action {
+fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Option<Action> {
     loop {
         let table = &mut r.tables[r.block_type as usize];
         let table_size = r.table_sizes[r.block_type as usize] as usize;
@@ -707,7 +707,7 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Action {
         }
 
         if total != 65_536 && used_symbols > 1 {
-            return Action::Jump(BadTotalSymbols);
+            return Some(Action::Jump(BadTotalSymbols));
         }
 
         let mut tree_next = -1;
@@ -769,7 +769,7 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Action {
 
         if r.block_type == 2 {
             l.counter = 0;
-            return Action::Jump(ReadLitlenDistTablesCodeSize);
+            return Some(Action::Jump(ReadLitlenDistTablesCodeSize));
         }
 
         if r.block_type == 0 {
@@ -779,7 +779,7 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Action {
     }
 
     l.counter = 0;
-    Action::Jump(DecodeLitlen)
+    Some(Action::Jump(DecodeLitlen))
 }
 
 // A helper macro for generating the state machine.
@@ -1192,7 +1192,7 @@ pub fn decompress(
                         0 => Action::Jump(BlockTypeNoCompression),
                         1 => {
                             start_static_table(r);
-                            init_tree(r, l)
+                            init_tree(r, l).unwrap_or(Action::End(TINFLStatus::Failed))
                         },
                         2 => {
                             l.counter = 0;
@@ -1357,7 +1357,7 @@ pub fn decompress(
                     })
                 } else {
                     r.table_sizes[HUFFLEN_TABLE] = 19;
-                    init_tree(r, &mut l)
+                    init_tree(r, &mut l).unwrap_or(Action::End(TINFLStatus::Failed))
                 }
             }),
 
@@ -1392,7 +1392,7 @@ pub fn decompress(
                         .copy_from_slice(&r.len_codes[dist_table_start..dist_table_end]);
 
                     r.block_type -= 1;
-                    init_tree(r, &mut l)
+                    init_tree(r, &mut l).unwrap_or(Action::End(TINFLStatus::Failed))
                 }
             }),
 
@@ -1850,7 +1850,7 @@ mod test {
             counter: d.counter,
             num_extra: d.num_extra,
         };
-        init_tree(&mut d, &mut l);
+        init_tree(&mut d, &mut l).unwrap();
         let llt = &d.tables[LITLEN_TABLE];
         let dt = &d.tables[DIST_TABLE];
         assert_eq!(masked_lookup(llt, 0b00001100), (0, 8));
