@@ -686,24 +686,35 @@ static REVERSED_BITS_LOOKUP: [u32; 1024] = {
 
 fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Option<Action> {
     loop {
-        let table = &mut r.tables[r.block_type as usize];
-        let table_size = r.table_sizes[r.block_type as usize] as usize;
+        let bt = r.block_type as usize;
+        if bt >= r.tables.len() {
+            return None;
+        }
+        let table = &mut r.tables[bt];
+        let table_size = r.table_sizes[bt] as usize;
+        if table_size > table.code_size.len() {
+            return None;
+        }
         let mut total_symbols = [0u32; 16];
         let mut next_code = [0u32; 17];
         memset(&mut table.look_up[..], 0);
         memset(&mut table.tree[..], 0);
 
         for &code_size in &table.code_size[..table_size] {
-            total_symbols[code_size as usize] += 1;
+            let cs = code_size as usize;
+            if cs >= total_symbols.len() {
+                return None;
+            }
+            total_symbols[cs] += 1;
         }
 
         let mut used_symbols = 0;
         let mut total = 0;
-        for i in 1..16 {
-            used_symbols += total_symbols[i];
-            total += total_symbols[i];
+        for (ts, next) in total_symbols.iter().copied().zip(next_code.iter_mut().skip(1)).skip(1) {
+            used_symbols += ts;
+            total += ts;
             total <<= 1;
-            next_code[i + 1] = total;
+            *next = total;
         }
 
         if total != 65_536 && used_symbols > 1 {
@@ -714,7 +725,7 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Option<Action> {
         for symbol_index in 0..table_size {
             let mut rev_code = 0;
             let code_size = table.code_size[symbol_index];
-            if code_size == 0 {
+            if code_size == 0 || usize::from(code_size) >= next_code.len() {
                 continue;
             }
 
@@ -753,18 +764,26 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Option<Action> {
             for _ in FAST_LOOKUP_BITS + 1..code_size {
                 rev_code >>= 1;
                 tree_cur -= (rev_code & 1) as i16;
-                if table.tree[(-tree_cur - 1) as usize] == 0 {
-                    table.tree[(-tree_cur - 1) as usize] = tree_next as i16;
+                let tree_index = (-tree_cur - 1) as usize;
+                if tree_index >= table.tree.len() {
+                    return None;
+                }
+                if table.tree[tree_index] == 0 {
+                    table.tree[tree_index] = tree_next as i16;
                     tree_cur = tree_next;
                     tree_next -= 2;
                 } else {
-                    tree_cur = table.tree[(-tree_cur - 1) as usize];
+                    tree_cur = table.tree[tree_index];
                 }
             }
 
             rev_code >>= 1;
             tree_cur -= (rev_code & 1) as i16;
-            table.tree[(-tree_cur - 1) as usize] = symbol_index as i16;
+            let tree_index = (-tree_cur - 1) as usize;
+            if tree_index >= table.tree.len() {
+                return None;
+            }
+            table.tree[tree_index] = symbol_index as i16;
         }
 
         if r.block_type == 2 {
