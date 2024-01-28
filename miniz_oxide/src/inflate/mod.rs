@@ -182,7 +182,7 @@ pub fn decompress_to_vec_zlib_with_limit(
 /// Returns [`Vec`] of decompressed data on success and the [error struct][DecompressError] with details on failure.
 #[cfg(feature = "with-alloc")]
 fn decompress_to_vec_inner(
-    input: &[u8],
+    mut input: &[u8],
     flags: u32,
     max_output_size: usize,
 ) -> Result<Vec<u8>, DecompressError> {
@@ -191,14 +191,12 @@ fn decompress_to_vec_inner(
 
     let mut decomp = Box::<DecompressorOxide>::default();
 
-    let mut in_pos = 0;
     let mut out_pos = 0;
     loop {
         // Wrap the whole output slice so we know we have enough of the
         // decompressed data for matches.
         let (status, in_consumed, out_consumed) =
-            decompress(&mut decomp, &input[in_pos..], &mut ret, out_pos, flags);
-        in_pos += in_consumed;
+            decompress(&mut decomp, input, &mut ret, out_pos, flags);
         out_pos += out_consumed;
 
         match status {
@@ -208,6 +206,13 @@ fn decompress_to_vec_inner(
             }
 
             TINFLStatus::HasMoreOutput => {
+                // in_consumed is not expected to be out of bounds,
+                // but the check eliminates a panicking code path
+                if in_consumed > input.len() {
+                    return decompress_error(TINFLStatus::HasMoreOutput, ret);
+                }
+                input = &input[in_consumed..];
+
                 // if the buffer has already reached the size limit, return an error
                 if ret.len() >= max_output_size {
                     return decompress_error(TINFLStatus::HasMoreOutput, ret);
