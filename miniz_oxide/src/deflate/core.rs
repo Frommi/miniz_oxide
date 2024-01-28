@@ -414,6 +414,8 @@ const fn read_u16_le(slice: &[u8], pos: usize) -> u16 {
 pub struct CompressorOxide {
     lz: LZOxide,
     params: ParamsOxide,
+    /// Put HuffmanOxide on the heap with default trick to avoid
+    /// excessive stack copies.
     huff: Box<HuffmanOxide>,
     dict: DictOxide,
 }
@@ -427,8 +429,6 @@ impl CompressorOxide {
         CompressorOxide {
             lz: LZOxide::new(),
             params: ParamsOxide::new(flags),
-            /// Put HuffmanOxide on the heap with default trick to avoid
-            /// excessive stack copies.
             huff: Box::default(),
             dict: DictOxide::new(flags),
         }
@@ -521,8 +521,6 @@ impl Default for CompressorOxide {
         CompressorOxide {
             lz: LZOxide::new(),
             params: ParamsOxide::new(DEFAULT_FLAGS),
-            /// Put HuffmanOxide on the heap with default trick to avoid
-            /// excessive stack copies.
             huff: Box::default(),
             dict: DictOxide::new(DEFAULT_FLAGS),
         }
