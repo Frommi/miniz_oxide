@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::shared::{update_adler32, HUFFMAN_LENGTH_ORDER};
+use ::core::cell::Cell;
 
 use ::core::convert::TryInto;
 use ::core::{cmp, slice};
@@ -896,15 +897,27 @@ fn apply_match(
     match_len: usize,
     out_buf_size_mask: usize,
 ) {
-    debug_assert!(out_pos + match_len <= out_slice.len());
+    debug_assert!(out_pos.checked_add(match_len).unwrap() <= out_slice.len());
 
     let source_pos = out_pos.wrapping_sub(dist) & out_buf_size_mask;
 
     if match_len == 3 {
-        // Fast path for match len 3.
-        out_slice[out_pos] = out_slice[source_pos];
-        out_slice[out_pos + 1] = out_slice[(source_pos + 1) & out_buf_size_mask];
-        out_slice[out_pos + 2] = out_slice[(source_pos + 2) & out_buf_size_mask];
+        let out_slice = Cell::from_mut(out_slice).as_slice_of_cells();
+        if let Some(dst) = out_slice.get(out_pos..out_pos + 3) {
+            // Moving bounds checks before any memory mutation allows the optimizer
+            // combine them together.
+            let src = out_slice
+                .get(source_pos)
+                .zip(out_slice.get((source_pos + 1) & out_buf_size_mask))
+                .zip(out_slice.get((source_pos + 2) & out_buf_size_mask));
+            if let Some(((a, b), c)) = src {
+                // For correctness, the memory reads and writes have to be interleaved.
+                // Cells make it possible for read and write references to overlap.
+                dst[0].set(a.get());
+                dst[1].set(b.get());
+                dst[2].set(c.get());
+            }
+        }
         return;
     }
 
