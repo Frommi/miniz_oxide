@@ -50,6 +50,7 @@ macro_rules! decompress_bench {
             let compressed = compress_to_vec(input.as_slice(), $level);
 
             let mut out_len: usize = 0;
+            b.bytes = input.len() as _;
             b.iter(|| unsafe {
                 w($decompress_func(
                     compressed.as_ptr() as *mut c_void,
@@ -70,6 +71,7 @@ macro_rules! compress_bench {
 
             let mut out_len: usize = 0;
             let flags = create_comp_flags_from_zip_params($level, -15, 0) as i32;
+            b.bytes = input.len() as _;
             b.iter(|| unsafe {
                 w($compress_func(
                     input.as_ptr() as *mut c_void,
