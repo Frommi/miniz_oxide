@@ -53,7 +53,12 @@ impl HuffmanTable {
         loop {
             // symbol here indicates the position of the left (0) node, if the next bit is 1
             // we add 1 to the lookup position to get the right node.
-            symbol = i32::from(self.tree[(!symbol + ((bit_buf >> code_len) & 1) as i32) as usize]);
+            let tree_index = (!symbol + ((bit_buf >> code_len) & 1) as i32) as usize;
+            debug_assert!(tree_index < self.tree.len());
+            if tree_index >= self.tree.len() {
+                break;
+            }
+            symbol = i32::from(self.tree[tree_index]);
             code_len += 1;
             if symbol >= 0 {
                 break;
