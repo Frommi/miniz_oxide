@@ -24,12 +24,13 @@ pub enum InternalState {
 }
 
 impl fmt::Debug for InternalState {
+    #[cold]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let name = match &self {
             InternalState::Inflate(_) => "Decompressor",
             InternalState::Deflate(_) => "Compressor",
         };
-        write!(f, "{}", name)
+        f.write_str(name)
     }
 }
 
