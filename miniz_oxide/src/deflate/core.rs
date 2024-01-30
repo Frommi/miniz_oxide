@@ -1255,7 +1255,6 @@ impl DictOxide {
     /// type T.
     #[inline]
     fn read_unaligned_u64(&self, pos: usize) -> u64 {
-        let pos = pos;
         let bytes: [u8; 8] = self.b.dict[pos..pos + 8].try_into().unwrap();
         u64::from_le_bytes(bytes)
     }
@@ -1327,7 +1326,7 @@ impl DictOxide {
                     // position to match against.
                     probe_pos = next_probe_pos & LZ_DICT_SIZE_MASK;
 
-                    if self.read_as_u16((probe_pos + match_len as usize - 1)) == c01 {
+                    if self.read_as_u16(probe_pos + match_len as usize - 1) == c01 {
                         break 'found;
                     }
                 }
@@ -1801,8 +1800,8 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
             let mut ins_pos = lookahead_pos + lookahead_size - 2;
             // Start the hash value from the first two bytes
             let mut hash = update_hash(
-                u16::from(dictb.dict[(ins_pos & LZ_DICT_SIZE_MASK)]),
-                dictb.dict[((ins_pos + 1) & LZ_DICT_SIZE_MASK)],
+                u16::from(dictb.dict[ins_pos & LZ_DICT_SIZE_MASK]),
+                dictb.dict[(ins_pos + 1) & LZ_DICT_SIZE_MASK],
             );
 
             lookahead_size += num_bytes_to_process;
@@ -1816,7 +1815,7 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
 
                 // Generate hash from the current byte,
                 hash = update_hash(hash, c);
-                dictb.next[(ins_pos & LZ_DICT_SIZE_MASK)] = dictb.hash[hash as usize];
+                dictb.next[ins_pos & LZ_DICT_SIZE_MASK] = dictb.hash[hash as usize];
                 // and insert it into the hash chain.
                 dictb.hash[hash as usize] = ins_pos as u16;
                 dst_pos = (dst_pos + 1) & LZ_DICT_SIZE_MASK;
@@ -1835,14 +1834,14 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
                 lookahead_size += 1;
                 if lookahead_size + d.dict.size >= MIN_MATCH_LEN.into() {
                     let ins_pos = lookahead_pos + lookahead_size - 3;
-                    let hash = ((u32::from(dictb.dict[(ins_pos & LZ_DICT_SIZE_MASK)])
+                    let hash = ((u32::from(dictb.dict[ins_pos & LZ_DICT_SIZE_MASK])
                         << (LZ_HASH_SHIFT * 2))
-                        ^ ((u32::from(dictb.dict[((ins_pos + 1) & LZ_DICT_SIZE_MASK)])
+                        ^ ((u32::from(dictb.dict[(ins_pos + 1) & LZ_DICT_SIZE_MASK])
                             << LZ_HASH_SHIFT)
                             ^ u32::from(c)))
                         & (LZ_HASH_SIZE as u32 - 1);
 
-                    dictb.next[(ins_pos & LZ_DICT_SIZE_MASK)] = dictb.hash[hash as usize];
+                    dictb.next[ins_pos & LZ_DICT_SIZE_MASK] = dictb.hash[hash as usize];
                     dictb.hash[hash as usize] = ins_pos as u16;
                 }
             }
@@ -1866,7 +1865,7 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
         if d.params.flags & (TDEFL_RLE_MATCHES | TDEFL_FORCE_ALL_RAW_BLOCKS) != 0 {
             // If TDEFL_RLE_MATCHES is set, we only look for repeating sequences of the current byte.
             if d.dict.size != 0 && d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS == 0 {
-                let c = d.dict.b.dict[((cur_pos.wrapping_sub(1)) & LZ_DICT_SIZE_MASK)];
+                let c = d.dict.b.dict[(cur_pos.wrapping_sub(1)) & LZ_DICT_SIZE_MASK];
                 cur_match_len = d.dict.b.dict[cur_pos..(cur_pos + lookahead_size)]
                     .iter()
                     .take_while(|&x| *x == c)
@@ -1986,10 +1985,10 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
     debug_assert!(d.lz.code_position < LZ_CODE_BUF_SIZE - 2);
 
     while src_pos < in_buf.len() || (d.params.flush != TDEFLFlush::None && lookahead_size > 0) {
-        let mut dst_pos = ((lookahead_pos + lookahead_size) & LZ_DICT_SIZE_MASK);
+        let mut dst_pos = (lookahead_pos + lookahead_size) & LZ_DICT_SIZE_MASK;
         let mut num_bytes_to_process = cmp::min(
             in_buf.len() - src_pos,
-            (COMP_FAST_LOOKAHEAD_SIZE - lookahead_size),
+            COMP_FAST_LOOKAHEAD_SIZE - lookahead_size,
         );
         lookahead_size += num_bytes_to_process;
 
