@@ -4,6 +4,7 @@ use std::io::Read;
 
 use miniz_oxide::deflate::{compress_to_vec, compress_to_vec_zlib};
 use miniz_oxide::inflate::{decompress_to_vec, decompress_to_vec_zlib, TINFLStatus};
+use miniz_oxide::MZError;
 
 fn get_test_file_data(name: &str) -> Vec<u8> {
     use std::fs::File;
@@ -217,6 +218,33 @@ fn issue_130_reject_invalid_table_sizes() {
     assert!(result.is_err());
     let error = result.unwrap_err();
     assert_eq!(error.status, TINFLStatus::Failed);
+}
+
+#[test]
+fn issue_143_return_buf_error_on_finish_without_end_header() {
+    use miniz_oxide::inflate::stream::{inflate, InflateState};
+    use miniz_oxide::{DataFormat, MZFlush};
+
+    let mut v1 = Vec::new();
+    v1.extend_from_slice(&[0xf2, 0x48, 0xcd, 0xc9, 0xc9, 0x07, 0x00]);
+    v1.extend_from_slice(&[0, 0, 0xFF, 0xFF]);
+
+    let result = decompress_to_vec(v1.as_slice());
+    assert!(result.is_err());
+    let error = result.unwrap_err();
+    assert_eq!(error.status, TINFLStatus::FailedCannotMakeProgress);
+
+    let mut inflate_stream = InflateState::new(DataFormat::Raw);
+    let mut output = vec![0u8; 30];
+
+    let inflate_result = inflate(
+        &mut inflate_stream,
+        v1.as_slice(),
+        &mut output,
+        MZFlush::Finish,
+    );
+
+    assert_eq!(inflate_result.status.unwrap_err(), MZError::Buf)
 }
 
 /*

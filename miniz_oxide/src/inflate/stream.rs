@@ -211,6 +211,9 @@ pub fn inflate(
 
     let first_call = state.first_call;
     state.first_call = false;
+    if state.last_status == TINFLStatus::FailedCannotMakeProgress {
+        return StreamResult::error(MZError::Buf);
+    }
     if (state.last_status as i32) < 0 {
         return StreamResult::error(MZError::Data);
     }
@@ -234,7 +237,9 @@ pub fn inflate(
         bytes_written += out_bytes;
 
         let ret_status = {
-            if (status as i32) < 0 {
+            if status == TINFLStatus::FailedCannotMakeProgress {
+                Err(MZError::Buf)
+            } else if (status as i32) < 0 {
                 Err(MZError::Data)
             } else if status != TINFLStatus::Done {
                 state.last_status = TINFLStatus::Failed;
@@ -298,7 +303,7 @@ fn inflate_loop(
     loop {
         let status = decompress(
             &mut state.decomp,
-            *next_in,
+            next_in,
             &mut state.dict,
             state.dict_ofs,
             decomp_flags,
@@ -357,7 +362,7 @@ fn inflate_loop(
 }
 
 fn push_dict_out(state: &mut InflateState, next_out: &mut &mut [u8]) -> usize {
-    let n = cmp::min(state.dict_avail as usize, next_out.len());
+    let n = cmp::min(state.dict_avail, next_out.len());
     (next_out[..n]).copy_from_slice(&state.dict[state.dict_ofs..state.dict_ofs + n]);
     *next_out = &mut mem::take(next_out)[n..];
     state.dict_avail -= n;
