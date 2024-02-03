@@ -1826,7 +1826,7 @@ mod test {
 
         let mut b = DecompressorOxide::new();
         const LEN: usize = 32;
-        let mut b_buf = vec![0; LEN];
+        let mut b_buf = [0; LEN];
 
         // This should fail with the out buffer being to small.
         let b_status = tinfl_decompress_oxide(&mut b, &encoded[..], b_buf.as_mut_slice(), flags);
@@ -1844,6 +1844,7 @@ mod test {
         assert_eq!(b_status.0, TINFLStatus::Done);
     }
 
+    #[cfg(feature = "with-alloc")]
     #[test]
     fn raw_block() {
         const LEN: usize = 64;
@@ -1868,7 +1869,7 @@ mod test {
 
         let mut b = DecompressorOxide::new();
 
-        let mut b_buf = vec![0; LEN];
+        let mut b_buf = [0; LEN];
 
         let b_status = tinfl_decompress_oxide(&mut b, &encoded[..], b_buf.as_mut_slice(), flags);
         assert_eq!(b_buf[..b_status.2], text[..]);
@@ -1910,6 +1911,8 @@ mod test {
         assert_eq!(masked_lookup(dt, 20), (5, 5));
     }
 
+    // Only run this test with alloc enabled as it uses a larger buffer.
+    #[cfg(feature = "with-alloc")]
     fn check_result(input: &[u8], expected_status: TINFLStatus, expected_state: State, zlib: bool) {
         let mut r = DecompressorOxide::default();
         let mut output_buf = vec![0; 1024 * 32];
@@ -1925,6 +1928,7 @@ mod test {
         assert_eq!(expected_state, r.state);
     }
 
+    #[cfg(feature = "with-alloc")]
     #[test]
     fn bogus_input() {
         use self::check_result as cr;
@@ -2011,7 +2015,7 @@ mod test {
             | TINFL_FLAG_PARSE_ZLIB_HEADER
             | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
         let mut r = DecompressorOxide::new();
-        let mut output_buf = vec![];
+        let mut output_buf: [u8; 0] = [];
         // Check that we handle an empty buffer properly and not panicking.
         // https://github.com/Frommi/miniz_oxide/issues/23
         let res = decompress(&mut r, &encoded, &mut output_buf, 0, flags);
@@ -2025,7 +2029,7 @@ mod test {
         ];
         let flags = TINFL_FLAG_COMPUTE_ADLER32;
         let mut r = DecompressorOxide::new();
-        let mut output_buf = vec![];
+        let mut output_buf: [u8; 0] = [];
         // Check that we handle an empty buffer properly and not panicking.
         // https://github.com/Frommi/miniz_oxide/issues/23
         let res = decompress(&mut r, &encoded, &mut output_buf, 0, flags);

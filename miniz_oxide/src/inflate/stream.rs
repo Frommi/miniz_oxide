@@ -370,7 +370,7 @@ fn push_dict_out(state: &mut InflateState, next_out: &mut &mut [u8]) -> usize {
     n
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "with-alloc"))]
 mod test {
     use super::{inflate, InflateState};
     use crate::{DataFormat, MZFlush, MZStatus};

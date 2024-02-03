@@ -280,7 +280,7 @@ pub fn decompress_slice_iter_to_slice<'out, 'inp>(
     Err(TINFLStatus::FailedCannotMakeProgress)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "with-alloc"))]
 mod test {
     use super::{
         decompress_slice_iter_to_slice, decompress_to_vec_zlib, decompress_to_vec_zlib_with_limit,

@@ -1,3 +1,5 @@
+// Disable these tests for now unless alloc is enabled since we're only testing with the *_vec functions in here.
+#![cfg(feature = "with-alloc")]
 extern crate miniz_oxide;
 
 use std::io::Read;

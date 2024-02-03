@@ -3,23 +3,25 @@
 //! Used a rust back-end for the
 //! [flate2](https://github.com/alexcrichton/flate2-rs) crate.
 //!
-//! # Usage
-//! ## Simple compression/decompression:
-//! ``` rust
-//!
-//! use miniz_oxide::inflate::decompress_to_vec;
-//! use miniz_oxide::deflate::compress_to_vec;
-//!
-//! fn roundtrip(data: &[u8]) {
-//!     let compressed = compress_to_vec(data, 6);
-//!     let decompressed = decompress_to_vec(compressed.as_slice()).expect("Failed to decompress!");
-//! #   let _ = decompressed;
-//! }
-//!
-//! # roundtrip(b"Test_data test data lalalal blabla");
-//!
-//! ```
+#![cfg_attr(
+    feature = "with-alloc",
+    doc = r##"
+# Usage
+## Simple compression/decompression:
+``` rust
 
+use miniz_oxide::inflate::decompress_to_vec;
+use miniz_oxide::deflate::compress_to_vec;
+
+fn roundtrip(data: &[u8]) {
+    let compressed = compress_to_vec(data, 6);
+    let decompressed = decompress_to_vec(compressed.as_slice()).expect("Failed to decompress!");
+#   let _ = decompressed;
+}
+
+# roundtrip(b"Test_data test data lalalal blabla");
+"##
+)]
 #![forbid(unsafe_code)]
 #![cfg_attr(not(feature = "std"), no_std)]
 
