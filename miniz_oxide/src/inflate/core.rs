@@ -1829,7 +1829,7 @@ mod test {
         let mut b_buf = [0; LEN];
 
         // This should fail with the out buffer being to small.
-        let b_status = tinfl_decompress_oxide(&mut b, &encoded[..], b_buf.as_mut_slice(), flags);
+        let b_status = tinfl_decompress_oxide(&mut b, &encoded[..], &mut b_buf, flags);
 
         assert_eq!(b_status.0, TINFLStatus::Failed);
 
@@ -1838,7 +1838,7 @@ mod test {
         b = DecompressorOxide::new();
 
         // With TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF set this should no longer fail.
-        let b_status = tinfl_decompress_oxide(&mut b, &encoded[..], b_buf.as_mut_slice(), flags);
+        let b_status = tinfl_decompress_oxide(&mut b, &encoded[..], &mut b_buf, flags);
 
         assert_eq!(b_buf[..b_status.2], b"Hello, zlib!"[..]);
         assert_eq!(b_status.0, TINFLStatus::Done);
@@ -1871,7 +1871,7 @@ mod test {
 
         let mut b_buf = [0; LEN];
 
-        let b_status = tinfl_decompress_oxide(&mut b, &encoded[..], b_buf.as_mut_slice(), flags);
+        let b_status = tinfl_decompress_oxide(&mut b, &encoded[..], &mut b_buf, flags);
         assert_eq!(b_buf[..b_status.2], text[..]);
         assert_eq!(b_status.0, TINFLStatus::Done);
     }
