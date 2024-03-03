@@ -51,13 +51,13 @@ impl Default for HashBuffers {
 }
 
 pub struct LocalBuf {
-    pub b: [u8; OUT_BUF_SIZE],
+    pub b: Box<[u8]>,
 }
 
 impl Default for LocalBuf {
     fn default() -> LocalBuf {
         LocalBuf {
-            b: [0; OUT_BUF_SIZE],
+            b: vec![0; OUT_BUF_SIZE].into_boxed_slice(),
         }
     }
 }
