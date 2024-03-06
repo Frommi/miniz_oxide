@@ -4,6 +4,7 @@
 
 use alloc::boxed::Box;
 use alloc::vec;
+use core::convert::TryInto;
 
 use crate::deflate::core::{LZ_DICT_SIZE, MAX_MATCH_LEN};
 
@@ -26,9 +27,9 @@ pub fn update_hash(current_hash: u16, byte: u8) -> u16 {
 }
 
 pub struct HashBuffers {
-    pub dict: Box<[u8]>,
-    pub next: Box<[u16]>,
-    pub hash: Box<[u16]>,
+    pub dict: Box<[u8; LZ_DICT_FULL_SIZE]>,
+    pub next: Box<[u16; LZ_DICT_SIZE]>,
+    pub hash: Box<[u16; LZ_DICT_SIZE]>,
 }
 
 impl HashBuffers {
@@ -43,21 +44,24 @@ impl HashBuffers {
 impl Default for HashBuffers {
     fn default() -> HashBuffers {
         HashBuffers {
-            dict: vec![0; LZ_DICT_FULL_SIZE].into_boxed_slice(),
-            next: vec![0; LZ_DICT_SIZE].into_boxed_slice(),
-            hash: vec![0; LZ_DICT_SIZE].into_boxed_slice(),
+            dict: vec![0; LZ_DICT_FULL_SIZE]
+                .into_boxed_slice()
+                .try_into()
+                .unwrap(),
+            next: vec![0; LZ_DICT_SIZE].into_boxed_slice().try_into().unwrap(),
+            hash: vec![0; LZ_DICT_SIZE].into_boxed_slice().try_into().unwrap(),
         }
     }
 }
 
 pub struct LocalBuf {
-    pub b: Box<[u8]>,
+    pub b: Box<[u8; OUT_BUF_SIZE]>,
 }
 
 impl Default for LocalBuf {
     fn default() -> LocalBuf {
         LocalBuf {
-            b: vec![0; OUT_BUF_SIZE].into_boxed_slice(),
+            b: vec![0; OUT_BUF_SIZE].into_boxed_slice().try_into().unwrap(),
         }
     }
 }

@@ -1628,7 +1628,7 @@ fn flush_block(
     {
         let mut output = callback
             .out
-            .new_output_buffer(&mut d.params.local_buf.b, d.params.out_buf_ofs);
+            .new_output_buffer(d.params.local_buf.b.as_mut(), d.params.out_buf_ofs);
         output.bit_buffer = d.params.saved_bit_buffer;
         output.bits_in = d.params.saved_bits_in;
 
