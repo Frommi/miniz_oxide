@@ -1195,7 +1195,7 @@ struct DictOxide {
     pub max_probes: [u32; 2],
     /// Buffer of input data.
     /// Padded with 1 byte to simplify matching code in `compress_fast`.
-    pub b: Box<HashBuffers>,
+    pub b: HashBuffers,
 
     pub code_buf_dict_pos: usize,
     pub lookahead_size: usize,
@@ -1214,7 +1214,7 @@ impl DictOxide {
     fn new(flags: u32) -> Self {
         DictOxide {
             max_probes: probes_from_flags(flags),
-            b: Box::default(),
+            b: HashBuffers::default(),
             code_buf_dict_pos: 0,
             lookahead_size: 0,
             lookahead_pos: 0,
@@ -1401,7 +1401,7 @@ struct ParamsOxide {
     pub saved_bit_buffer: u32,
     pub saved_bits_in: u32,
 
-    pub local_buf: Box<LocalBuf>,
+    pub local_buf: LocalBuf,
 }
 
 impl ParamsOxide {
@@ -1423,7 +1423,7 @@ impl ParamsOxide {
             prev_return_status: TDEFLStatus::Okay,
             saved_bit_buffer: 0,
             saved_bits_in: 0,
-            local_buf: Box::default(),
+            local_buf: LocalBuf::default(),
         }
     }
 
@@ -1448,7 +1448,7 @@ impl ParamsOxide {
         self.prev_return_status = TDEFLStatus::Okay;
         self.saved_bit_buffer = 0;
         self.saved_bits_in = 0;
-        self.local_buf.b = [0; OUT_BUF_SIZE];
+        self.local_buf.b.fill(0);
     }
 }
 
@@ -1628,7 +1628,7 @@ fn flush_block(
     {
         let mut output = callback
             .out
-            .new_output_buffer(&mut d.params.local_buf.b, d.params.out_buf_ofs);
+            .new_output_buffer(d.params.local_buf.b.as_mut(), d.params.out_buf_ofs);
         output.bit_buffer = d.params.saved_bit_buffer;
         output.bits_in = d.params.saved_bits_in;
 
