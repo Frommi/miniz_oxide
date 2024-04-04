@@ -18,7 +18,7 @@ name = "miniz_oxide"
 
 [dependencies]
 adler = { version = "1.0", default-features = false }
-simd-adler32 = { version = "0.3", default-features = false, optional = true }
+simd-adler32 = { version = "0.3.3", default-features = false, optional = true }
 
 # Internal feature, only used when building as part of libstd, not part of the
 # stable interface of this crate.
