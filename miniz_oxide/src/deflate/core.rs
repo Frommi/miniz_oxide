@@ -2392,8 +2392,8 @@ mod test {
 
     #[test]
     fn u16_from_slice() {
-        let mut slice = [208, 7];
-        assert_eq!(read_u16_le(&mut slice, 0), 2000);
+        let slice = [208, 7];
+        assert_eq!(read_u16_le(&slice, 0), 2000);
     }
 
     #[test]
