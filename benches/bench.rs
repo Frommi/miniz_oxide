@@ -222,7 +222,7 @@ mod oxide {
     );
 }
 
-mod miniz {
+/*mod miniz {
     use super::*;
     use libc::{c_int, c_void};
 
@@ -380,7 +380,7 @@ mod miniz {
         9,
         "benches/data/compressed"
     );
-}
+}*/
 
 #[bench]
 fn create_compressor(b: &mut Bencher) {
