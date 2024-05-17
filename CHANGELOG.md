@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 
 ---
+## [0.7.3](https://github.com/Frommi/miniz_oxide/compare/0.7.2..0.7.3) - 2024-05-17
+
+### Bug Fixes
+
+- **(miniz_oxide)** Fix version specification for simd-adler32 ([#150](https://github.com/Frommi/miniz_oxide/issues/150)) - ([35c71e1](https://github.com/Frommi/miniz_oxide/commit/35c71e1d4b20f03936fb690793103b636f1b0038)) - Daniel Müller
+- Fix clippy lints ([#151](https://github.com/Frommi/miniz_oxide/issues/151)) - ([7c758d4](https://github.com/Frommi/miniz_oxide/commit/7c758d4d1cabf24108730ddfdc899b7f62bc2d1d)) - Gnome!
+- **(miniz_oxide)** Remove lookup table from rustc-std builds ([#152](https://github.com/Frommi/miniz_oxide/issues/152)) - ([434d9ab](https://github.com/Frommi/miniz_oxide/commit/434d9abff04421355a76b87eb632e3fbab917268)) - Gnome!
+
+---
 ## [0.7.2](https://github.com/Frommi/miniz_oxide/compare/0.7.1..0.7.2) - 2024-02-03
 
 ### Bug Fixes
