@@ -214,7 +214,7 @@ unmangle!(
     /// This does initialize the struct, but not the inner constructor,
     /// tdefl_init has to be called before doing anything with it.
     pub unsafe extern "C" fn tinfl_decompressor_alloc() -> *mut tinfl_decompressor {
-        Box::into_raw(Box::<tinfl_decompressor>::new(tinfl_decompressor::default()))
+        Box::into_raw(Box::default())
     }
     /// Deallocate the compressor. (Does nothing if the argument is null).
     ///

@@ -312,19 +312,19 @@ enum State {
 
 impl State {
     fn is_failure(self) -> bool {
-        match self {
-            BlockTypeUnexpected => true,
-            BadCodeSizeSum => true,
-            BadDistOrLiteralTableLength => true,
-            BadTotalSymbols => true,
-            BadZlibHeader => true,
-            DistanceOutOfBounds => true,
-            BadRawLength => true,
-            BadCodeSizeDistPrevLookup => true,
-            InvalidLitlen => true,
-            InvalidDist => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            BlockTypeUnexpected
+                | BadCodeSizeSum
+                | BadDistOrLiteralTableLength
+                | BadTotalSymbols
+                | BadZlibHeader
+                | DistanceOutOfBounds
+                | BadRawLength
+                | BadCodeSizeDistPrevLookup
+                | InvalidLitlen
+                | InvalidDist
+        )
     }
 
     #[inline]
@@ -625,15 +625,15 @@ where
     // Clippy gives a false positive warning here due to the closure.
     // Read enough bytes from the input iterator to cover the number of bits we want.
     while l.num_bits < amount {
-        match read_byte(in_iter, flags, |byte| {
+        let action = read_byte(in_iter, flags, |byte| {
             l.bit_buf |= BitBuffer::from(byte) << l.num_bits;
             l.num_bits += 8;
             Action::None
-        }) {
-            Action::None => (),
-            // If there are not enough bytes in the input iterator, return and signal that we need
-            // more.
-            action => return action,
+        });
+
+        // If there are not enough bytes in the input iterator, return and signal that we need more.
+        if !matches!(action, Action::None) {
+            return action;
         }
     }
 

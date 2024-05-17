@@ -30,7 +30,7 @@ impl ops::Drop for HeapBuf {
 
 /// Wrap pointer in a buffer that frees the memory on exit.
 fn w(buf: *mut c_void) -> HeapBuf {
-    HeapBuf { buf: buf }
+    HeapBuf { buf }
 }
 
 fn get_test_file_data(name: &str) -> Vec<u8> {

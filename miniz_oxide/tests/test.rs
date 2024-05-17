@@ -58,7 +58,7 @@ fn get_test_data() -> Vec<u8> {
 
 fn roundtrip(level: u8) {
     let data = get_test_data();
-    let enc = compress_to_vec(&data.as_slice()[..], level);
+    let enc = compress_to_vec(data.as_slice(), level);
     println!(
         "Input len: {}, compressed len: {}, level: {}",
         data.len(),
@@ -160,7 +160,7 @@ fn issue_75_empty_input_infinite_loop() {
     assert_eq!(d.len(), 0);
     let c = miniz_oxide::deflate::compress_to_vec(&[0], 6);
     let d = miniz_oxide::inflate::decompress_to_vec(&c).expect("decompression failed!");
-    assert!(&d == &[0]);
+    assert!(d == [0]);
 }
 
 #[test]
@@ -202,12 +202,13 @@ fn issue_119_inflate_with_exact_limit() {
         .expect("test is not valid, data must correctly decompress when not limited")
         .len();
 
-    let _ = decompress_to_vec_zlib_with_limit(compressed_data, decompressed_size).expect(
-        format!(
-            "data decompression failed when limited to {}",
-            decompressed_size
-        )
-        .as_str(),
+    let _ = decompress_to_vec_zlib_with_limit(compressed_data, decompressed_size).unwrap_or_else(
+        |_| {
+            panic!(
+                "data decompression failed when limited to {}",
+                decompressed_size
+            )
+        },
     );
 }
 

@@ -193,7 +193,7 @@ pub fn mz_deflate_oxide(stream_oxide: &mut StreamOxide<Compressor>, flush: i32) 
     };
 
     *next_in = &next_in[ret.bytes_consumed as usize..];
-    *next_out = &mut mem::replace(next_out, &mut [])[ret.bytes_written as usize..];
+    *next_out = &mut mem::take(next_out)[ret.bytes_written as usize..];
     // Wrapping add to emulate miniz_behaviour, will wrap around >4 GiB on 32-bit.
     stream_oxide.total_in = stream_oxide
         .total_in
@@ -264,7 +264,7 @@ pub fn mz_inflate_oxide(stream_oxide: &mut StreamOxide<InflateState>, flush: i32
     let flush = MZFlush::new(flush)?;
     let ret = inflate(state, next_in, next_out, flush);
     *next_in = &next_in[ret.bytes_consumed as usize..];
-    *next_out = &mut mem::replace(next_out, &mut [])[ret.bytes_written as usize..];
+    *next_out = &mut mem::take(next_out)[ret.bytes_written as usize..];
     // Wrapping add to emulate miniz_behaviour, will wrap around >4 GiB on 32-bit.
     stream_oxide.total_in = stream_oxide
         .total_in

@@ -3,6 +3,7 @@
 //! [flate2](https://crates.io/crates/flate2) crate.
 //!
 //! The C API is in a bit of a rough shape currently.
+#![allow(clippy::missing_safety_doc)]
 
 extern crate crc32fast;
 #[cfg(not(any(

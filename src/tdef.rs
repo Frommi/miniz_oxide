@@ -23,18 +23,10 @@ pub struct CallbackFunc {
 
 /// Main compression struct. Not the same as `CompressorOxide`
 /// #[repr(C)]
+#[derive(Default)]
 pub struct Compressor {
     pub(crate) inner: Option<CompressorOxide>,
     pub(crate) callback: Option<CallbackFunc>,
-}
-
-impl Default for Compressor {
-    fn default() -> Self {
-        Compressor {
-            inner: None,
-            callback: None,
-        }
-    }
 }
 
 #[repr(C)]
@@ -279,7 +271,7 @@ unmangle!(
         flags: c_int,
     ) -> tdefl_status {
         if let Some(d) = d {
-            match catch_unwind(AssertUnwindSafe(|| {
+            let panic_res = catch_unwind(AssertUnwindSafe(|| {
                 d.inner = Some(CompressorOxide::new(flags as u32));
                 if let Some(f) = put_buf_func {
                     d.callback = Some(CallbackFunc {
@@ -289,7 +281,9 @@ unmangle!(
                 } else {
                     d.callback = None;
                 };
-            })) {
+            }));
+
+            match panic_res {
                 Ok(_) => tdefl_status::TDEFL_STATUS_OKAY,
                 Err(_) => {
                     eprintln!("FATAL ERROR: Caught panic when initializing the compressor!");
@@ -310,7 +304,7 @@ unmangle!(
     }
 
     pub unsafe extern "C" fn tdefl_get_adler32(d: Option<&mut Compressor>) -> c_uint {
-        d.map_or(crate::MZ_ADLER32_INIT as u32, |d| d.adler32())
+        d.map_or(crate::MZ_ADLER32_INIT, |d| d.adler32())
     }
 
     pub unsafe extern "C" fn tdefl_compress_mem_to_output(
