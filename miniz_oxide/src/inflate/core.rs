@@ -680,16 +680,20 @@ fn start_static_table(r: &mut DecompressorOxide) {
 
 #[cfg(feature = "rustc-dep-of-std")]
 fn reverse_bits(n: u32) -> u32 {
+    // Lookup is not used when building as part of std to avoid wasting space
+    // for lookup table in every rust binary
+    // as it's only used for backtraces in the cold path
+    // - see #152
     n.reverse_bits()
 }
 
 #[cfg(not(feature = "rustc-dep-of-std"))]
 fn reverse_bits(n: u32) -> u32 {
-    static REVERSED_BITS_LOOKUP: [u32; 1024] = {
-        let mut table = [0; 1024];
+    static REVERSED_BITS_LOOKUP: [u32; 512] = {
+        let mut table = [0; 512];
 
         let mut i = 0;
-        while i < 1024 {
+        while i < 512 {
             table[i] = (i as u32).reverse_bits();
             i += 1;
         }
@@ -744,26 +748,26 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Option<Action> {
 
         let mut tree_next = -1;
         for symbol_index in 0..table_size {
-            let mut rev_code = 0;
             let code_size = table.code_size[symbol_index];
             if code_size == 0 || usize::from(code_size) >= next_code.len() {
                 continue;
             }
 
-            let mut cur_code = next_code[code_size as usize];
+            let cur_code = next_code[code_size as usize];
             next_code[code_size as usize] += 1;
 
             let n = cur_code & (u32::MAX >> (32 - code_size));
 
-            let mut rev_code = if n < 1024 {
-                reverse_bits(n) >> (32 - code_size)
+            let mut rev_code = if n < 512 {
+                // Using a lookup table
+                // for a small speedup here,
+                // Seems to only really make a difference on very short
+                // inputs however.
+                // 512 seems to be around a sweet spot.
+                reverse_bits(n)
             } else {
-                for _ in 0..code_size {
-                    rev_code = (rev_code << 1) | (cur_code & 1);
-                    cur_code >>= 1;
-                }
-                rev_code
-            };
+                n.reverse_bits()
+            } >> (32 - code_size);
 
             if code_size <= FAST_LOOKUP_BITS {
                 let k = (i16::from(code_size) << 9) | symbol_index as i16;
