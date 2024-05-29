@@ -108,6 +108,12 @@ mod oxide {
         "benches/data/bin"
     );
     compress_bench!(
+        compress_bin_lvl_2,
+        tdefl_compress_mem_to_heap,
+        2,
+        "benches/data/bin"
+    );
+    compress_bench!(
         compress_bin_lvl_6,
         tdefl_compress_mem_to_heap,
         6,

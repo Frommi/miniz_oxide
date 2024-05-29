@@ -1242,6 +1242,8 @@ impl DictOxide {
         let pos = pos & LZ_DICT_SIZE_MASK;
         let end = pos + 4;
         // Somehow this assertion makes things faster.
+        // TODO: as of may 2024 this does not seem to make any difference
+        // so consider removing.
         assert!(end < LZ_DICT_FULL_SIZE);
 
         let bytes: [u8; 4] = self.b.dict[pos..end].try_into().unwrap();
@@ -1252,6 +1254,10 @@ impl DictOxide {
     /// type T.
     #[inline]
     fn read_unaligned_u64(&self, pos: usize) -> u64 {
+        // Help evade bounds/panic code check by masking the position value
+        // This provides a small speedup at the cost of an instruction or two instead of
+        // having to use unsafe.
+        let pos = pos & LZ_DICT_SIZE_MASK;
         let bytes: [u8; 8] = self.b.dict[pos..pos + 8].try_into().unwrap();
         u64::from_le_bytes(bytes)
     }
