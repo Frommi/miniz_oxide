@@ -1464,7 +1464,6 @@ struct LZOxide {
     pub flag_position: usize,
 
     // The total number of bytes in the current block.
-    // (Could maybe use usize, but it's not possible to exceed a block size of )
     pub total_bytes: u32,
     pub num_flags_left: u32,
 }
@@ -1481,7 +1480,9 @@ impl LZOxide {
     }
 
     fn write_code(&mut self, val: u8) {
-        self.codes[self.code_position] = val;
+        // Perf - go via u16 to help evade bounds check
+        // TODO: see if we can use u16 for flag_position in general.
+        self.codes[usize::from(self.code_position as u16)] = val;
         self.code_position += 1;
     }
 
@@ -1495,7 +1496,9 @@ impl LZOxide {
     }
 
     fn get_flag(&mut self) -> &mut u8 {
-        &mut self.codes[self.flag_position]
+        // Perf - go via u16 to help evade bounds check
+        // TODO: see if we can use u16 for flag_position in general.
+        &mut self.codes[usize::from(self.flag_position as u16)]
     }
 
     fn plant_flag(&mut self) {
@@ -1753,9 +1756,9 @@ fn record_literal(h: &mut HuffmanOxide, lz: &mut LZOxide, lit: u8) {
 }
 
 fn record_match(h: &mut HuffmanOxide, lz: &mut LZOxide, mut match_len: u32, mut match_dist: u32) {
-    assert!(match_len >= MIN_MATCH_LEN.into());
-    assert!(match_dist >= 1);
-    assert!(match_dist as usize <= LZ_DICT_SIZE);
+    debug_assert!(match_len >= MIN_MATCH_LEN.into());
+    debug_assert!(match_dist >= 1);
+    debug_assert!(match_dist as usize <= LZ_DICT_SIZE);
 
     lz.total_bytes += match_len;
     match_dist -= 1;
@@ -1774,7 +1777,8 @@ fn record_match(h: &mut HuffmanOxide, lz: &mut LZOxide, mut match_len: u32, mut 
         LARGE_DIST_SYM[((match_dist >> 8) & 127) as usize]
     } as usize;
     h.count[1][symbol] += 1;
-    h.count[0][LEN_SYM[match_len as usize] as usize] += 1;
+    // Perf - go via u8 to help optimize out bounds check.
+    h.count[0][LEN_SYM[usize::from(match_len as u8)] as usize] += 1;
 }
 
 fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool {
