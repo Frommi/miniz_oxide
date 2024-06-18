@@ -85,3 +85,4 @@ ignore_tags = ""
 date_order = false
 # sort the commits inside sections by oldest/newest order
 sort_commits = "oldest"
+features_always_bump_minor = false

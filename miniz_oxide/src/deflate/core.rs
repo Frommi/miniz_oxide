@@ -678,9 +678,12 @@ struct OutputBufferOxide<'a> {
 
 impl<'a> OutputBufferOxide<'a> {
     fn put_bits(&mut self, bits: u32, len: u32) {
+        // TODO: Removing this assertion worsens performance
+        // Need to figure out why
         assert!(bits <= ((1u32 << len) - 1u32));
         self.bit_buffer |= bits << self.bits_in;
         self.bits_in += len;
+
         while self.bits_in >= 8 {
             self.inner[self.inner_pos] = self.bit_buffer as u8;
             self.inner_pos += 1;

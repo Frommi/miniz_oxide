@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 
 ---
+## [0.7.4](https://github.com/Frommi/miniz_oxide/compare/0.7.3..0.7.4) - 2024-06-18
+
+### Bug Fixes
+
+- **(miniz_oxide)** simplify init_tree a little and use a smaller lookup table for bit reversal - ([2ba520a](https://github.com/Frommi/miniz_oxide/commit/2ba520a458704e9fd12817fd2e945d869502c59c)) - oyvindln
+- **(miniz_oxide)** evade bounds checks in record_match to improve compression performance a little - ([d1de8db](https://github.com/Frommi/miniz_oxide/commit/d1de8dba2e2bbea6452c9a1d78b221a0f41dadd2)) - oyvindln
+- **(deflate)** evade a bounds check in deflate for a small perf improvement - ([b4baed3](https://github.com/Frommi/miniz_oxide/commit/b4baed337a70c317c5d6a2fa245bda21f461fc6b)) - oyvindln
+
+### Other
+
+- disable c miniz part in miniz_oxide_c_api of bench - ([2f0a9a3](https://github.com/Frommi/miniz_oxide/commit/2f0a9a3b4f2bc49c44efa3fa9e3afada893ab775)) - oyvindln
+
+---
 ## [0.7.3](https://github.com/Frommi/miniz_oxide/compare/0.7.2..0.7.3) - 2024-05-17
 
 ### Bug Fixes
