@@ -125,7 +125,7 @@
  *
  * If [`TINFL_FLAG_IGNORE_ADLER32`] is specified, it will override this.
  *
- * NOTE: Enabling/disabling this between calls to decompress will result in an incorect
+ * NOTE: Enabling/disabling this between calls to decompress will result in an incorrect
  * checksum.
  */
 #define TINFL_FLAG_COMPUTE_ADLER32 8
