@@ -311,7 +311,7 @@ enum State {
 }
 
 impl State {
-    fn is_failure(self) -> bool {
+    const fn is_failure(self) -> bool {
         matches!(
             self,
             BlockTypeUnexpected
@@ -445,7 +445,7 @@ fn fill_bit_buffer(l: &mut LocalVars, in_iter: &mut slice::Iter<u8>) {
 ///
 /// See https://tools.ietf.org/html/rfc1950
 #[inline]
-fn validate_zlib_header(cmf: u32, flg: u32, flags: u32, mask: usize) -> Action {
+const fn validate_zlib_header(cmf: u32, flg: u32, flags: u32, mask: usize) -> Action {
     let mut failed =
     // cmf + flg should be divisible by 31.
         (((cmf * 256) + flg) % 31 != 0) ||
@@ -653,7 +653,7 @@ where
 }
 
 #[inline]
-fn end_of_input(flags: u32) -> Action {
+const fn end_of_input(flags: u32) -> Action {
     Action::End(if flags & TINFL_FLAG_HAS_MORE_INPUT != 0 {
         TINFLStatus::NeedsMoreInput
     } else {

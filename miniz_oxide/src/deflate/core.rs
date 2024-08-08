@@ -240,7 +240,7 @@ impl From<MZFlush> for TDEFLFlush {
 }
 
 impl TDEFLFlush {
-    pub fn new(flush: i32) -> Result<Self, MZError> {
+    pub const fn new(flush: i32) -> Result<Self, MZError> {
         match flush {
             0 => Ok(TDEFLFlush::None),
             2 => Ok(TDEFLFlush::Sync),
@@ -320,7 +320,7 @@ mod zlib {
         flg + (FCHECK_DIVISOR - rem as u8)
     }
 
-    fn zlib_level_from_flags(flags: u32) -> u8 {
+    const fn zlib_level_from_flags(flags: u32) -> u8 {
         use super::NUM_PROBES;
 
         let num_probes = flags & (super::MAX_PROBES_MASK as u32);
@@ -454,7 +454,7 @@ impl CompressorOxide {
     }
 
     /// Returns whether the compressor is wrapping the data in a zlib format or not.
-    pub fn data_format(&self) -> DataFormat {
+    pub const fn data_format(&self) -> DataFormat {
         if (self.params.flags & TDEFL_WRITE_ZLIB_HEADER) != 0 {
             DataFormat::Zlib
         } else {
