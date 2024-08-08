@@ -3,6 +3,18 @@
 All notable changes to this project will be documented in this file.
 
 ---
+## [0.8.0](https://github.com/Frommi/miniz_oxide/compare/0.7.4..0.8.0) - 2024-08-08
+
+### Major changes
+
+This release changes to using the forked adler2 crate as the original adler crate has not seen any updates in the last 3 years and the repositories have been marked as archived.
+The minimum rust version has also been bumped slightly to make room for future improvements.
+
+### Bug Fixes
+
+- **(miniz_oxide)** update edition, make more functions const, fix warning, update to adler2 - ([b212371](https://github.com/Frommi/miniz_oxide/commit/b2123715e2f10f29548b3124b2ea0ce91aad8c27)) - oyvindln
+
+---
 ## [0.7.4](https://github.com/Frommi/miniz_oxide/compare/0.7.3..0.7.4) - 2024-06-18
 
 ### Bug Fixes
