@@ -252,6 +252,43 @@ fn issue_143_return_buf_error_on_finish_without_end_header() {
 
 /*
 #[test]
+fn partial_decompression_imap_issue_158() {
+    use miniz_oxide::inflate::stream::{inflate, InflateState};
+    use miniz_oxide::{DataFormat, MZFlush};
+    use std::string;
+
+    // Decompresses to
+    // "* QUOTAROOT INBOX \"User quota\"\r\n* QUOTA \"User quota\" (STORAGE 76 307200)\r\nA0001 OK Getquotaroot completed (0.001 + 0.000 secs).\r\n"
+    let input = vec![
+        210, 82, 8, 12, 245, 15, 113, 12, 242, 247, 15, 81, 240, 244, 115, 242, 143, 80, 80, 10,
+        45, 78, 45, 82, 40, 44, 205, 47, 73, 84, 226, 229, 210, 130, 200, 163, 136, 42, 104, 4,
+        135, 248, 7, 57, 186, 187, 42, 152, 155, 41, 24, 27, 152, 27, 25, 24, 104, 242, 114, 57,
+        26, 24, 24, 24, 42, 248, 123, 43, 184, 167, 150, 128, 213, 21, 229, 231, 151, 40, 36, 231,
+        231, 22, 228, 164, 150, 164, 166, 40, 104, 24, 232, 129, 20, 104, 43, 128, 104, 3, 133,
+        226, 212, 228, 98, 77, 61, 94, 46, 0, 0, 0, 0, 255, 255,
+    ];
+
+    let mut inflate_stream = InflateState::new(DataFormat::Raw);
+    let mut output = vec![0; 8];
+    let result = inflate(&mut inflate_stream, &input, &mut output, MZFlush::None);
+
+    let out_string: String = string::String::from_utf8(output).unwrap();
+
+    println!("{}", out_string);
+    println!("written {}", result.bytes_written);
+
+    assert!(result.status.is_ok());
+    // Should not consume everything, there is not enough space in the buffer for the output.
+    assert!(
+        result.bytes_consumed < input.len(),
+        "bytes consumed {:?}, input.len() {}",
+        result.bytes_consumed,
+        input.len()
+    )
+}*/
+
+/*
+#[test]
 fn large_file() {
     let data = get_test_file_data("large_file/lf");
     let enc = compress_to_vec(&data.as_slice()[..], 3);

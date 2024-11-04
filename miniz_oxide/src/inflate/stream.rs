@@ -227,6 +227,9 @@ pub fn inflate(
     if (flush == MZFlush::Finish) && first_call {
         decomp_flags |= inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
 
+        // The caller is indicating that they want to finish the compression and this is the first call with the current stream
+        // so we can simply write directly to the output buffer.
+        // If there is not enough space for all of the decompressed data we will end up with a failure regardless.
         let status = decompress(&mut state.decomp, next_in, next_out, 0, decomp_flags);
         let in_bytes = status.1;
         let out_bytes = status.2;
@@ -435,7 +438,12 @@ mod test {
         let mut part_in = 0;
         let mut part_out = 0;
         for i in 1..=encoded.len() {
-            let res = inflate(&mut state, &encoded[part_in..i], &mut out[part_out..], MZFlush::None);
+            let res = inflate(
+                &mut state,
+                &encoded[part_in..i],
+                &mut out[part_out..],
+                MZFlush::None,
+            );
             let status = res.status.expect("Failed to decompress!");
             if i == encoded.len() {
                 assert_eq!(status, MZStatus::StreamEnd);
@@ -450,7 +458,6 @@ mod test {
         assert_eq!(part_in, encoded.len());
         assert_eq!(state.decompressor().adler32(), Some(459605011));
     }
-
 
     // Inflate part of a stream and clone the inflate state.
     // Discard the original state and resume the stream from the clone.
@@ -474,14 +481,21 @@ mod test {
         drop(state);
 
         // Resume the stream using the cloned state
-        let res2 = inflate(&mut resume, &encoded[res1.bytes_consumed..], &mut out[res1.bytes_written..], MZFlush::Finish);
+        let res2 = inflate(
+            &mut resume,
+            &encoded[res1.bytes_consumed..],
+            &mut out[res1.bytes_written..],
+            MZFlush::Finish,
+        );
         let status = res2.status.expect("Failed to decompress!");
         assert_eq!(status, MZStatus::StreamEnd);
 
         assert_eq!(res1.bytes_consumed + res2.bytes_consumed, encoded.len());
         assert_eq!(res1.bytes_written + res2.bytes_written, decoded.len());
-        assert_eq!(&out[..res1.bytes_written + res2.bytes_written as usize], decoded);
+        assert_eq!(
+            &out[..res1.bytes_written + res2.bytes_written as usize],
+            decoded
+        );
         assert_eq!(resume.decompressor().adler32(), Some(459605011));
     }
-
 }

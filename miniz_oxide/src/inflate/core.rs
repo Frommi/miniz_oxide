@@ -99,7 +99,7 @@ const MAX_HUFF_SYMBOLS_0: usize = 288;
 /// The length of the second (distance) huffman table.
 const MAX_HUFF_SYMBOLS_1: usize = 32;
 /// The length of the last (huffman code length) huffman table.
-const _MAX_HUFF_SYMBOLS_2: usize = 19;
+// const _MAX_HUFF_SYMBOLS_2: usize = 19;
 /// The maximum length of a code that can be looked up in the fast lookup table.
 const FAST_LOOKUP_BITS: u8 = 10;
 /// The size of the fast lookup table.
@@ -337,7 +337,6 @@ impl State {
 
 use self::State::*;
 
-// Not sure why miniz uses 32-bit values for these, maybe alignment/cache again?
 // # Optimization
 // We add a extra value at the end and make the tables 32 elements long
 // so we can use a mask to avoid bounds checks.
@@ -362,18 +361,20 @@ const LENGTH_EXTRA: [u8; 32] = [
 
 /// Base length for each distance code.
 #[rustfmt::skip]
-const DIST_BASE: [u16; 32] = [
+const DIST_BASE: [u16; 30] = [
     1,    2,    3,    4,    5,    7,      9,      13,     17,     25,    33,
     49,   65,   97,   129,  193,  257,    385,    513,    769,    1025,  1537,
-    2049, 3073, 4097, 6145, 8193, 12_289, 16_385, 24_577, 32_768, 32_768
+    2049, 3073, 4097, 6145, 8193, 12_289, 16_385, 24_577
 ];
 
-/// Number of extra bits for each distance code.
-#[rustfmt::skip]
-const DIST_EXTRA: [u8; 32] = [
-    0, 0, 0, 0, 1, 1, 2,  2,  3,  3,  4,  4,  5,  5,  6,  6,
-    7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13, 13, 13
-];
+/// Get the number of extra bits used for a distance code.
+/// (Code numbers above `NUM_DISTANCE_CODES` will give some garbage
+/// value.)
+const fn num_extra_bits_for_distance_code(code: u8) -> u8 {
+    // This can be easily calculated without a lookup.
+    let c = code >> 1;
+    c - (c != 0) as u8
+}
 
 /// The mask used when indexing the base/extra arrays.
 const BASE_EXTRA_MASK: usize = 32 - 1;
@@ -1092,7 +1093,7 @@ fn decompress_fast(
                     break 'o TINFLStatus::Failed;
                 }
 
-                l.num_extra = u32::from(DIST_EXTRA[symbol as usize]);
+                l.num_extra = u32::from(num_extra_bits_for_distance_code(symbol as u8));
                 l.dist = u32::from(DIST_BASE[symbol as usize]);
             } else {
                 state.begin(InvalidCodeLen);
@@ -1149,18 +1150,18 @@ fn decompress_fast(
 ///
 /// * The offset given by `out_pos` indicates where in the output buffer slice writing should start.
 /// * If [`TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF`] is not set, the output buffer is used in a
-/// wrapping manner, and it's size is required to be a power of 2.
+///   wrapping manner, and it's size is required to be a power of 2.
 /// * The decompression function normally needs access to 32KiB of the previously decompressed data
-///(or to the beginning of the decompressed data if less than 32KiB has been decompressed.)
+///   (or to the beginning of the decompressed data if less than 32KiB has been decompressed.)
 ///     - If this data is not available, decompression may fail.
 ///     - Some deflate compressors allow specifying a window size which limits match distances to
-/// less than this, or alternatively an RLE mode where matches will only refer to the previous byte
-/// and thus allows a smaller output buffer. The window size can be specified in the zlib
-/// header structure, however, the header data should not be relied on to be correct.
+///       less than this, or alternatively an RLE mode where matches will only refer to the previous byte
+///       and thus allows a smaller output buffer. The window size can be specified in the zlib
+///       header structure, however, the header data should not be relied on to be correct.
 ///
 /// `flags` indicates settings and status to the decompression function.
 /// * The [`TINFL_FLAG_HAS_MORE_INPUT`] has to be specified if more compressed data is to be provided
-/// in a subsequent call to this function.
+///   in a subsequent call to this function.
 /// * See the the [`inflate_flags`] module for details on other flags.
 ///
 /// # Returns
@@ -1177,7 +1178,7 @@ pub fn decompress(
     flags: u32,
 ) -> (TINFLStatus, usize, usize) {
     let out_buf_size_mask = if flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0 {
-        usize::max_value()
+        usize::MAX
     } else {
         // In the case of zero len, any attempt to write would produce HasMoreOutput,
         // so to gracefully process the case of there really being no output,
@@ -1610,16 +1611,19 @@ pub fn decompress(
                 // Try to read a huffman code from the input buffer and look up what
                 // length code the decoded symbol refers to.
                 decode_huffman_code(r, &mut l, DIST_TABLE, flags, &mut in_iter, |_r, l, symbol| {
+                    // # Optimizaton - transform the value into usize here before the check so
+                    // the compiler can optimize the bounds check later - ideally it should
+                    // know that the value can't be negative from earlier in the
+                    // decode_huffman_code function but it seems it may not be able
+                    // to make the assumption that it can't be negative and thus
+                    // overflow if it's converted after the check.
+                    let symbol = symbol as usize;
                     if symbol > 29 {
                         // Invalid distance code.
                         return Action::Jump(InvalidDist)
                     }
-                    // # Optimization
-                    // Mask the value to avoid bounds checks
-                    // We could use get_unchecked later if can statically verify that
-                    // this will never go out of bounds.
-                    l.num_extra = u32::from(DIST_EXTRA[symbol as usize & BASE_EXTRA_MASK]);
-                    l.dist = u32::from(DIST_BASE[symbol as usize & BASE_EXTRA_MASK]);
+                    l.num_extra = u32::from(num_extra_bits_for_distance_code(symbol as u8));
+                    l.dist = u32::from(DIST_BASE[symbol]);
                     if l.num_extra != 0 {
                         // ReadEXTRA_BITS_DISTACNE
                         Action::Jump(ReadExtraBitsDistance)
@@ -2050,5 +2054,19 @@ mod test {
         // https://github.com/Frommi/miniz_oxide/issues/23
         let res = decompress(&mut r, &encoded, &mut output_buf, 0, flags);
         assert_eq!(res, (TINFLStatus::HasMoreOutput, 2, 0));
+    }
+
+    #[test]
+    fn dist_extra_bits() {
+        use self::num_extra_bits_for_distance_code;
+        // Number of extra bits for each distance code.
+        const DIST_EXTRA: [u8; 29] = [
+            0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12,
+            12, 13,
+        ];
+
+        for (i, &dist) in DIST_EXTRA.iter().enumerate() {
+            assert_eq!(dist, num_extra_bits_for_distance_code(i as u8));
+        }
     }
 }
