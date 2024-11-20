@@ -94,6 +94,7 @@ impl<'a> InputWrapper<'a> {
     }
 
     #[inline]
+    #[cfg(target_pointer_width = "64")]
     pub fn read_u32_le(&mut self) -> u32 {
         let ret = {
             let four_bytes: [u8; 4] = self.slice[..4].try_into().unwrap_or_default();

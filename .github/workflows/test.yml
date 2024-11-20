@@ -28,30 +28,16 @@ jobs:
             os: windows-latest
             rust: stable-x86_64-gnu
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          override: true
           toolchain: ${{ matrix.rust }}
       - run: cargo test --manifest-path ./miniz_oxide/Cargo.toml
       - run: cargo test --manifest-path ./miniz_oxide/Cargo.toml --features simd
       - run: cargo test --manifest-path ./miniz_oxide/Cargo.toml --no-default-features
-      - run: cargo build --manifest-path ./miniz_oxide/Cargo.toml --no-default-features
-      - run: cargo test
-
-  # rustfmt:
-  #   name: Rustfmt
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v3
-  #     - uses: actions-rs/toolchain@v1
-  #       with:
-  #         profile: minimal
-  #         components: rustfmt # seems to not work?
-  #         toolchain: stable
-  #     - run: rustup toolchain install stable --component rustfmt
-  #     - run: cargo fmt -p miniz_oxide -- --check
+      - name: Test minimal
+        if: ${{ matrix.rust !=  '1.56.0' }} 
+        run: cargo test
 
   wasm:
     name: WebAssembly
@@ -60,10 +46,9 @@ jobs:
       matrix:
         target: [wasm32-unknown-unknown, wasm32-wasi]
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
           toolchain: stable
-          target: ${{ matrix.target }}
+          targets: ${{ matrix.target }}
       - run: cargo build -p miniz_oxide --target ${{ matrix.target }}
