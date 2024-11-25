@@ -206,6 +206,13 @@ pub enum CompressionStrategy {
     Fixed = 4,
 }
 
+impl From<CompressionStrategy> for i32 {
+    #[inline(always)]
+    fn from(value: CompressionStrategy) -> Self {
+        value as i32
+    }
+}
+
 /// A list of deflate flush types.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TDEFLFlush {
@@ -299,10 +306,15 @@ pub(crate) const MAX_MATCH_LEN: usize = 258;
 const DEFAULT_FLAGS: u32 = NUM_PROBES[4] | TDEFL_WRITE_ZLIB_HEADER;
 
 mod zlib {
+    use super::TDEFL_RLE_MATCHES;
+
     const DEFAULT_CM: u8 = 8;
     const DEFAULT_CINFO: u8 = 7 << 4;
     const _DEFAULT_FDICT: u8 = 0;
     const DEFAULT_CMF: u8 = DEFAULT_CM | DEFAULT_CINFO;
+    // CMF used for RLE (technically it uses a window size of 0 but the lowest that can
+    // be specified in the header corresponds to a window size of 1 << (0 + 8) aka 256.
+    const MIN_CMF: u8 = DEFAULT_CM | 0;
     /// The 16-bit value consisting of CMF and FLG must be divisible by this to be valid.
     const FCHECK_DIVISOR: u8 = 31;
 
@@ -324,7 +336,9 @@ mod zlib {
         use super::NUM_PROBES;
 
         let num_probes = flags & (super::MAX_PROBES_MASK as u32);
-        if flags & super::TDEFL_GREEDY_PARSING_FLAG != 0 {
+        if (flags & super::TDEFL_GREEDY_PARSING_FLAG != 0)
+            || (flags & super::TDEFL_RLE_MATCHES != 0)
+        {
             if num_probes <= 1 {
                 0
             } else {
@@ -337,10 +351,18 @@ mod zlib {
         }
     }
 
+    const fn cmf_from_flags(flags: u32) -> u8 {
+        if flags & TDEFL_RLE_MATCHES == 0 {
+            DEFAULT_CMF
+        } else {
+            MIN_CMF
+        }
+    }
+
     /// Get the zlib header for the level using the default window size and no
     /// dictionary.
-    fn header_from_level(level: u8) -> [u8; 2] {
-        let cmf = DEFAULT_CMF;
+    fn header_from_level(level: u8, flags: u32) -> [u8; 2] {
+        let cmf = cmf_from_flags(flags);
         [cmf, add_fcheck(cmf, level << 6)]
     }
 
@@ -348,7 +370,7 @@ mod zlib {
     /// Only level is considered.
     pub fn header_from_flags(flags: u32) -> [u8; 2] {
         let level = zlib_level_from_flags(flags);
-        header_from_level(level)
+        header_from_level(level, flags)
     }
 
     #[cfg(test)]
@@ -381,7 +403,7 @@ mod zlib {
 
         #[test]
         fn test_header() {
-            let header = super::header_from_level(3);
+            let header = super::header_from_level(3, 0);
             assert_eq!(
                 ((usize::from(header[0]) * 256) + usize::from(header[1])) % 31,
                 0
@@ -776,7 +798,7 @@ const HUFF_CODES_TABLE: usize = 2;
 /// Status of RLE encoding of huffman code lengths.
 struct Rle {
     pub z_count: u32,
-    pub repeat_count: u32,
+    pub repeat_count: u16,
     pub prev_code_size: u8,
 }
 
@@ -792,7 +814,7 @@ impl Rle {
         if self.repeat_count != 0 {
             if self.repeat_count < 3 {
                 counts[self.prev_code_size as usize] =
-                    counts[self.prev_code_size as usize].wrapping_add(self.repeat_count as u16);
+                    counts[self.prev_code_size as usize].wrapping_add(self.repeat_count);
                 let code = self.prev_code_size;
                 write(&[code, code, code][..self.repeat_count as usize])?;
             } else {
@@ -2465,5 +2487,46 @@ mod test {
 
         let decoded = decompress_to_vec(&encoded[..]).unwrap();
         assert_eq!(&decoded[..], &slice[..]);
+    }
+
+    #[test]
+    fn zlib_window_bits() {
+        use crate::inflate::stream::{inflate, InflateState};
+        use crate::DataFormat;
+        use alloc::boxed::Box;
+        let slice = [
+            1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 1, 2, 6, 1, 2, 3, 1, 2, 3, 2, 3, 1, 2, 3, 35, 22, 22, 2,
+            6, 2, 6,
+        ];
+        let mut encoded = vec![];
+        let flags = create_comp_flags_from_zip_params(2, 1, CompressionStrategy::RLE.into());
+        let mut d = CompressorOxide::new(flags);
+        let (status, in_consumed) =
+            compress_to_output(&mut d, &slice, TDEFLFlush::Finish, |out: &[u8]| {
+                encoded.extend_from_slice(out);
+                true
+            });
+
+        assert_eq!(status, TDEFLStatus::Done);
+        assert_eq!(in_consumed, slice.len());
+
+        let mut output = vec![0; slice.len()];
+
+        let mut decompressor = Box::new(InflateState::new(DataFormat::Zlib));
+
+        let mut out_slice = output.as_mut_slice();
+        // Feed 1 byte at a time and no back buffer to test that RLE encoding has been used.
+        for i in 0..encoded.len() {
+            let result = inflate(
+                &mut decompressor,
+                &encoded[i..i + 1],
+                out_slice,
+                crate::MZFlush::None,
+            );
+            out_slice = &mut out_slice[result.bytes_written..];
+        }
+        let cmf = decompressor.decompressor().zlib_header().0;
+        assert_eq!(cmf, 8);
+        assert_eq!(output, slice)
     }
 }

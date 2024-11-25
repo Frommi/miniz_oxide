@@ -238,6 +238,13 @@ impl DecompressorOxide {
             None
         }
     }
+
+    // Get zlib header for tests
+    // Only for tests for now, may provide a proper function for this for later.
+    #[cfg(all(test, feature = "with-alloc"))]
+    pub(crate) const fn zlib_header(&self) -> (u32, u32) {
+        (self.z_header0, self.z_header1)
+    }
 }
 
 impl Default for DecompressorOxide {
