@@ -556,7 +556,7 @@ pub struct CallbackFunc<'a> {
     pub put_buf_func: &'a mut dyn FnMut(&[u8]) -> bool,
 }
 
-impl<'a> CallbackFunc<'a> {
+impl CallbackFunc<'_> {
     fn flush_output(
         &mut self,
         saved_output: SavedOutputBufferOxide,
@@ -580,7 +580,7 @@ struct CallbackBuf<'a> {
     pub out_buf: &'a mut [u8],
 }
 
-impl<'a> CallbackBuf<'a> {
+impl CallbackBuf<'_> {
     fn flush_output(
         &mut self,
         saved_output: SavedOutputBufferOxide,
@@ -609,7 +609,7 @@ enum CallbackOut<'a> {
     Buf(CallbackBuf<'a>),
 }
 
-impl<'a> CallbackOut<'a> {
+impl CallbackOut<'_> {
     fn new_output_buffer<'b>(
         &'b mut self,
         local_buf: &'b mut [u8],
@@ -700,7 +700,7 @@ struct OutputBufferOxide<'a> {
     pub bits_in: u32,
 }
 
-impl<'a> OutputBufferOxide<'a> {
+impl OutputBufferOxide<'_> {
     fn put_bits(&mut self, bits: u32, len: u32) {
         // TODO: Removing this assertion worsens performance
         // Need to figure out why

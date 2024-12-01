@@ -52,11 +52,13 @@ impl HuffmanTable {
             // symbol here indicates the position of the left (0) node, if the next bit is 1
             // we add 1 to the lookup position to get the right node.
             let tree_index = (!symbol + ((bit_buf >> code_len) & 1) as i32) as usize;
+
+            // Use get here to avoid generatic panic code.
+            // The init_tree code should prevent this from actually going out of bounds
+            // but if there were somehow a bug with that
+            // we would at worst end up with corrupted output in release mode.
             debug_assert!(tree_index < self.tree.len());
-            if tree_index >= self.tree.len() {
-                break;
-            }
-            symbol = i32::from(self.tree[tree_index]);
+            symbol = i32::from(self.tree.get(tree_index).copied().unwrap_or(i16::MAX));
             code_len += 1;
             if symbol >= 0 {
                 break;
@@ -694,16 +696,29 @@ fn start_static_table(r: &mut DecompressorOxide) {
     memset(&mut r.code_size_dist[0..32], 5);
 }
 
-#[cfg(feature = "rustc-dep-of-std")]
+#[cfg(any(
+    feature = "rustc-dep-of-std",
+    target_arch = "aarch64",
+    target_arch = "arm64ec",
+    target_arch = "loongarch64"
+))]
 fn reverse_bits(n: u32) -> u32 {
     // Lookup is not used when building as part of std to avoid wasting space
     // for lookup table in every rust binary
     // as it's only used for backtraces in the cold path
     // - see #152
+
+    // armv7 and newer, and loongarch have a cpu instruction for bit reversal so
+    // it's preferable to just use that on those architectures.
     n.reverse_bits()
 }
 
-#[cfg(not(feature = "rustc-dep-of-std"))]
+#[cfg(not(any(
+    feature = "rustc-dep-of-std",
+    target_arch = "aarch64",
+    target_arch = "arm64ec",
+    target_arch = "loongarch64"
+)))]
 fn reverse_bits(n: u32) -> u32 {
     static REVERSED_BITS_LOOKUP: [u32; 512] = {
         let mut table = [0; 512];
@@ -716,7 +731,6 @@ fn reverse_bits(n: u32) -> u32 {
 
         table
     };
-
     REVERSED_BITS_LOOKUP[n as usize]
 }
 
