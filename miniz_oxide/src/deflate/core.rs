@@ -306,7 +306,7 @@ pub(crate) const MAX_MATCH_LEN: usize = 258;
 const DEFAULT_FLAGS: u32 = NUM_PROBES[4] | TDEFL_WRITE_ZLIB_HEADER;
 
 mod zlib {
-    use super::TDEFL_RLE_MATCHES;
+    use super::{TDEFL_FORCE_ALL_RAW_BLOCKS, TDEFL_RLE_MATCHES};
 
     const DEFAULT_CM: u8 = 8;
     const DEFAULT_CINFO: u8 = 7 << 4;
@@ -314,7 +314,7 @@ mod zlib {
     const DEFAULT_CMF: u8 = DEFAULT_CM | DEFAULT_CINFO;
     // CMF used for RLE (technically it uses a window size of 0 but the lowest that can
     // be specified in the header corresponds to a window size of 1 << (0 + 8) aka 256.
-    const MIN_CMF: u8 = DEFAULT_CM | 0;
+    const MIN_CMF: u8 = DEFAULT_CM; // | 0
     /// The 16-bit value consisting of CMF and FLG must be divisible by this to be valid.
     const FCHECK_DIVISOR: u8 = 31;
 
@@ -352,8 +352,10 @@ mod zlib {
     }
 
     const fn cmf_from_flags(flags: u32) -> u8 {
-        if flags & TDEFL_RLE_MATCHES == 0 {
+        if (flags & TDEFL_RLE_MATCHES == 0) && (flags & TDEFL_FORCE_ALL_RAW_BLOCKS == 0) {
             DEFAULT_CMF
+        // If we are using RLE encoding or no compression the window bits can be set as the
+        // minimum.
         } else {
             MIN_CMF
         }

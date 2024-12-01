@@ -14,8 +14,6 @@ pub const TINFL_LZ_DICT_SIZE: usize = 32_768;
 /// A struct containing huffman code lengths and the huffman code tree used by the decompressor.
 #[derive(Clone)]
 struct HuffmanTable {
-    /// Length of the code at each index.
-    pub code_size: [u8; MAX_HUFF_SYMBOLS_0],
     /// Fast lookup table for shorter huffman codes.
     ///
     /// See `HuffmanTable::fast_lookup`.
@@ -30,7 +28,6 @@ struct HuffmanTable {
 impl HuffmanTable {
     const fn new() -> HuffmanTable {
         HuffmanTable {
-            code_size: [0; MAX_HUFF_SYMBOLS_0],
             look_up: [0; FAST_LOOKUP_SIZE as usize],
             tree: [0; MAX_HUFF_TREE_SIZE],
         }
@@ -81,11 +78,10 @@ impl HuffmanTable {
     fn lookup(&self, bit_buf: BitBuffer) -> Option<(i32, u32)> {
         let symbol = self.fast_lookup(bit_buf).into();
         if symbol >= 0 {
-            if (symbol >> 9) as u32 != 0 {
-                Some((symbol, (symbol >> 9) as u32))
-            } else {
-                // Zero-length code.
-                None
+            let length = (symbol >> 9) as u32;
+            match length {
+                0 => None,
+                _ => Some((symbol, length)),
             }
         } else {
             // We didn't get a symbol from the fast lookup table, so check the tree instead.
@@ -101,7 +97,7 @@ const MAX_HUFF_SYMBOLS_0: usize = 288;
 /// The length of the second (distance) huffman table.
 const MAX_HUFF_SYMBOLS_1: usize = 32;
 /// The length of the last (huffman code length) huffman table.
-// const _MAX_HUFF_SYMBOLS_2: usize = 19;
+const MAX_HUFF_SYMBOLS_2: usize = 19;
 /// The maximum length of a code that can be looked up in the fast lookup table.
 const FAST_LOOKUP_BITS: u8 = 10;
 /// The size of the fast lookup table.
@@ -167,6 +163,13 @@ type BitBuffer = u64;
 #[cfg(not(target_pointer_width = "64"))]
 type BitBuffer = u32;
 
+/*
+enum HuffmanTableType {
+    LiteralLength = 0,
+    Dist = 1,
+    Huffman = 2,
+}*/
+
 /// Main decompression struct.
 ///
 #[derive(Clone)]
@@ -182,9 +185,9 @@ pub struct DecompressorOxide {
     /// Adler32 checksum from the zlib header.
     z_adler32: u32,
     /// 1 if the current block is the last block, 0 otherwise.
-    finish: u32,
+    finish: u8,
     /// The type of the current block.
-    block_type: u32,
+    block_type: u8,
     /// 1 if the adler32 value should be checked.
     check_adler32: u32,
     /// Last match distance.
@@ -192,13 +195,16 @@ pub struct DecompressorOxide {
     /// Variable used for match length, symbols, and a number of other things.
     counter: u32,
     /// Number of extra bits for the last length or distance code.
-    num_extra: u32,
+    num_extra: u8,
     /// Number of entries in each huffman table.
-    table_sizes: [u32; MAX_HUFF_TABLES],
+    table_sizes: [u16; MAX_HUFF_TABLES],
     /// Buffer of input data.
     bit_buf: BitBuffer,
     /// Huffman tables.
     tables: [HuffmanTable; MAX_HUFF_TABLES],
+    code_size_literal: [u8; MAX_HUFF_SYMBOLS_0],
+    code_size_dist: [u8; MAX_HUFF_SYMBOLS_1],
+    code_size_huffman: [u8; MAX_HUFF_SYMBOLS_2],
     /// Raw block header.
     raw_header: [u8; 4],
     /// Huffman length codes.
@@ -245,6 +251,14 @@ impl DecompressorOxide {
     pub(crate) const fn zlib_header(&self) -> (u32, u32) {
         (self.z_header0, self.z_header1)
     }
+
+    /*fn code_size_table(&mut self, table_num: u8) -> &mut [u8] {
+        match table_num {
+            0 => &mut self.code_size_literal,
+            1 => &mut self.code_size_dist,
+            _ => &mut self.code_size_huffman,
+        }
+    }*/
 }
 
 impl Default for DecompressorOxide {
@@ -271,6 +285,9 @@ impl Default for DecompressorOxide {
                 HuffmanTable::new(),
                 HuffmanTable::new(),
             ],
+            code_size_literal: [0; MAX_HUFF_SYMBOLS_0],
+            code_size_dist: [0; MAX_HUFF_SYMBOLS_1],
+            code_size_huffman: [0; MAX_HUFF_SYMBOLS_2],
             raw_header: [0; 4],
             len_codes: [0; MAX_HUFF_SYMBOLS_0 + MAX_HUFF_SYMBOLS_1 + 137],
         }
@@ -670,11 +687,11 @@ fn undo_bytes(l: &mut LocalVars, max: u32) -> u32 {
 fn start_static_table(r: &mut DecompressorOxide) {
     r.table_sizes[LITLEN_TABLE] = 288;
     r.table_sizes[DIST_TABLE] = 32;
-    memset(&mut r.tables[LITLEN_TABLE].code_size[0..144], 8);
-    memset(&mut r.tables[LITLEN_TABLE].code_size[144..256], 9);
-    memset(&mut r.tables[LITLEN_TABLE].code_size[256..280], 7);
-    memset(&mut r.tables[LITLEN_TABLE].code_size[280..288], 8);
-    memset(&mut r.tables[DIST_TABLE].code_size[0..32], 5);
+    memset(&mut r.code_size_literal[0..144], 8);
+    memset(&mut r.code_size_literal[144..256], 9);
+    memset(&mut r.code_size_literal[256..280], 7);
+    memset(&mut r.code_size_literal[280..288], 8);
+    memset(&mut r.code_size_dist[0..32], 5);
 }
 
 #[cfg(feature = "rustc-dep-of-std")]
@@ -706,20 +723,25 @@ fn reverse_bits(n: u32) -> u32 {
 fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Option<Action> {
     loop {
         let bt = r.block_type as usize;
-        if bt >= r.tables.len() {
-            return None;
-        }
+
+        let code_sizes = match bt {
+            0 => &mut r.code_size_literal[..],
+            1 => &mut r.code_size_dist,
+            2 => &mut r.code_size_huffman,
+            _ => return None,
+        };
         let table = &mut r.tables[bt];
-        let table_size = r.table_sizes[bt] as usize;
-        if table_size > table.code_size.len() {
-            return None;
-        }
-        let mut total_symbols = [0u32; 16];
+
+        let mut total_symbols = [0u16; 16];
         let mut next_code = [0u32; 17];
         memset(&mut table.look_up[..], 0);
         memset(&mut table.tree[..], 0);
 
-        for &code_size in &table.code_size[..table_size] {
+        let table_size = r.table_sizes[bt] as usize;
+        if table_size > code_sizes.len() {
+            return None;
+        }
+        for &code_size in &code_sizes[..table_size] {
             let cs = code_size as usize;
             if cs >= total_symbols.len() {
                 return None;
@@ -728,15 +750,10 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Option<Action> {
         }
 
         let mut used_symbols = 0;
-        let mut total = 0;
-        for (ts, next) in total_symbols
-            .iter()
-            .copied()
-            .zip(next_code.iter_mut().skip(1))
-            .skip(1)
-        {
+        let mut total = 0u32;
+        for (&ts, next) in total_symbols.iter().zip(next_code[1..].iter_mut()).skip(1) {
             used_symbols += ts;
-            total += ts;
+            total += u32::from(ts);
             total <<= 1;
             *next = total;
         }
@@ -747,7 +764,7 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Option<Action> {
 
         let mut tree_next = -1;
         for symbol_index in 0..table_size {
-            let code_size = table.code_size[symbol_index];
+            let code_size = code_sizes[symbol_index];
             if code_size == 0 || usize::from(code_size) >= next_code.len() {
                 continue;
             }
@@ -822,6 +839,7 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Option<Action> {
     }
 
     l.counter = 0;
+
     Some(Action::Jump(DecodeLitlen))
 }
 
@@ -1203,7 +1221,7 @@ pub fn decompress(
         num_bits: r.num_bits,
         dist: r.dist,
         counter: r.counter,
-        num_extra: r.num_extra as u8,
+        num_extra: r.num_extra,
     };
 
     let mut status = 'state_machine: loop {
@@ -1242,8 +1260,8 @@ pub fn decompress(
             // Read the block header and jump to the relevant section depending on the block type.
             ReadBlockHeader => generate_state!(state, 'state_machine, {
                 read_bits(&mut l, 3, &mut in_iter, flags, |l, bits| {
-                    r.finish = (bits & 1) as u32;
-                    r.block_type = (bits >> 1) as u32 & 3;
+                    r.finish = (bits & 1) as u8;
+                    r.block_type = ((bits >> 1) & 3) as u8;
                     match r.block_type {
                         0 => Action::Jump(BlockTypeNoCompression),
                         1 => {
@@ -1375,12 +1393,12 @@ pub fn decompress(
                     let num_bits = [5, 5, 4][l.counter as usize];
                     read_bits(&mut l, num_bits, &mut in_iter, flags, |l, bits| {
                         r.table_sizes[l.counter as usize] =
-                            bits as u32 + u32::from(MIN_TABLE_SIZES[l.counter as usize]);
+                            bits as u16 + MIN_TABLE_SIZES[l.counter as usize];
                         l.counter += 1;
                         Action::None
                     })
                 } else {
-                    memset(&mut r.tables[HUFFLEN_TABLE].code_size[..], 0);
+                    memset(&mut r.code_size_huffman[..], 0);
                     l.counter = 0;
                     // Check that the litlen and distance are within spec.
                     // litlen table should be <=286 acc to the RFC and
@@ -1400,25 +1418,24 @@ pub fn decompress(
             // Read the 3-bit lengths of the huffman codes describing the huffman code lengths used
             // to decode the lengths of the main tables.
             ReadHufflenTableCodeSize => generate_state!(state, 'state_machine, {
-                if l.counter < r.table_sizes[HUFFLEN_TABLE] {
+                if l.counter < r.table_sizes[HUFFLEN_TABLE].into() {
                     read_bits(&mut l, 3, &mut in_iter, flags, |l, bits| {
                         // These lengths are not stored in a normal ascending order, but rather one
                         // specified by the deflate specification intended to put the most used
                         // values at the front as trailing zero lengths do not have to be stored.
-                        r.tables[HUFFLEN_TABLE]
-                            .code_size[HUFFMAN_LENGTH_ORDER[l.counter as usize] as usize] =
+                        r.code_size_huffman[HUFFMAN_LENGTH_ORDER[l.counter as usize] as usize] =
                                 bits as u8;
                         l.counter += 1;
                         Action::None
                     })
                 } else {
-                    r.table_sizes[HUFFLEN_TABLE] = 19;
+                    r.table_sizes[HUFFLEN_TABLE] = MAX_HUFF_SYMBOLS_2 as u16;
                     init_tree(r, &mut l).unwrap_or(Action::End(TINFLStatus::Failed))
                 }
             }),
 
             ReadLitlenDistTablesCodeSize => generate_state!(state, 'state_machine, {
-                if l.counter < r.table_sizes[LITLEN_TABLE] + r.table_sizes[DIST_TABLE] {
+                if l.counter < u32::from(r.table_sizes[LITLEN_TABLE]) + u32::from(r.table_sizes[DIST_TABLE]) {
                     decode_huffman_code(
                         r, &mut l, HUFFLEN_TABLE,
                         flags, &mut in_iter, |r, l, symbol| {
@@ -1435,16 +1452,16 @@ pub fn decompress(
                             }
                         }
                     )
-                } else if l.counter != r.table_sizes[LITLEN_TABLE] + r.table_sizes[DIST_TABLE] {
+                } else if l.counter != u32::from(r.table_sizes[LITLEN_TABLE]) + u32::from(r.table_sizes[DIST_TABLE]) {
                     Action::Jump(BadCodeSizeSum)
                 } else {
-                    r.tables[LITLEN_TABLE].code_size[..r.table_sizes[LITLEN_TABLE] as usize]
+                    r.code_size_literal[..r.table_sizes[LITLEN_TABLE] as usize]
                         .copy_from_slice(&r.len_codes[..r.table_sizes[LITLEN_TABLE] as usize]);
 
                     let dist_table_start = r.table_sizes[LITLEN_TABLE] as usize;
                     let dist_table_end = (r.table_sizes[LITLEN_TABLE] +
                                           r.table_sizes[DIST_TABLE]) as usize;
-                    r.tables[DIST_TABLE].code_size[..r.table_sizes[DIST_TABLE] as usize]
+                    r.code_size_dist[..r.table_sizes[DIST_TABLE] as usize]
                         .copy_from_slice(&r.len_codes[dist_table_start..dist_table_end]);
 
                     r.block_type -= 1;
@@ -1782,7 +1799,7 @@ pub fn decompress(
     r.num_bits = l.num_bits;
     r.dist = l.dist;
     r.counter = l.counter;
-    r.num_extra = l.num_extra.into();
+    r.num_extra = l.num_extra;
 
     r.bit_buf &= ((1 as BitBuffer) << r.num_bits) - 1;
 
@@ -1908,7 +1925,7 @@ mod test {
             num_bits: d.num_bits,
             dist: d.dist,
             counter: d.counter,
-            num_extra: d.num_extra as u8,
+            num_extra: d.num_extra,
         };
         init_tree(&mut d, &mut l).unwrap();
         let llt = &d.tables[LITLEN_TABLE];
