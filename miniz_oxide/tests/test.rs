@@ -250,6 +250,20 @@ fn issue_143_return_buf_error_on_finish_without_end_header() {
     assert_eq!(inflate_result.status.unwrap_err(), MZError::Buf)
 }
 
+#[test]
+fn decompress_empty_dynamic() {
+    // Empty block with dynamic huffman codes.
+    let enc = vec![5, 192, 129, 8, 0, 0, 0, 0, 32, 127, 235, 0b011, 0, 0, 0];
+
+    let res = decompress_to_vec(enc.as_slice()).unwrap();
+    assert!(res.is_empty());
+
+    let enc = vec![5, 192, 129, 8, 0, 0, 0, 0, 32, 127, 235, 0b1111011, 0, 0, 0];
+
+    let res = decompress_to_vec(enc.as_slice());
+    assert!(res.is_err());
+}
+
 /*
 #[test]
 fn partial_decompression_imap_issue_158() {
