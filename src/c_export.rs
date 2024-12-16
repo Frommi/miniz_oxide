@@ -253,7 +253,7 @@ impl<'io, ST: StateType> StreamOxide<'io, ST> {
     }
 }
 
-#[cfg(not(no_c_export))]
+#[cfg(not(feature = "no_c_export"))]
 unmangle!(
     /// Default allocation function using `malloc`.
     pub unsafe extern "C" fn miniz_def_alloc_func(
