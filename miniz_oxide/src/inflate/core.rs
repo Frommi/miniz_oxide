@@ -750,7 +750,14 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Option<Action> {
         // and can instead error out on the invalid symbol check
         // on bogus input.
         memset(&mut table.look_up[..], INVALID_CODE);
-        memset(&mut table.tree[..], 0);
+        // If we are initializing the huffman code length we can skip
+        // this since these codes can't be longer than 3 bits
+        // and thus only use the fast table and this table won't be accessed so
+        // there is no point clearing it.
+        // TODO: Avoid creating this table at all.
+        if bt != HUFFLEN_TABLE {
+            memset(&mut table.tree[..], 0);
+        }
 
         let table_size = r.table_sizes[bt] as usize;
         if table_size > code_sizes.len() {
