@@ -407,14 +407,6 @@ const fn num_extra_bits_for_distance_code(code: u8) -> u8 {
 /// The mask used when indexing the base/extra arrays.
 const BASE_EXTRA_MASK: usize = 32 - 1;
 
-/// Sets the value of all the elements of the slice to `val`.
-#[inline]
-fn memset<T: Copy>(slice: &mut [T], val: T) {
-    for x in slice {
-        *x = val
-    }
-}
-
 /// Read an le u16 value from the slice iterator.
 ///
 /// # Panics
@@ -683,11 +675,11 @@ fn undo_bytes(l: &mut LocalVars, max: u32) -> u32 {
 fn start_static_table(r: &mut DecompressorOxide) {
     r.table_sizes[LITLEN_TABLE] = 288;
     r.table_sizes[DIST_TABLE] = 32;
-    memset(&mut r.code_size_literal[0..144], 8);
-    memset(&mut r.code_size_literal[144..256], 9);
-    memset(&mut r.code_size_literal[256..280], 7);
-    memset(&mut r.code_size_literal[280..288], 8);
-    memset(&mut r.code_size_dist[0..32], 5);
+    r.code_size_literal[0..144].fill(8);
+    r.code_size_literal[144..256].fill(9);
+    r.code_size_literal[256..280].fill(7);
+    r.code_size_literal[280..288].fill(8);
+    r.code_size_dist[0..32].fill(5);
 }
 
 #[cfg(any(
@@ -749,14 +741,14 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Option<Action> {
         // code length in the hot code path later
         // and can instead error out on the invalid symbol check
         // on bogus input.
-        memset(&mut table.look_up[..], INVALID_CODE);
+        table.look_up.fill(INVALID_CODE);
         // If we are initializing the huffman code length we can skip
         // this since these codes can't be longer than 3 bits
         // and thus only use the fast table and this table won't be accessed so
         // there is no point clearing it.
         // TODO: Avoid creating this table at all.
         if bt != HUFFLEN_TABLE {
-            memset(&mut table.tree[..], 0);
+            table.tree.fill(0);
         }
 
         let table_size = r.table_sizes[bt] as usize;
@@ -1422,7 +1414,7 @@ pub fn decompress(
                         Action::None
                     })
                 } else {
-                    memset(&mut r.code_size_huffman[..], 0);
+                    r.code_size_huffman.fill(0);
                     l.counter = 0;
                     // Check that the litlen and distance are within spec.
                     // litlen table should be <=286 acc to the RFC and
@@ -1504,12 +1496,9 @@ pub fn decompress(
                         0
                     };
 
-                    memset(
-                        &mut r.len_codes[
+                    r.len_codes[
                             l.counter as usize..l.counter as usize + extra_bits as usize
-                        ],
-                        val,
-                    );
+                        ].fill(val);
                     l.counter += extra_bits as u32;
                     Action::Jump(ReadLitlenDistTablesCodeSize)
                 })
