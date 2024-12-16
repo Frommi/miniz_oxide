@@ -297,13 +297,13 @@ unmangle!(
     }
 );
 
-#[cfg(target_bit_width = "64")]
+#[cfg(target_pointer_width = "64")]
 #[inline]
 fn buffer_too_large(source_len: c_ulong, dest_len: c_ulong) -> bool {
     (source_len | dest_len) > 0xFFFFFFFF
 }
 
-#[cfg(not(target_bit_width = "64"))]
+#[cfg(not(target_pointer_width = "64"))]
 #[inline]
 fn buffer_too_large(_source_len: c_ulong, _dest_len: c_ulong) -> bool {
     false
