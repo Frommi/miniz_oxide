@@ -414,12 +414,6 @@ mod zlib {
     }
 }
 
-fn memset<T: Copy>(slice: &mut [T], val: T) {
-    for x in slice {
-        *x = val
-    }
-}
-
 #[cfg(test)]
 #[inline]
 fn write_u16_le(val: u16, slice: &mut [u8], pos: usize) {
@@ -1041,8 +1035,8 @@ impl HuffmanOxide {
 
             Self::enforce_max_code_size(&mut num_codes, num_used_symbols, code_size_limit);
 
-            memset(&mut self.code_sizes[table_num][..], 0);
-            memset(&mut self.codes[table_num][..], 0);
+            self.code_sizes[table_num].fill(0);
+            self.codes[table_num].fill(0);
 
             let mut last = num_used_symbols;
             for (i, &num_item) in num_codes
@@ -1088,12 +1082,12 @@ impl HuffmanOxide {
     }
 
     fn start_static_block(&mut self, output: &mut OutputBufferOxide) {
-        memset(&mut self.code_sizes[LITLEN_TABLE][0..144], 8);
-        memset(&mut self.code_sizes[LITLEN_TABLE][144..256], 9);
-        memset(&mut self.code_sizes[LITLEN_TABLE][256..280], 7);
-        memset(&mut self.code_sizes[LITLEN_TABLE][280..288], 8);
+        self.code_sizes[LITLEN_TABLE][0..144].fill(8);
+        self.code_sizes[LITLEN_TABLE][144..256].fill(9);
+        self.code_sizes[LITLEN_TABLE][256..280].fill(7);
+        self.code_sizes[LITLEN_TABLE][280..288].fill(8);
 
-        memset(&mut self.code_sizes[DIST_TABLE][..32], 5);
+        self.code_sizes[DIST_TABLE][..32].fill(5);
 
         self.optimize_table(LITLEN_TABLE, 288, 15, true);
         self.optimize_table(DIST_TABLE, 32, 15, true);
@@ -1138,7 +1132,7 @@ impl HuffmanOxide {
             prev_code_size: 0xFF,
         };
 
-        memset(&mut self.count[HUFF_CODES_TABLE][..MAX_HUFF_SYMBOLS_2], 0);
+        self.count[HUFF_CODES_TABLE][..MAX_HUFF_SYMBOLS_2].fill(0);
 
         let mut packed_pos = 0;
         for &code_size in &code_sizes_to_pack[..total_code_sizes_to_pack] {
@@ -1753,8 +1747,8 @@ fn flush_block(
             }
         }
 
-        memset(&mut d.huff.count[0][..MAX_HUFF_SYMBOLS_0], 0);
-        memset(&mut d.huff.count[1][..MAX_HUFF_SYMBOLS_1], 0);
+        d.huff.count[0][..MAX_HUFF_SYMBOLS_0].fill(0);
+        d.huff.count[0][..MAX_HUFF_SYMBOLS_1].fill(0);
 
         d.lz.code_position = 1;
         d.lz.flag_position = 0;
@@ -2352,8 +2346,8 @@ fn compress_inner(
             _ => {
                 d.params.finished = d.params.flush == TDEFLFlush::Finish;
                 if d.params.flush == TDEFLFlush::Full {
-                    memset(&mut d.dict.b.hash[..], 0);
-                    memset(&mut d.dict.b.next[..], 0);
+                    d.dict.b.hash.fill(0);
+                    d.dict.b.next.fill(0);
                     d.dict.size = 0;
                 }
             }
