@@ -1748,7 +1748,7 @@ fn flush_block(
         }
 
         d.huff.count[0][..MAX_HUFF_SYMBOLS_0].fill(0);
-        d.huff.count[0][..MAX_HUFF_SYMBOLS_1].fill(0);
+        d.huff.count[1][..MAX_HUFF_SYMBOLS_1].fill(0);
 
         d.lz.code_position = 1;
         d.lz.flag_position = 0;
