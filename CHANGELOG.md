@@ -3,6 +3,24 @@
 All notable changes to this project will be documented in this file.
 
 ---
+## [0.8.1](https://github.com/Frommi/miniz_oxide/compare/0.8.0..0.8.1) - 2024-12-17
+
+### Bug Fixes
+
+- **(fuzzing)** update fuzzing to work again - ([b7a5908](https://github.com/Frommi/miniz_oxide/commit/b7a5908e1b83bde6b60568f6a67952890ab925a9)) - user
+- **(deflate)** use built in fill instead of custom memset function - ([c0662f1](https://github.com/Frommi/miniz_oxide/commit/c0662f11528cbc32291bf91d6caa1890774c2729)) - oyvindln
+- **(inflate)** use smaller types in inflate struct, split up huffman table arrays to make struct smaller, make zlib level 0 if using rle, other minor tweaks - ([c5f8f76](https://github.com/Frommi/miniz_oxide/commit/c5f8f761148a3a8a0a7f1b42e698c5e630a8cdf6)) - oyvindln
+- **(inflate)** use function instead of lookup table for distance extra bits for tiny space/perf saving and fix clippy warnings - ([9f1fc5e](https://github.com/Frommi/miniz_oxide/commit/9f1fc5e5aeee4ce54be3a766e259b030f3b3cfa9)) - oyvindln
+- **(inflate)** use inputwrapper struct instead of iter to simplify input reading and change some data types for performance - ([423bdf8](https://github.com/Frommi/miniz_oxide/commit/423bdf84360c087bea6d3e2b463f3c3a2c1a2867)) - oyvindln
+- **(inflate)** don't use lookup table on aarch64 and loong since we have bit rev instruction there, fix clippy warnings and fix conditional in tree_lookup that seemed to break perf - ([083e4b3](https://github.com/Frommi/miniz_oxide/commit/083e4b3e66e9e4e45e7c48a56481d62ee6a78bce)) - oyvindln
+- **(inflate)** fill fast lookup table with invalid code value instead of zero so we can avoid check in hot code path givin a small performance boost - ([f73e6a4](https://github.com/Frommi/miniz_oxide/commit/f73e6a4600fbfa795d500d45caef4d48f8c85eff)) - oyvindln
+- **(inflate)** skip pointlessly clearing unused huffman code length tree - ([b3b1604](https://github.com/Frommi/miniz_oxide/commit/b3b16048bd459782964f10a23aef63bf058389d5)) - oyvindln
+- **(inflate)** use built in fill instead of custom memset function - ([e6ee54e](https://github.com/Frommi/miniz_oxide/commit/e6ee54e82c16ddccb6b55d5a20b8aa5cb4669ca0)) - oyvindln
+- **(tests)** change workflow to use rust 1.56.0 - ([7258c06](https://github.com/Frommi/miniz_oxide/commit/7258c064bf39cc124210546d535d82c9c6cd1b5f)) - oyvindln
+- **(deflate)** set min window bits in inflate header when using rle - ([02a8857](https://github.com/Frommi/miniz_oxide/commit/02a88571dcc58182df15abb5c1b0410bbd5db428)) - oyvindln
+- **(inflate)** Derive Clone for InflateState to allow random-access reads ([#157](https://github.com/Frommi/miniz_oxide/issues/157)) - ([0a33eff](https://github.com/Frommi/miniz_oxide/commit/0a33effd414711b379e01b0613ba5ae85a0e14d0)) - Phil Hord
+
+---
 ## [0.8.0](https://github.com/Frommi/miniz_oxide/compare/0.7.4..0.8.0) - 2024-08-08
 
 ### Major changes
