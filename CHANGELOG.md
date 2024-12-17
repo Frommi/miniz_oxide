@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 
 ---
+## [0.8.2](https://github.com/Frommi/miniz_oxide/compare/0.8.1..0.8.2) - 2024-12-17
+
+### Bug Fixes
+
+- **(deflate)** fix ([#159](https://github.com/Frommi/miniz_oxide/issues/159)) - ([e3536a7](https://github.com/Frommi/miniz_oxide/commit/e3536a779451012db9d6f8d803252a4f30ce6b91)) (fix for bug accidentally introduced in the previous release causing panics in some cases)- Matthew Deville
+
+---
 ## [0.8.1](https://github.com/Frommi/miniz_oxide/compare/0.8.0..0.8.1) - 2024-12-17
 
 ### Bug Fixes
