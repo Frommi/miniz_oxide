@@ -26,6 +26,15 @@ core = { version = '1.0.0', optional = true, package = 'rustc-std-workspace-core
 alloc = { version = '1.0.0', optional = true, package = 'rustc-std-workspace-alloc' }
 compiler_builtins = { version = '0.1.2', optional = true }
 
+[dev-dependencies]
+## Messes with minimum rust version and drags in deps just for running tests
+## so just comment out for now and enable manually when needed for enabling benches
+# criterion = "0.5"
+
+[[bench]]
+name = "benchmark"
+harness = false
+
 [features]
 default = ["with-alloc"]
 with-alloc = []
