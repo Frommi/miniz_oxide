@@ -1,6 +1,6 @@
 [package]
 name = "miniz_oxide"
-authors = ["Frommi <daniil.liferenko@gmail.com>", "oyvindln <oyvindln@users.noreply.github.com>"]
+authors = ["Frommi <daniil.liferenko@gmail.com>", "oyvindln <oyvindln@users.noreply.github.com>", "Rich Geldreich richgel99@gmail.com"]
 version = "0.8.2"
 license = "MIT OR Zlib OR Apache-2.0"
 readme = "Readme.md"
