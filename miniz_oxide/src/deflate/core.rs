@@ -710,6 +710,12 @@ impl OutputBufferOxide<'_> {
         }
     }
 
+    #[inline]
+    fn put_bits_no_flush(&mut self, bits: u32, len: u32) {
+        self.bit_buffer |= bits << self.bits_in;
+        self.bits_in += len;
+    }
+
     const fn save(&self) -> SavedOutputBufferOxide {
         SavedOutputBufferOxide {
             pos: self.inner_pos,
@@ -726,11 +732,19 @@ impl OutputBufferOxide<'_> {
         self.local = saved.local;
     }
 
+    #[inline]
     fn pad_to_bytes(&mut self) {
         if self.bits_in != 0 {
             let len = 8 - self.bits_in;
             self.put_bits(0, len);
         }
+    }
+
+    #[inline]
+    fn write_bytes(&mut self, bytes: &[u8]) {
+        debug_assert_eq!(self.bits_in, 0);
+        self.inner[self.inner_pos..self.inner_pos + bytes.len()].copy_from_slice(bytes);
+        self.inner_pos += bytes.len();
     }
 }
 
@@ -1167,10 +1181,10 @@ impl HuffmanOxide {
 
         self.optimize_table(2, MAX_HUFF_SYMBOLS_2, 7, false);
 
-        output.put_bits(2, 2);
+        output.put_bits_no_flush(2, 2);
 
-        output.put_bits((num_lit_codes - 257) as u32, 5);
-        output.put_bits((num_dist_codes - 1) as u32, 5);
+        output.put_bits_no_flush((num_lit_codes - 257) as u32, 5);
+        output.put_bits_no_flush((num_dist_codes - 1) as u32, 5);
 
         let mut num_bit_lengths = 18
             - HUFFMAN_LENGTH_ORDER
@@ -1674,7 +1688,7 @@ fn flush_block(
         // If we are at the start of the stream, write the zlib header if requested.
         if d.params.flags & TDEFL_WRITE_ZLIB_HEADER != 0 && d.params.block_index == 0 {
             let header = zlib::header_from_flags(d.params.flags);
-            output.put_bits(header[0].into(), 8);
+            output.put_bits_no_flush(header[0].into(), 8);
             output.put_bits(header[1].into(), 8);
         }
 
@@ -1708,7 +1722,7 @@ fn flush_block(
             output.load(saved_buffer);
 
             // Block header.
-            output.put_bits(0, 2);
+            output.put_bits_no_flush(0, 2);
 
             // Block length has to start on a byte boundary, s opad.
             output.pad_to_bytes();
@@ -1718,9 +1732,14 @@ fn flush_block(
             output.put_bits(!d.lz.total_bytes & 0xFFFF, 16);
 
             // Write the actual bytes.
-            for i in 0..d.lz.total_bytes {
-                let pos = (d.dict.code_buf_dict_pos + i as usize) & LZ_DICT_SIZE_MASK;
-                output.put_bits(u32::from(d.dict.b.dict[pos]), 8);
+            let start = d.dict.code_buf_dict_pos & LZ_DICT_SIZE_MASK;
+            let end = (d.dict.code_buf_dict_pos + d.lz.total_bytes as usize) & LZ_DICT_SIZE_MASK;
+            let dict = &mut d.dict.b.dict;
+            if start < end {
+                output.write_bytes(&dict[start..end]);
+            } else {
+                output.write_bytes(&dict[start..LZ_DICT_SIZE]);
+                output.write_bytes(&dict[..end]);
             }
         } else if !comp_success {
             output.load(saved_buffer);
@@ -1740,7 +1759,7 @@ fn flush_block(
             } else {
                 // Sync or Full flush.
                 // Output an empty raw block.
-                output.put_bits(0, 3);
+                output.put_bits_no_flush(0, 3);
                 output.pad_to_bytes();
                 output.put_bits(0, 16);
                 output.put_bits(0xFFFF, 16);
