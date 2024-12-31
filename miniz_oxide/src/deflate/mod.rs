@@ -6,6 +6,7 @@ use crate::alloc::vec::Vec;
 mod buffer;
 pub mod core;
 pub mod stream;
+mod zlib;
 use self::core::*;
 
 /// How much processing the compressor should do to compress the data.
