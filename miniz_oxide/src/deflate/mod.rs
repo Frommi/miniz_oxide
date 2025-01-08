@@ -5,6 +5,7 @@ use crate::alloc::vec::Vec;
 
 mod buffer;
 pub mod core;
+mod stored;
 pub mod stream;
 mod zlib;
 use self::core::*;

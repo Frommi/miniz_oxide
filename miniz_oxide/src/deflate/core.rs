@@ -11,6 +11,7 @@ use crate::deflate::buffer::{
     update_hash, HashBuffers, LocalBuf, LZ_CODE_BUF_SIZE, LZ_DICT_FULL_SIZE, LZ_HASH_BITS,
     LZ_HASH_SHIFT, LZ_HASH_SIZE, OUT_BUF_SIZE,
 };
+use crate::deflate::stored::compress_stored;
 use crate::deflate::zlib;
 use crate::shared::{update_adler32, HUFFMAN_LENGTH_ORDER, MZ_ADLER32_INIT};
 use crate::DataFormat;
@@ -18,7 +19,7 @@ use crate::DataFormat;
 // Currently not bubbled up outside this module, so can fill in with more
 // context eventually if needed.
 type Result<T, E = Error> = core::result::Result<T, E>;
-struct Error {}
+pub(crate) struct Error {}
 
 pub(crate) const MAX_PROBES_MASK: i32 = 0xFFF;
 
@@ -298,9 +299,9 @@ const MAX_HUFF_SYMBOLS_2: usize = 19;
 /// Size of the chained hash table.
 pub(crate) const LZ_DICT_SIZE: usize = 32_768;
 /// Mask used when stepping through the hash chains.
-const LZ_DICT_SIZE_MASK: usize = (LZ_DICT_SIZE as u32 - 1) as usize;
+pub(crate) const LZ_DICT_SIZE_MASK: usize = (LZ_DICT_SIZE as u32 - 1) as usize;
 /// The minimum length of a match.
-const MIN_MATCH_LEN: u8 = 3;
+pub(crate) const MIN_MATCH_LEN: u8 = 3;
 /// The maximum length of a match.
 pub(crate) const MAX_MATCH_LEN: usize = 258;
 
@@ -322,12 +323,12 @@ const fn read_u16_le(slice: &[u8], pos: usize) -> u16 {
 
 /// Main compression struct.
 pub struct CompressorOxide {
-    lz: LZOxide,
-    params: ParamsOxide,
+    pub(crate) lz: LZOxide,
+    pub(crate) params: ParamsOxide,
     /// Put HuffmanOxide on the heap with default trick to avoid
     /// excessive stack copies.
-    huff: Box<HuffmanOxide>,
-    dict: DictOxide,
+    pub(crate) huff: Box<HuffmanOxide>,
+    pub(crate) dict: DictOxide,
 }
 
 impl CompressorOxide {
@@ -524,7 +525,7 @@ impl CallbackOut<'_> {
     }
 }
 
-struct CallbackOxide<'a> {
+pub(crate) struct CallbackOxide<'a> {
     in_buf: Option<&'a [u8]>,
     in_buf_size: Option<&'a mut usize>,
     out_buf_size: Option<&'a mut usize>,
@@ -574,6 +575,10 @@ impl<'a> CallbackOxide<'a> {
             CallbackOut::Func(ref mut cf) => cf.flush_output(saved_output, params),
             CallbackOut::Buf(ref mut cb) => cb.flush_output(saved_output, params),
         }
+    }
+
+    pub(crate) fn buf(&mut self) -> Option<&'a [u8]> {
+        self.in_buf
     }
 }
 
@@ -688,7 +693,7 @@ impl BitBuffer {
 /// NOTE: Only the literal/lengths have enough symbols to actually use
 /// the full array. It's unclear why it's defined like this in miniz,
 /// it could be for cache/alignment reasons.
-struct HuffmanOxide {
+pub(crate) struct HuffmanOxide {
     /// Number of occurrences of each symbol.
     pub count: [[u16; MAX_HUFF_SYMBOLS]; MAX_HUFF_TABLES],
     /// The bits of the huffman code assigned to the symbol
@@ -1123,7 +1128,7 @@ impl HuffmanOxide {
     }
 }
 
-struct DictOxide {
+pub(crate) struct DictOxide {
     /// The maximum number of checks in the hash chain, for the initial,
     /// and the lazy match respectively.
     pub max_probes: [u32; 2],
@@ -1318,7 +1323,7 @@ impl DictOxide {
     }
 }
 
-struct ParamsOxide {
+pub(crate) struct ParamsOxide {
     pub flags: u32,
     pub greedy_parsing: bool,
     pub block_index: u32,
@@ -1393,7 +1398,7 @@ impl ParamsOxide {
     }
 }
 
-struct LZOxide {
+pub(crate) struct LZOxide {
     pub codes: [u8; LZ_CODE_BUF_SIZE],
     pub code_position: usize,
     pub flag_position: usize,
@@ -1563,7 +1568,7 @@ fn compress_block(
     compress_lz_codes(huff, output, &lz.codes[..lz.code_position])
 }
 
-fn flush_block(
+pub(crate) fn flush_block(
     d: &mut CompressorOxide,
     callback: &mut CallbackOxide,
     flush: TDEFLFlush,
@@ -1685,7 +1690,7 @@ fn flush_block(
     Ok(callback.flush_output(saved_buffer, &mut d.params))
 }
 
-fn record_literal(h: &mut HuffmanOxide, lz: &mut LZOxide, lit: u8) {
+pub(crate) fn record_literal(h: &mut HuffmanOxide, lz: &mut LZOxide, lit: u8) {
     lz.total_bytes += 1;
     lz.write_code(lit);
 
@@ -2221,7 +2226,11 @@ fn compress_inner(
         & (TDEFL_FILTER_MATCHES | TDEFL_FORCE_ALL_RAW_BLOCKS | TDEFL_RLE_MATCHES)
         != 0;
 
-    let compress_success = if one_probe && greedy && !filter_or_rle_or_raw {
+    let raw = d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0;
+
+    let compress_success = if raw {
+        compress_stored(d, callback)
+    } else if one_probe && greedy && !filter_or_rle_or_raw {
         compress_fast(d, callback)
     } else {
         compress_normal(d, callback)

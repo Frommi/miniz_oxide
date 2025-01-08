@@ -29,7 +29,7 @@ compiler_builtins = { version = '0.1.2', optional = true }
 [dev-dependencies]
 ## Messes with minimum rust version and drags in deps just for running tests
 ## so just comment out for now and enable manually when needed for enabling benches
-# criterion = "0.5"
+criterion = "0.5"
 
 [[bench]]
 name = "benchmark"
