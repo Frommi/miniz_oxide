@@ -3,6 +3,18 @@
 All notable changes to this project will be documented in this file.
 
 ---
+## [0.8.3](https://github.com/Frommi/miniz_oxide/compare/0.8.2..0.8.3) - 2025-01-13
+
+### Bug Fixes
+
+- **(bench)** add some basic criterion benchmarks - ([ac03751](https://github.com/Frommi/miniz_oxide/commit/ac03751c43df22b9bb7f47e50b7dbb8fc11ac141)) - oyvindln
+- **(deflate)** write directly to output buffer instaed of bit buffer to reduce overhead and improve performance of stored blocks a little - ([97ee3f1](https://github.com/Frommi/miniz_oxide/commit/97ee3f1673b0d8bd88f3abcafb6fe392b086e4b7)) - oyvindln
+- **(deflate)** split some code into new module and fix panic in pad_to_bytes from prev commit - ([04973ca](https://github.com/Frommi/miniz_oxide/commit/04973cad7b088868e51fd7970d028dad0ef0c5d0)) - oyvindln
+- **(deflate)** move stored level to it's own function and simplify to improve performance - ([1f829d2](https://github.com/Frommi/miniz_oxide/commit/1f829d2574a7842f4d5e5a3ff9c33f249451f79f)) - oyvindln
+- **(deflate)** remove no longer needed checks for raw mode in compress_normal and commend out accidentally enabled criterion dev dep - ([f357aa1](https://github.com/Frommi/miniz_oxide/commit/f357aa1462f8370592d2a23214490a7391c9f9de)) - oyvindln
+- **(miniz_oxide)** add richgel99 (original miniz author) as author and add copyright info from orig miniz in license files - ([c8a4485](https://github.com/Frommi/miniz_oxide/commit/c8a448500ccd9ab040a244dd7db37702ab9e6449)) - oyvindln
+
+---
 ## [0.8.2](https://github.com/Frommi/miniz_oxide/compare/0.8.1..0.8.2) - 2024-12-17
 
 ### Bug Fixes
