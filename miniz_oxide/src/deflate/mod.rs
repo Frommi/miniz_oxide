@@ -190,6 +190,15 @@ mod test {
         assert_eq!(test_data, d.as_slice());
     }
 
+    #[test]
+    fn compress_rle() {
+        let test_data = b"Deflate late";
+
+        let res = compress_to_vec_inner(test_data, 1, 0, CompressionStrategy::RLE as i32);
+        let d = decompress_to_vec(res.as_slice()).expect("Failed to decompress!");
+        assert_eq!(test_data, d.as_slice());
+    }
+
     /// Test that a raw block compresses fine.
     #[test]
     fn compress_raw() {

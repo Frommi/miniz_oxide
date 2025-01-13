@@ -1581,8 +1581,13 @@ pub(crate) fn flush_block(
         output.bit_buffer = d.params.saved_bit_buffer;
         output.bits_in = d.params.saved_bits_in;
 
+        // TODO: Don't think this second condition should be here but need to verify.
         let use_raw_block = (d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0)
             && (d.dict.lookahead_pos - d.dict.code_buf_dict_pos) <= d.dict.size;
+        debug_assert_eq!(
+            use_raw_block,
+            d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0
+        );
 
         assert!(d.params.flush_remaining == 0);
         d.params.flush_ofs = 0;
@@ -1674,6 +1679,7 @@ pub(crate) fn flush_block(
         d.huff.count[0][..MAX_HUFF_SYMBOLS_0].fill(0);
         d.huff.count[1][..MAX_HUFF_SYMBOLS_1].fill(0);
 
+        // Clear LZ buffer for the next block.
         d.lz.code_position = 1;
         d.lz.flag_position = 0;
         d.lz.num_flags_left = 8;
@@ -1814,9 +1820,9 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
             u32::from(MIN_MATCH_LEN) - 1
         };
         let cur_pos = lookahead_pos & LZ_DICT_SIZE_MASK;
-        if d.params.flags & (TDEFL_RLE_MATCHES | TDEFL_FORCE_ALL_RAW_BLOCKS) != 0 {
+        if d.params.flags & TDEFL_RLE_MATCHES != 0 {
             // If TDEFL_RLE_MATCHES is set, we only look for repeating sequences of the current byte.
-            if d.dict.size != 0 && d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS == 0 {
+            if d.dict.size != 0 {
                 let c = d.dict.b.dict[(cur_pos.wrapping_sub(1)) & LZ_DICT_SIZE_MASK];
                 cur_match_len = d.dict.b.dict[cur_pos..(cur_pos + lookahead_size)]
                     .iter()
@@ -1891,11 +1897,10 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
         d.dict.size = cmp::min(d.dict.size + len_to_move, LZ_DICT_SIZE);
 
         let lz_buf_tight = d.lz.code_position > LZ_CODE_BUF_SIZE - 8;
-        let raw = d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0;
         let fat = ((d.lz.code_position * 115) >> 7) >= d.lz.total_bytes as usize;
-        let fat_or_raw = (d.lz.total_bytes > 31 * 1024) && (fat || raw);
+        let buf_fat = (d.lz.total_bytes > 31 * 1024) && fat;
 
-        if lz_buf_tight || fat_or_raw {
+        if lz_buf_tight || buf_fat {
             d.params.src_pos = src_pos;
             // These values are used in flush_block, so we need to write them back here.
             d.dict.lookahead_size = lookahead_size;
@@ -2222,15 +2227,13 @@ fn compress_inner(
 
     let one_probe = d.params.flags & MAX_PROBES_MASK as u32 == 1;
     let greedy = d.params.flags & TDEFL_GREEDY_PARSING_FLAG != 0;
-    let filter_or_rle_or_raw = d.params.flags
-        & (TDEFL_FILTER_MATCHES | TDEFL_FORCE_ALL_RAW_BLOCKS | TDEFL_RLE_MATCHES)
-        != 0;
+    let filter_or_rle = d.params.flags & (TDEFL_FILTER_MATCHES | TDEFL_FORCE_ALL_RAW_BLOCKS) != 0;
 
     let raw = d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0;
 
     let compress_success = if raw {
         compress_stored(d, callback)
-    } else if one_probe && greedy && !filter_or_rle_or_raw {
+    } else if one_probe && greedy && !filter_or_rle {
         compress_fast(d, callback)
     } else {
         compress_normal(d, callback)
