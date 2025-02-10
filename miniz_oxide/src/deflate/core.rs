@@ -1134,7 +1134,7 @@ pub(crate) struct DictOxide {
     pub max_probes: [u32; 2],
     /// Buffer of input data.
     /// Padded with 1 byte to simplify matching code in `compress_fast`.
-    pub b: Box<HashBuffers>,
+    pub b: HashBuffers,
 
     pub code_buf_dict_pos: usize,
     pub lookahead_size: usize,
@@ -1153,7 +1153,7 @@ impl DictOxide {
     fn new(flags: u32) -> Self {
         DictOxide {
             max_probes: probes_from_flags(flags),
-            b: Box::default(),
+            b: HashBuffers::default(),
             code_buf_dict_pos: 0,
             lookahead_size: 0,
             lookahead_pos: 0,
