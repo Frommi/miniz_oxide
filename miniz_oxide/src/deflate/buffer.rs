@@ -2,9 +2,9 @@
 //! to avoid stack copies. Box::new() doesn't at the moment, and using a vec means we would lose
 //! static length info.
 
+use crate::deflate::core::{LZ_DICT_SIZE, MAX_MATCH_LEN};
 use alloc::boxed::Box;
 use alloc::vec;
-use crate::deflate::core::{LZ_DICT_SIZE, MAX_MATCH_LEN};
 
 /// Size of the buffer of lz77 encoded data.
 pub const LZ_CODE_BUF_SIZE: usize = 64 * 1024;
@@ -42,7 +42,10 @@ impl HashBuffers {
 impl Default for HashBuffers {
     fn default() -> HashBuffers {
         HashBuffers {
-            dict: vec![0; LZ_DICT_FULL_SIZE].into_boxed_slice().try_into().unwrap(),
+            dict: vec![0; LZ_DICT_FULL_SIZE]
+                .into_boxed_slice()
+                .try_into()
+                .unwrap(),
             next: vec![0; LZ_DICT_SIZE].into_boxed_slice().try_into().unwrap(),
             hash: vec![0; LZ_DICT_SIZE].into_boxed_slice().try_into().unwrap(),
         }
