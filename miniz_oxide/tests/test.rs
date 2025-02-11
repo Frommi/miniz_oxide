@@ -264,6 +264,27 @@ fn decompress_empty_dynamic() {
     assert!(res.is_err());
 }
 
+fn decode_hex(s: &str) -> Vec<u8> {
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+        .collect::<Vec<_>>()
+}
+
+#[test]
+fn issue_161_index_out_of_range_apply_match() {
+    // This data contains an match that has a distance before the start of the data.
+    // and resulted in an edge cause causing a panic instead of returning with an error when using.
+    // a smaller wrapping buffer.
+    let content_hex = "fa99fff4f37fef5bbff9bb6ccb9ab4e47f66d9875cebf9ffe6eb6fbdf6e24b773f72ebe5175f62ff26bf78eec57bafdd78ee6b5f7efeee2b2f5b1d2bfe5100";
+    let content = decode_hex(&content_hex);
+
+    let mut decompressor = miniz_oxide::inflate::core::DecompressorOxide::new();
+
+    let mut buf2 = vec![0; 2048];
+    let _ = miniz_oxide::inflate::core::decompress(&mut decompressor, &content, &mut buf2, 0, 0);
+}
+
 /*
 #[test]
 fn partial_decompression_imap_issue_158() {
