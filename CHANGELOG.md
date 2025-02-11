@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 
 ---
+## [0.8.4](https://github.com/Frommi/miniz_oxide/compare/0.8.3..0.8.4) - 2025-02-11
+
+### Bug Fixes
+
+- **(deflate)** work around upstream rust change causing performance regression - ([7014124](https://github.com/Frommi/miniz_oxide/commit/701412465814a5add1b620c82a7c4eafb1936b45)) - oyvindln
+- **(doc)** typo on example code ([#162](https://github.com/Frommi/miniz_oxide/issues/162)) - ([2119168](https://github.com/Frommi/miniz_oxide/commit/2119168eeee4ff8a8b12505755611e00fe6b96cc)) - Iván Izaguirre
+- **(inflate)** Guard against edge case with invalid match distance wrapping around too far when using wrapping buffer - ([4037fee](https://github.com/Frommi/miniz_oxide/commit/4037fee77fd5811ea10fe62a9c772942b6b72cb1)) - oyvindln
+- **(deflate)** Avoid stack overflow when initializing HashBuffers. ([#164](https://github.com/Frommi/miniz_oxide/issues/164)) - ([921bc2c](https://github.com/Frommi/miniz_oxide/commit/921bc2c51e450f22a2a9405a908c64005caa92fe)) - Lukasz Anforowicz
+
+---
 ## [0.8.3](https://github.com/Frommi/miniz_oxide/compare/0.8.2..0.8.3) - 2025-01-13
 
 ### Bug Fixes
