@@ -2,6 +2,7 @@
 
 use alloc::boxed::Box;
 use core::convert::TryInto;
+use core::hint::black_box;
 use core::{cmp, mem};
 
 use super::super::*;
@@ -306,13 +307,6 @@ pub(crate) const MIN_MATCH_LEN: u8 = 3;
 pub(crate) const MAX_MATCH_LEN: usize = 258;
 
 pub(crate) const DEFAULT_FLAGS: u32 = NUM_PROBES[4] | TDEFL_WRITE_ZLIB_HEADER;
-
-#[cfg(test)]
-#[inline]
-fn write_u16_le(val: u16, slice: &mut [u8], pos: usize) {
-    slice[pos] = val as u8;
-    slice[pos + 1] = (val >> 8) as u8;
-}
 
 // Read the two bytes starting at pos and interpret them as an u16.
 #[inline]
@@ -1140,7 +1134,6 @@ pub(crate) struct DictOxide {
     pub lookahead_size: usize,
     pub lookahead_pos: usize,
     pub size: usize,
-    loop_len: u8,
 }
 
 const fn probes_from_flags(flags: u32) -> [u32; 2] {
@@ -1159,7 +1152,6 @@ impl DictOxide {
             lookahead_size: 0,
             lookahead_pos: 0,
             size: 0,
-            loop_len: 32,
         }
     }
 
@@ -1222,6 +1214,9 @@ impl DictOxide {
         mut match_dist: u32,
         mut match_len: u32,
     ) -> (u32, u32) {
+        // Workaround for 0..32 loop unrolling bug
+        let black_box_32 = black_box(32u8);
+
         // Clamp the match len and max_match_len to be valid. (It should be when this is called, but
         // do it for now just in case for safety reasons.)
         // This should normally end up as at worst conditional moves,
@@ -1294,7 +1289,7 @@ impl DictOxide {
             // TODO: This is a workaround for an upstream issue introduced after a LLVM upgrade in rust 1.82.
             // the compiler is too smart and ends up unrolling the loop which causes the performance to get worse
             // Using a variable instead of a constant here to prevent it seems to at least get back some of the performance loss.
-            for _ in 0..self.loop_len as i32 {
+            for _ in 0..black_box_32 {
                 let p_data: u64 = self.read_unaligned_u64(p);
                 let q_data: u64 = self.read_unaligned_u64(q);
                 // Compare of 8 bytes at a time by using unaligned loads of 64-bit integers.
@@ -1317,7 +1312,7 @@ impl DictOxide {
                         }
                         // We found a better match, so save the last two bytes for further match
                         // comparisons.
-                        c01 = read_u16_le(&self.b.dict[..], pos + match_len as usize - 1);
+                        c01 = self.read_as_u16(pos + match_len as usize - 1);
                     }
                     continue 'outer;
                 }
@@ -2343,12 +2338,16 @@ pub fn create_comp_flags_from_zip_params(level: i32, window_bits: i32, strategy:
 #[cfg(test)]
 mod test {
     use super::{
-        compress_to_output, create_comp_flags_from_zip_params, read_u16_le, write_u16_le,
-        CompressionStrategy, CompressorOxide, TDEFLFlush, TDEFLStatus, DEFAULT_FLAGS,
-        MZ_DEFAULT_WINDOW_BITS,
+        compress_to_output, create_comp_flags_from_zip_params, read_u16_le, CompressionStrategy,
+        CompressorOxide, TDEFLFlush, TDEFLStatus, DEFAULT_FLAGS, MZ_DEFAULT_WINDOW_BITS,
     };
     use crate::inflate::decompress_to_vec;
     use alloc::vec;
+
+    fn write_u16_le(val: u16, slice: &mut [u8], pos: usize) {
+        slice[pos] = val as u8;
+        slice[pos + 1] = (val >> 8) as u8;
+    }
 
     #[test]
     fn u16_to_slice() {
