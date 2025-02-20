@@ -65,12 +65,13 @@ pub fn serde_serialize_deserialize_decompressor(
 enum PartialResult<T, E> {
     /// out_buf
     Ok(T),
-    /// decomp, input_pos, out_buf
+
+    /// input_pos, decomp, out_buf
     Partial(usize, Box<DecompressorOxide>, T),
     Err(E),
 }
 
-/// Decompressed partially out_buf.
+/// Decompressed partially to out_buf.
 ///
 /// Assumes that out_buf contains already decompressed data.
 fn decompress_to_vec_partial(
