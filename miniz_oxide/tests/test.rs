@@ -285,6 +285,16 @@ fn issue_161_index_out_of_range_apply_match() {
     let _ = miniz_oxide::inflate::core::decompress(&mut decompressor, &content, &mut buf2, 0, 0);
 }
 
+#[test]
+fn empty_stored() {
+    // Compress empty input using stored compression level
+    // There was a logic error casuing this to output zeroes
+    // from the empty data buffer instead of outputting an empty stored block.
+    let data = vec![];
+    let enc = compress_to_vec_zlib(&data, 0);
+    let _ = decompress_to_vec_zlib(&enc).unwrap();
+}
+
 /*
 #[test]
 fn partial_decompression_imap_issue_158() {

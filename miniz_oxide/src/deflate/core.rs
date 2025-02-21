@@ -1639,7 +1639,7 @@ pub(crate) fn flush_block(
             // Block header.
             output.put_bits(0, 2);
 
-            // Block length has to start on a byte boundary, s opad.
+            // Block length has to start on a byte boundary, so pad.
             output.pad_to_bytes();
 
             // Block length and ones complement of block length.
@@ -1651,8 +1651,10 @@ pub(crate) fn flush_block(
             let end = (d.dict.code_buf_dict_pos + d.lz.total_bytes as usize) & LZ_DICT_SIZE_MASK;
             let dict = &mut d.dict.b.dict;
             if start < end {
+                // The data does not wrap around.
                 output.write_bytes(&dict[start..end]);
-            } else {
+            } else if d.lz.total_bytes > 0 {
+                // The data wraps around and the input was not 0 bytes.
                 output.write_bytes(&dict[start..LZ_DICT_SIZE]);
                 output.write_bytes(&dict[..end]);
             }
@@ -1738,12 +1740,12 @@ fn record_match(h: &mut HuffmanOxide, lz: &mut LZOxide, mut match_len: u32, mut 
 }
 
 fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool {
-    let mut src_pos = d.params.src_pos;
     let in_buf = match callback.in_buf {
         None => return true,
         Some(in_buf) => in_buf,
     };
 
+    let mut src_pos = d.params.src_pos;
     let mut lookahead_size = d.dict.lookahead_size;
     let mut lookahead_pos = d.dict.lookahead_pos;
     let mut saved_lit = d.params.saved_lit;
