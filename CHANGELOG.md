@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 
 ---
+## [0.8.5](https://github.com/Frommi/miniz_oxide/compare/0.8.4..0.8.5) - 2025-02-21
+
+### Bug Fixes
+
+- **(deflate)** some cleanups and evade a bounds check in compress_lz_codes - ([4c38ff8](https://github.com/Frommi/miniz_oxide/commit/4c38ff8abb3f8ee1f3708f8facd15d1fe9975fbc)) - oyvindln
+- **(deflate)** fix bug causing 0 length stored block to be output incorrectly causing corrupt stream - ([3d62e6b](https://github.com/Frommi/miniz_oxide/commit/3d62e6b6b81441b4a1867bf1504672c835654919)) - oyvindln
+
+
+---
 ## [0.8.4](https://github.com/Frommi/miniz_oxide/compare/0.8.3..0.8.4) - 2025-02-11
 
 ### Bug Fixes
