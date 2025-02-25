@@ -734,7 +734,7 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Option<Action> {
 
         let mut total_symbols = [0u16; 16];
         let mut next_code = [0u32; 17];
-        const INVALID_CODE: i16 = 1 << 9 | 286;
+        const INVALID_CODE: i16 = (1 << 9) | 286;
         // Set the values in the fast table to return a
         // non-zero length and an invalid symbol instead of zero
         // so that we do not have to have a check for a zero

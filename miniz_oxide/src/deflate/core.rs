@@ -1254,7 +1254,20 @@ impl DictOxide {
                     let next_probe_pos = self.b.next[probe_pos] as usize;
 
                     dist = (lookahead_pos - next_probe_pos) & 0xFFFF;
-                    if next_probe_pos == 0 || dist > max_dist {
+                    // Optimization: The last condition should never be hit but helps the compiler by avoiding
+                    // doing the bounds check in the read_u16_le call and adding the extra instructions
+                    // for branching to a panic after that and instead just adds the extra instruction here
+                    // instead saving some instructions and thus improving performance a bit.
+                    // May want to investigate whether we can avoid it entirely but as of now the compiler
+                    // isn't able to deduce that match_len is bounded to [1-257]
+                    // Disable clippy lint as it needs to be written in this specific way
+                    // rather than MAX_MATCH_LEN to work
+                    // because the compiler isn't super smart....
+                    #[allow(clippy::int_plus_one)]
+                    if next_probe_pos == 0
+                        || dist > max_dist
+                        || match_len as usize - 1 >= MAX_MATCH_LEN
+                    {
                         // We reached the end of the hash chain, or the next value is further away
                         // than the maximum allowed distance, so return the best match we found, if
                         // any.
@@ -1265,7 +1278,6 @@ impl DictOxide {
                     // position to match against.
                     probe_pos = next_probe_pos & LZ_DICT_SIZE_MASK;
 
-                    // TODO: This bounds check does not get optimized out
                     if read_u16_le(&self.b.dict, probe_pos + match_len as usize - 1) == c01 {
                         break 'found;
                     }
@@ -1305,14 +1317,18 @@ impl DictOxide {
                     if probe_len > match_len as usize {
                         match_dist = dist as u32;
                         match_len = cmp::min(max_match_len, probe_len as u32);
-                        if match_len == max_match_len {
+                        if match_len >= max_match_len {
                             // We found a match that had the maximum allowed length,
                             // so there is now point searching further.
                             return (match_dist, match_len);
                         }
                         // We found a better match, so save the last two bytes for further match
                         // comparisons.
-                        c01 = read_u16_le(&self.b.dict, pos + match_len as usize - 1);
+                        // Optimization: use saturating_sub makes the compiler able to evade the bounds check
+                        // at the cost of some extra instructions since it avoids any possibility of wraparound.
+                        // need to see if we can find a better way to do this since this is still a bit costly.
+                        c01 =
+                            read_u16_le(&self.b.dict, (pos + match_len as usize).saturating_sub(1));
                     }
                     continue 'outer;
                 }
