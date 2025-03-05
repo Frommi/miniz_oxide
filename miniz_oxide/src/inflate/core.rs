@@ -690,7 +690,7 @@ fn start_static_table(r: &mut DecompressorOxide) {
     target_arch = "loongarch64"
 ))]
 #[inline]
-const fn reverse_bits(n: u32) -> u32 {
+const fn reverse_bits(n: u16) -> u16 {
     // Lookup is not used when building as part of std to avoid wasting space
     // for lookup table in every rust binary
     // as it's only used for backtraces in the cold path
