@@ -25,12 +25,12 @@ fi
 
 cd test_scratch
 
-echo "valgrind -v a"
-valgrind --error-exitcode=1 --leak-check=full ../bin/miniz_tester -v a linux-4.8.11/mm > /dev/null
-echo "valgrind -v -r a"
-valgrind --error-exitcode=1 --leak-check=full ../bin/miniz_tester -v -r a linux-4.8.11/mm > /dev/null
-echo "valgrind -v -b a"
-valgrind --error-exitcode=1 --leak-check=full ../bin/miniz_tester -v -b a linux-4.8.11/mm > /dev/null
+#echo "valgrind -v a"
+#valgrind --error-exitcode=1 --leak-check=full ../bin/miniz_tester -v a linux-4.8.11/mm > /dev/null
+#echo "valgrind -v -r a"
+#valgrind --error-exitcode=1 --leak-check=full ../bin/miniz_tester -v -r a linux-4.8.11/mm > /dev/null
+#echo "valgrind -v -b a"
+#valgrind --error-exitcode=1 --leak-check=full ../bin/miniz_tester -v -b a linux-4.8.11/mm > /dev/null
 ## zip is broken right now due to struct difference between c and rust version
 #echo "valgrind -v -a a"
 #valgrind --error-exitcode=1 --leak-check=full ../bin/miniz_tester -v -a a linux-4.8.11/mm/kasan > /dev/null

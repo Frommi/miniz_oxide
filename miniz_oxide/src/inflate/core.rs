@@ -100,7 +100,7 @@ const MAX_HUFF_SYMBOLS_2: usize = 19;
 /// The maximum length of a code that can be looked up in the fast lookup table.
 const FAST_LOOKUP_BITS: u8 = 10;
 /// The size of the fast lookup table.
-const FAST_LOOKUP_SIZE: u32 = 1 << FAST_LOOKUP_BITS;
+const FAST_LOOKUP_SIZE: u16 = 1 << FAST_LOOKUP_BITS;
 const MAX_HUFF_TREE_SIZE: usize = MAX_HUFF_SYMBOLS_0 * 2;
 const LITLEN_TABLE: usize = 0;
 const DIST_TABLE: usize = 1;
@@ -684,11 +684,13 @@ fn start_static_table(r: &mut DecompressorOxide) {
 
 #[cfg(any(
     feature = "rustc-dep-of-std",
+    not(feature = "with-alloc"),
     target_arch = "aarch64",
     target_arch = "arm64ec",
     target_arch = "loongarch64"
 ))]
-fn reverse_bits(n: u32) -> u32 {
+#[inline]
+const fn reverse_bits(n: u32) -> u32 {
     // Lookup is not used when building as part of std to avoid wasting space
     // for lookup table in every rust binary
     // as it's only used for backtraces in the cold path
@@ -696,27 +698,35 @@ fn reverse_bits(n: u32) -> u32 {
 
     // armv7 and newer, and loongarch have a cpu instruction for bit reversal so
     // it's preferable to just use that on those architectures.
+
+    // Also disable lookup table when not using the alloc feature as
+    // we probably don't want to waste space for a lookup table in an environment
+    // without an allocator.
     n.reverse_bits()
 }
 
-#[cfg(not(any(
-    feature = "rustc-dep-of-std",
-    target_arch = "aarch64",
-    target_arch = "arm64ec",
-    target_arch = "loongarch64"
-)))]
-fn reverse_bits(n: u32) -> u32 {
-    static REVERSED_BITS_LOOKUP: [u32; 512] = {
+#[cfg(all(
+    not(any(
+        feature = "rustc-dep-of-std",
+        target_arch = "aarch64",
+        target_arch = "arm64ec",
+        target_arch = "loongarch64"
+    )),
+    feature = "with-alloc"
+))]
+fn reverse_bits(n: u16) -> u16 {
+    static REVERSED_BITS_LOOKUP: [u16; 512] = {
         let mut table = [0; 512];
 
         let mut i = 0;
         while i < 512 {
-            table[i] = (i as u32).reverse_bits();
+            table[i] = (i as u16).reverse_bits();
             i += 1;
         }
 
         table
     };
+
     REVERSED_BITS_LOOKUP[n as usize]
 }
 
@@ -733,6 +743,7 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Option<Action> {
         let table = &mut r.tables[bt];
 
         let mut total_symbols = [0u16; 16];
+        // Next code - we use the odd length here to simplify a loop later.
         let mut next_code = [0u32; 17];
         const INVALID_CODE: i16 = (1 << 9) | 286;
         // Set the values in the fast table to return a
@@ -755,8 +766,12 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Option<Action> {
         if table_size > code_sizes.len() {
             return None;
         }
+
         for &code_size in &code_sizes[..table_size] {
             let cs = code_size as usize;
+            // Code sizes are limited to max 15 according to the
+            // deflate spec.
+            // If it is larger than this, something has gone wrong...
             if cs >= total_symbols.len() {
                 return None;
             }
@@ -792,15 +807,17 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Option<Action> {
 
         let mut tree_next = -1;
         for symbol_index in 0..table_size {
-            let code_size = code_sizes[symbol_index];
-            if code_size == 0 || usize::from(code_size) >= next_code.len() {
+            // Code sizes are limited to 15 according to the spec
+            // It's already checked earlier but the compiler might not be smart enough to know that.
+            let code_size = code_sizes[symbol_index] & 15;
+            if code_size == 0 {
                 continue;
             }
 
             let cur_code = next_code[code_size as usize];
             next_code[code_size as usize] += 1;
 
-            let n = cur_code & (u32::MAX >> (32 - code_size));
+            let n = (cur_code & (u32::MAX >> (32 - code_size))) as u16;
 
             let mut rev_code = if n < 512 {
                 // Using a lookup table
@@ -811,7 +828,7 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Option<Action> {
                 reverse_bits(n)
             } else {
                 n.reverse_bits()
-            } >> (32 - code_size);
+            } >> (16 - code_size);
 
             if code_size <= FAST_LOOKUP_BITS {
                 let k = (i16::from(code_size) << 9) | symbol_index as i16;
@@ -2126,5 +2143,13 @@ mod test {
         };
         //println!("status {:?}", status);
         assert!(status != BadTotalSymbols);
+    }
+
+    #[test]
+    fn reverse_bits_lookup() {
+        use super::reverse_bits;
+        for i in 0..512 {
+            assert_eq!(reverse_bits(i), i.reverse_bits());
+        }
     }
 }
