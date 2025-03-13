@@ -31,7 +31,7 @@ extern crate alloc;
 #[cfg(feature = "with-alloc")]
 pub mod deflate;
 pub mod inflate;
-#[cfg(feature = "with-serde")]
+#[cfg(feature = "serde")]
 pub mod serde;
 mod shared;
 

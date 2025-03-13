@@ -1,4 +1,3 @@
-#![cfg(feature = "with-serde")]
 use miniz_oxide::{
     deflate::compress_to_vec,
     inflate::{
@@ -10,7 +9,7 @@ use miniz_oxide::{
 /// Test pause and resume of DecompressorOxide state
 #[test]
 fn serde_resume_inflate_state() {
-    let data = include_bytes!("./test_data/numbers.deflate");
+    let data = include_bytes!("../../miniz_oxide/tests/test_data/numbers.deflate");
     let decompressed_fully = decompress_to_vec(data.as_slice()).unwrap();
 
     let (decomp, in_pos, out_buf) = {

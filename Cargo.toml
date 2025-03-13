@@ -15,6 +15,7 @@ edition = "2018"
 exclude = ["benches/data/*", "/*.sh", "/redefine.txt", "fuzz/*", "tests/*", "miniz/*"]
 
 [workspace]
+members = ["miniz_oxide_test"]
 
 [lib]
 name = "miniz_oxide_c_api"

@@ -52,3 +52,14 @@ jobs:
           toolchain: stable
           targets: ${{ matrix.target }}
       - run: cargo build -p miniz_oxide --target ${{ matrix.target }}
+
+  serde:
+    name: TestSerde
+    runs-on: ubuntu-latest
+    strategy:
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - run: cargo test -p miniz_oxide_test

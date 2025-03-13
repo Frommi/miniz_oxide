@@ -9,27 +9,27 @@ use ::core::convert::TryInto;
 
 use self::output_buffer::{InputWrapper, OutputBuffer};
 
-#[cfg(feature = "with-serde")]
+#[cfg(feature = "serde")]
 use crate::serde::big_array::BigArray;
-#[cfg(feature = "with-serde")]
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
 pub const TINFL_LZ_DICT_SIZE: usize = 32_768;
 
 /// A struct containing huffman code lengths and the huffman code tree used by the decompressor.
 #[derive(Clone)]
-#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 struct HuffmanTable {
     /// Fast lookup table for shorter huffman codes.
     ///
     /// See `HuffmanTable::fast_lookup`.
-    #[cfg_attr(feature = "with-serde", serde(with = "BigArray"))]
+    #[cfg_attr(feature = "serde", serde(with = "BigArray"))]
     pub look_up: [i16; FAST_LOOKUP_SIZE as usize],
     /// Full huffman tree.
     ///
     /// Positive values are edge nodes/symbols, negative values are
     /// parent nodes/references to other nodes.
-    #[cfg_attr(feature = "with-serde", serde(with = "BigArray"))]
+    #[cfg_attr(feature = "serde", serde(with = "BigArray"))]
     pub tree: [i16; MAX_HUFF_TREE_SIZE],
 }
 
@@ -180,7 +180,7 @@ enum HuffmanTableType {
 /// Main decompression struct.
 ///
 #[derive(Clone)]
-#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct DecompressorOxide {
     /// Current state of the decompressor.
     state: core::State,
@@ -213,14 +213,14 @@ pub struct DecompressorOxide {
     /// Huffman tables.
     tables: [HuffmanTable; MAX_HUFF_TABLES],
 
-    #[cfg_attr(feature = "with-serde", serde(with = "BigArray"))]
+    #[cfg_attr(feature = "serde", serde(with = "BigArray"))]
     code_size_literal: [u8; MAX_HUFF_SYMBOLS_0],
     code_size_dist: [u8; MAX_HUFF_SYMBOLS_1],
     code_size_huffman: [u8; MAX_HUFF_SYMBOLS_2],
     /// Raw block header.
     raw_header: [u8; 4],
     /// Huffman length codes.
-    #[cfg_attr(feature = "with-serde", serde(with = "BigArray"))]
+    #[cfg_attr(feature = "serde", serde(with = "BigArray"))]
     len_codes: [u8; MAX_HUFF_SYMBOLS_0 + MAX_HUFF_SYMBOLS_1 + 137],
 }
 
@@ -308,7 +308,7 @@ impl Default for DecompressorOxide {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "with-serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[non_exhaustive]
 enum State {
     Start = 0,

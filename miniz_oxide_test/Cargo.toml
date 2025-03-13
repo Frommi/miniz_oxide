@@ -1,0 +1,10 @@
+[package]
+name = "miniz_oxide_test"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+miniz_oxide = { path = "../miniz_oxide" , package = "miniz_oxide", features = ["serde", "simd"]}
+
+[dev-dependencies]
+rmp-serde = "1.3.0"
