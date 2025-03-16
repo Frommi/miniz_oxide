@@ -158,6 +158,11 @@ pub mod inflate_flags {
     /// this will result in checksum failure (outside the unlikely event where the checksum happens
     /// to match anyway).
     pub const TINFL_FLAG_IGNORE_ADLER32: u32 = 64;
+
+    /// Return [`TINFLStatus::BlockBoundary`][super::TINFLStatus::BlockBoundary]
+    /// on reaching the boundary between deflate blocks. Calling [`decompress()`][super::decompress]
+    /// again will resume decompression of the next block.
+    pub const TINFL_FLAG_STOP_ON_BLOCK_BOUNDARY: u32 = 128;
 }
 
 use self::inflate_flags::*;
@@ -176,6 +181,51 @@ enum HuffmanTableType {
     Dist = 1,
     Huffman = 2,
 }*/
+
+/// Minimal data representing the [`DecompressorOxide`] state when it is between deflate blocks
+/// (i.e. [`decompress()`] has returned [`TINFLStatus::BlockBoundary`]).
+/// This can be serialized along with the last 32KiB of the output buffer, then passed to
+/// [`DecompressorOxide::from_block_boundary_state()`] to resume decompression from the same point.
+///
+/// The Zlib/Adler32 fields can be ignored if you aren't using those features
+/// ([`TINFL_FLAG_PARSE_ZLIB_HEADER`], [`TINFL_FLAG_COMPUTE_ADLER32`]).
+/// When deserializing, you can reconstruct `bit_buf` from the previous byte in the input file
+/// (if you still have access to it), so `num_bits` is the only field that is always required.
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct BlockBoundaryState {
+    /// The number of bits from the last byte of input consumed,
+    /// that are needed for decoding the next deflate block.
+    /// Value is in range `0..=7`
+    pub num_bits: u8,
+
+    /// The `num_bits` MSBs from the last byte of input consumed,
+    /// that are needed for decoding the next deflate block.
+    /// Stored in the LSBs of this field.
+    pub bit_buf: u8,
+
+    /// Zlib CMF
+    pub z_header0: u32,
+    /// Zlib FLG
+    pub z_header1: u32,
+    /// Adler32 checksum from the zlib header
+    pub z_adler32: u32,
+    /// Adler32 checksum of the data decompressed so far
+    pub check_adler32: u32,
+}
+
+impl Default for BlockBoundaryState {
+    fn default() -> Self {
+        BlockBoundaryState {
+            num_bits: 0,
+            bit_buf: 0,
+            z_header0: 0,
+            z_header1: 0,
+            z_adler32: 1,
+            check_adler32: 1,
+        }
+    }
+}
 
 /// Main decompression struct.
 ///
@@ -272,6 +322,47 @@ impl DecompressorOxide {
             _ => &mut self.code_size_huffman,
         }
     }*/
+
+    /// Returns the current [`BlockBoundaryState`]. Should only be called when
+    /// [`decompress()`] has returned [`TINFLStatus::BlockBoundary`];
+    /// otherwise this will return `None`.
+    pub fn get_block_boundary_state(&self) -> Option<BlockBoundaryState> {
+        if self.state == core::State::ReadBlockHeader {
+            // If we're in this state, undo_bytes should have emptied
+            // bit_buf of any whole bytes
+            assert!(self.num_bits < 8);
+
+            Some(BlockBoundaryState {
+                num_bits: self.num_bits as u8,
+                bit_buf: self.bit_buf as u8,
+                z_header0: self.z_header0,
+                z_header1: self.z_header1,
+                z_adler32: self.z_adler32,
+                check_adler32: self.check_adler32,
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Creates a new `DecompressorOxide` from the state returned by
+    /// [`get_block_boundary_state()`].
+    ///
+    /// When calling [`decompress()`], the 32KiB of `out` preceding `out_pos` must be
+    /// initialized with the same data that it contained when `get_block_boundary_state()`
+    /// was called.
+    pub fn from_block_boundary_state(st: &BlockBoundaryState) -> Self {
+        DecompressorOxide {
+            state: core::State::ReadBlockHeader,
+            num_bits: st.num_bits as u32,
+            bit_buf: st.bit_buf as u64,
+            z_header0: st.z_header0,
+            z_header1: st.z_header1,
+            z_adler32: st.z_adler32,
+            check_adler32: st.check_adler32,
+            ..DecompressorOxide::default()
+        }
+    }
 }
 
 impl Default for DecompressorOxide {
@@ -1781,7 +1872,11 @@ pub fn decompress(
                         Action::Jump(DoneForever)
                     }
                 } else {
-                    Action::Jump(ReadBlockHeader)
+                    if flags & TINFL_FLAG_STOP_ON_BLOCK_BOUNDARY != 0 {
+                        Action::End(TINFLStatus::BlockBoundary)
+                    } else {
+                        Action::Jump(ReadBlockHeader)
+                    }
                 }
             }),
 
@@ -1826,6 +1921,11 @@ pub fn decompress(
     } else {
         0
     };
+
+    // If we're returning after completing a block, prepare for the next block when called again.
+    if status == TINFLStatus::BlockBoundary {
+        state = State::ReadBlockHeader;
+    }
 
     // Make sure HasMoreOutput overrides NeedsMoreInput if the output buffer is full.
     // (Unless the missing input is the adler32 value in which case we don't need to write anything.)
