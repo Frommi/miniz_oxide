@@ -264,6 +264,34 @@ fn decompress_empty_dynamic() {
     assert!(res.is_err());
 }
 
+#[test]
+fn issue_169() {
+    // Issue caused by to inflate returning MZError::Data instead of MZError::Buf
+    // on incomplete stream when not called with finish on first call.
+    // This caused flate2 to return error instead of ok on such streams.
+    use miniz_oxide::inflate::stream::{inflate, InflateState};
+    use miniz_oxide::{DataFormat, MZFlush};
+    // Single stored block that is not end block.
+    let enc = vec![0x78, 0x9c, 0x12, 0x34, 0x56];
+
+    let mut inflate_stream = InflateState::new(DataFormat::Zlib);
+    let mut output = vec![0u8; 30];
+
+    let _ = inflate(
+        &mut inflate_stream,
+        enc.as_slice(),
+        &mut output,
+        MZFlush::None,
+    );
+
+    let inflate_result = inflate(&mut inflate_stream, &[], &mut output, MZFlush::Finish);
+
+    assert_eq!(inflate_result.status.unwrap_err(), MZError::Buf);
+
+    //let res = decompress_to_vec_zlib(enc.as_slice()).unwrap();
+    //assert!(res.is_empty());
+}
+
 fn decode_hex(s: &str) -> Vec<u8> {
     (0..s.len())
         .step_by(2)

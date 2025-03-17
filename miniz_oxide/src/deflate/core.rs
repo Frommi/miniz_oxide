@@ -315,7 +315,7 @@ fn write_u16_le(val: u16, slice: &mut [u8], pos: usize) {
 }
 
 // Read the two bytes starting at pos and interpret them as an u16.
-#[inline]
+#[inline(always)]
 const fn read_u16_le<const N: usize>(slice: &[u8; N], pos: usize) -> u16 {
     // The compiler is smart enough to optimize this into an unaligned load.
     slice[pos] as u16 | ((slice[pos + 1] as u16) << 8)
@@ -1259,7 +1259,7 @@ impl DictOxide {
                     // for branching to a panic after that and instead just adds the extra instruction here
                     // instead saving some instructions and thus improving performance a bit.
                     // May want to investigate whether we can avoid it entirely but as of now the compiler
-                    // isn't able to deduce that match_len is bounded to [1-257]
+                    // isn't able to deduce that match_len - 1 is bounded to [1-257]
                     // Disable clippy lint as it needs to be written in this specific way
                     // rather than MAX_MATCH_LEN to work
                     // because the compiler isn't super smart....
@@ -1503,7 +1503,7 @@ fn compress_lz_codes(
 
             let match_len = lz_code_buf[i & LZ_CODE_BUF_MASK] as usize;
 
-            let match_dist = lz_code_buf[(i + 1) & &LZ_CODE_BUF_MASK] as u16
+            let match_dist = lz_code_buf[(i + 1) & LZ_CODE_BUF_MASK] as u16
                 | ((lz_code_buf[(i + 2) & LZ_CODE_BUF_MASK] as u16) << 8);
 
             i += 3;
@@ -1740,7 +1740,7 @@ fn record_match(h: &mut HuffmanOxide, lz: &mut LZOxide, match_len: u32, mut matc
     lz.total_bytes += match_len;
     match_dist -= 1;
     let match_len = (match_len - u32::from(MIN_MATCH_LEN)) as u8;
-    lz.write_code(match_len as u8);
+    lz.write_code(match_len);
     lz.write_code(match_dist as u8);
     lz.write_code((match_dist >> 8) as u8);
 
