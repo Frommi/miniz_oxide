@@ -355,7 +355,7 @@ impl DecompressorOxide {
         DecompressorOxide {
             state: core::State::ReadBlockHeader,
             num_bits: st.num_bits as u32,
-            bit_buf: st.bit_buf as u64,
+            bit_buf: st.bit_buf as BitBuffer,
             z_header0: st.z_header0,
             z_header1: st.z_header1,
             z_adler32: st.z_adler32,
