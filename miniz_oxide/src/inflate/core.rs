@@ -1036,23 +1036,37 @@ fn transfer(
     } else {
         out_pos - source_pos
     };
-    if out_buf_size_mask == usize::MAX && source_diff == 1 && out_pos > source_pos {
-        let init = out_slice[out_pos - 1];
-        let end = (match_len >> 2) * 4 + out_pos;
 
+    // The last 3 bytes can wrap as those are dealt with separately at the end.
+    let not_wrapping =
+        (out_buf_size_mask == usize::MAX) | ((source_pos + match_len - 3) < out_slice.len());
+
+    let end_pos = ((match_len >> 2) * 4) + out_pos;
+    if not_wrapping && source_diff == 1 && out_pos > source_pos {
+        let end = (match_len >> 2) * 4 + out_pos;
+        let init = out_slice[out_pos - 1];
         out_slice[out_pos..end].fill(init);
         out_pos = end;
         source_pos = end - 1;
-    // if the difference between `source_pos` and `out_pos` is greater than 3, we
+    // if the difference between `source_pos` and `out_pos` is greater than 3,
+    // and we are not wrapping, we
     // can do slightly better than the naive case by copying everything at once
-    } else if out_buf_size_mask == usize::MAX && source_diff >= 4 && out_pos > source_pos {
-        for _ in 0..match_len >> 2 {
+    } else if not_wrapping && out_pos > source_pos && (out_pos - source_pos >= 4) {
+        let end_pos = cmp::min(end_pos, out_slice.len().saturating_sub(3));
+        while out_pos < end_pos {
             out_slice.copy_within(source_pos..=source_pos + 3, out_pos);
             source_pos += 4;
             out_pos += 4;
         }
     } else {
-        for _ in 0..match_len >> 2 {
+        let end_pos = cmp::min(end_pos, out_slice.len().saturating_sub(3));
+        while out_pos < end_pos {
+            // Placing these assertions moves some bounds check before the accesses which
+            // makes the compiler able to optimize better.
+            // Ideally we would find a safe way to remove them entirely.
+            assert!(out_pos + 3 < out_slice.len());
+            assert!((source_pos + 3) & out_buf_size_mask < out_slice.len());
+
             out_slice[out_pos] = out_slice[source_pos & out_buf_size_mask];
             out_slice[out_pos + 1] = out_slice[(source_pos + 1) & out_buf_size_mask];
             out_slice[out_pos + 2] = out_slice[(source_pos + 2) & out_buf_size_mask];
@@ -1066,10 +1080,14 @@ fn transfer(
         0 => (),
         1 => out_slice[out_pos] = out_slice[source_pos & out_buf_size_mask],
         2 => {
+            assert!(out_pos + 1 < out_slice.len());
+            assert!((source_pos + 1) & out_buf_size_mask < out_slice.len());
             out_slice[out_pos] = out_slice[source_pos & out_buf_size_mask];
             out_slice[out_pos + 1] = out_slice[(source_pos + 1) & out_buf_size_mask];
         }
         3 => {
+            assert!(out_pos + 2 < out_slice.len());
+            assert!((source_pos + 2) & out_buf_size_mask < out_slice.len());
             out_slice[out_pos] = out_slice[source_pos & out_buf_size_mask];
             out_slice[out_pos + 1] = out_slice[(source_pos + 1) & out_buf_size_mask];
             out_slice[out_pos + 2] = out_slice[(source_pos + 2) & out_buf_size_mask];
