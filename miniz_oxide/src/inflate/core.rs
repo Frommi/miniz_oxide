@@ -208,8 +208,6 @@ pub struct BlockBoundaryState {
     pub z_header0: u32,
     /// Zlib FLG
     pub z_header1: u32,
-    /// Adler32 checksum from the zlib header
-    pub z_adler32: u32,
     /// Adler32 checksum of the data decompressed so far
     pub check_adler32: u32,
 }
@@ -221,7 +219,6 @@ impl Default for BlockBoundaryState {
             bit_buf: 0,
             z_header0: 0,
             z_header1: 0,
-            z_adler32: 1,
             check_adler32: 1,
         }
     }
@@ -337,7 +334,6 @@ impl DecompressorOxide {
                 bit_buf: self.bit_buf as u8,
                 z_header0: self.z_header0,
                 z_header1: self.z_header1,
-                z_adler32: self.z_adler32,
                 check_adler32: self.check_adler32,
             })
         } else {
@@ -358,7 +354,7 @@ impl DecompressorOxide {
             bit_buf: st.bit_buf as BitBuffer,
             z_header0: st.z_header0,
             z_header1: st.z_header1,
-            z_adler32: st.z_adler32,
+            z_adler32: 1,
             check_adler32: st.check_adler32,
             ..DecompressorOxide::default()
         }
