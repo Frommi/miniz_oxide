@@ -342,7 +342,7 @@ impl DecompressorOxide {
     }
 
     /// Creates a new `DecompressorOxide` from the state returned by
-    /// [`get_block_boundary_state()`].
+    /// `get_block_boundary_state()`.
     ///
     /// When calling [`decompress()`], the 32KiB of `out` preceding `out_pos` must be
     /// initialized with the same data that it contained when `get_block_boundary_state()`
