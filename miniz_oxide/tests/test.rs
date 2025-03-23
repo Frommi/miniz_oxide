@@ -392,7 +392,7 @@ fn large_file() {
 
 */
 
-// Test the behavior of TINFL_FLAG_STOP_ON_BLOCK_BOUNDARY, get_block_boundary_state(),
+// Test the behavior of TINFL_FLAG_STOP_ON_BLOCK_BOUNDARY, block_boundary_state(),
 // and restarting the DecompressorOxide at a boundary.
 #[test]
 fn block_boundary() {
@@ -489,7 +489,7 @@ fn block_boundary_inner(zlib: bool, restart: bool) {
             assert_eq!(status, TINFLStatus::BlockBoundary);
             block_boundaries.insert(out_pos);
 
-            let bbs = state.get_block_boundary_state().unwrap();
+            let bbs = state.block_boundary_state().unwrap();
 
             assert!(bbs.num_bits < 8);
             assert!(bbs.bit_buf >> bbs.num_bits == 0, "MSBs must be 0");
