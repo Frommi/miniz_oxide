@@ -2,6 +2,7 @@
 #![cfg(feature = "with-alloc")]
 extern crate miniz_oxide;
 
+use std::collections::HashSet;
 use std::io::Read;
 
 use miniz_oxide::deflate::{compress_to_vec, compress_to_vec_zlib};
@@ -15,6 +16,25 @@ fn get_test_file_data(name: &str) -> Vec<u8> {
 
     f.read_to_end(&mut input).unwrap();
     input
+}
+
+// Low-quality RNG to generate incompressible test data, based on mrand48
+struct Rng(u64);
+impl Rng {
+    fn new(seed: u32) -> Self {
+        Self(((seed as u64) << 16) | 0x330E)
+    }
+
+    fn bytes(&mut self, n: usize) -> Vec<u8> {
+        self.flat_map(|x| x.to_le_bytes()).take(n).collect()
+    }
+}
+impl Iterator for Rng {
+    type Item = u32;
+    fn next(&mut self) -> Option<u32> {
+        self.0 = self.0.wrapping_mul(0x5DEECE66D).wrapping_add(0xB);
+        Some((self.0 >> 16) as u32)
+    }
 }
 
 /// Fuzzed file that caused issues for the inflate library.
@@ -371,3 +391,132 @@ fn large_file() {
 }
 
 */
+
+// Test the behavior of TINFL_FLAG_STOP_ON_BLOCK_BOUNDARY, block_boundary_state(),
+// and restarting the DecompressorOxide at a boundary.
+#[test]
+fn block_boundary() {
+    for zlib in [false, true] {
+        for restart in [false, true] {
+            block_boundary_inner(zlib, restart);
+        }
+    }
+}
+
+fn block_boundary_inner(zlib: bool, restart: bool) {
+    // Compress some chunks of arbitrary data, ending each chunk with Sync (forcing a block boundary)
+
+    // Large enough to trigger block boundaries in the middle of a chunk, so we're testing
+    // more than just the Sync boundaries
+    const CHUNK_SIZE: usize = 1024 * 96;
+    const NUM_CHUNKS: usize = 8;
+
+    let mut input = Vec::new();
+    let mut compressed = Vec::new();
+    let mut sync_points = HashSet::new();
+
+    {
+        use miniz_oxide::deflate::core::{self, TDEFLFlush, TDEFLStatus};
+
+        let mut state = core::CompressorOxide::new(core::create_comp_flags_from_zip_params(
+            1,
+            if zlib { 15 } else { -15 },
+            0,
+        ));
+
+        let mut buf = vec![0; CHUNK_SIZE * 2]; // compressed chunk
+        let mut in_pos = 0; // total bytes of input compressed so far
+        let mut rng = Rng::new(12345678);
+
+        for i in 0..NUM_CHUNKS {
+            // Generate a mix of incompressible and compressible input data
+            let chunk = if i % 2 == 0 {
+                rng.bytes(CHUNK_SIZE)
+            } else {
+                vec![0; CHUNK_SIZE]
+            };
+            input.extend_from_slice(&chunk);
+
+            let (status, in_read, out_written) =
+                core::compress(&mut state, &chunk, &mut buf, TDEFLFlush::Sync);
+            assert_eq!(status, TDEFLStatus::Okay);
+            assert_eq!(in_read, chunk.len());
+
+            in_pos += in_read;
+            sync_points.insert(in_pos);
+            compressed.extend_from_slice(&buf[..out_written]);
+        }
+
+        // Finish compression
+        let (status, in_read, out_written) =
+            core::compress(&mut state, &[], &mut buf, TDEFLFlush::Finish);
+        assert_eq!(status, TDEFLStatus::Done);
+        assert_eq!(in_read, 0);
+        compressed.extend_from_slice(&buf[..out_written]);
+    }
+
+    let mut block_boundaries = HashSet::new();
+
+    {
+        use miniz_oxide::inflate::core::{self, inflate_flags};
+        use miniz_oxide::inflate::TINFLStatus;
+
+        let mut state = core::DecompressorOxide::new();
+
+        let mut out = vec![0; NUM_CHUNKS * CHUNK_SIZE];
+        let mut out_pos = 0;
+        let mut in_pos = 0;
+        loop {
+            let flags = if zlib {
+                inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER
+            } else {
+                0
+            };
+
+            let flags = flags
+                | inflate_flags::TINFL_FLAG_STOP_ON_BLOCK_BOUNDARY
+                | inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
+
+            let (status, in_read, out_written) =
+                core::decompress(&mut state, &compressed[in_pos..], &mut out, out_pos, flags);
+            in_pos += in_read;
+            out_pos += out_written;
+
+            if status == TINFLStatus::Done {
+                break;
+            }
+
+            assert_eq!(status, TINFLStatus::BlockBoundary);
+            block_boundaries.insert(out_pos);
+
+            let bbs = state.block_boundary_state().unwrap();
+
+            assert!(bbs.num_bits < 8);
+            assert!(bbs.bit_buf >> bbs.num_bits == 0, "MSBs must be 0");
+
+            if restart {
+                let bbs = if !zlib {
+                    // In non-Zlib mode, all the other fields are documented as redundant,
+                    // so reset them to default
+                    core::BlockBoundaryState {
+                        num_bits: bbs.num_bits,
+                        bit_buf: bbs.bit_buf,
+                        ..Default::default()
+                    }
+                } else {
+                    bbs
+                };
+
+                state = core::DecompressorOxide::from_block_boundary_state(&bbs);
+            }
+        }
+
+        assert!(input == out, "decompressed output must match the input");
+    }
+
+    assert_eq!(
+        sync_points.difference(&block_boundaries).count(),
+        0,
+        "every Sync must have a corresponding BlockBoundary"
+    );
+}

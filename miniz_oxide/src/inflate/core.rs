@@ -208,8 +208,6 @@ pub struct BlockBoundaryState {
     pub z_header0: u32,
     /// Zlib FLG
     pub z_header1: u32,
-    /// Adler32 checksum from the zlib header
-    pub z_adler32: u32,
     /// Adler32 checksum of the data decompressed so far
     pub check_adler32: u32,
 }
@@ -221,7 +219,6 @@ impl Default for BlockBoundaryState {
             bit_buf: 0,
             z_header0: 0,
             z_header1: 0,
-            z_adler32: 1,
             check_adler32: 1,
         }
     }
@@ -326,7 +323,7 @@ impl DecompressorOxide {
     /// Returns the current [`BlockBoundaryState`]. Should only be called when
     /// [`decompress()`] has returned [`TINFLStatus::BlockBoundary`];
     /// otherwise this will return `None`.
-    pub fn get_block_boundary_state(&self) -> Option<BlockBoundaryState> {
+    pub fn block_boundary_state(&self) -> Option<BlockBoundaryState> {
         if self.state == core::State::ReadBlockHeader {
             // If we're in this state, undo_bytes should have emptied
             // bit_buf of any whole bytes
@@ -337,7 +334,6 @@ impl DecompressorOxide {
                 bit_buf: self.bit_buf as u8,
                 z_header0: self.z_header0,
                 z_header1: self.z_header1,
-                z_adler32: self.z_adler32,
                 check_adler32: self.check_adler32,
             })
         } else {
@@ -346,10 +342,10 @@ impl DecompressorOxide {
     }
 
     /// Creates a new `DecompressorOxide` from the state returned by
-    /// [`get_block_boundary_state()`].
+    /// `block_boundary_state()`.
     ///
     /// When calling [`decompress()`], the 32KiB of `out` preceding `out_pos` must be
-    /// initialized with the same data that it contained when `get_block_boundary_state()`
+    /// initialized with the same data that it contained when `block_boundary_state()`
     /// was called.
     pub fn from_block_boundary_state(st: &BlockBoundaryState) -> Self {
         DecompressorOxide {
@@ -358,7 +354,7 @@ impl DecompressorOxide {
             bit_buf: st.bit_buf as BitBuffer,
             z_header0: st.z_header0,
             z_header1: st.z_header1,
-            z_adler32: st.z_adler32,
+            z_adler32: 1,
             check_adler32: st.check_adler32,
             ..DecompressorOxide::default()
         }
