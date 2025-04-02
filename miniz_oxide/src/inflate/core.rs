@@ -113,6 +113,8 @@ const MAX_HUFF_TREE_SIZE: usize = MAX_HUFF_SYMBOLS_0 * 2;
 const LITLEN_TABLE: usize = 0;
 const DIST_TABLE: usize = 1;
 const HUFFLEN_TABLE: usize = 2;
+const LEN_CODES_SIZE: usize = 512;
+const LEN_CODES_MASK: usize = LEN_CODES_SIZE - 1;
 
 /// Flags to [`decompress()`] to control how inflation works.
 ///
@@ -191,6 +193,7 @@ enum HuffmanTableType {
 /// ([`TINFL_FLAG_PARSE_ZLIB_HEADER`], [`TINFL_FLAG_COMPUTE_ADLER32`]).
 /// When deserializing, you can reconstruct `bit_buf` from the previous byte in the input file
 /// (if you still have access to it), so `num_bits` is the only field that is always required.
+#[cfg(not(feature = "rustc-dep-of-std"))]
 #[derive(Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct BlockBoundaryState {
@@ -212,6 +215,7 @@ pub struct BlockBoundaryState {
     pub check_adler32: u32,
 }
 
+#[cfg(not(feature = "rustc-dep-of-std"))]
 impl Default for BlockBoundaryState {
     fn default() -> Self {
         BlockBoundaryState {
@@ -268,7 +272,9 @@ pub struct DecompressorOxide {
     raw_header: [u8; 4],
     /// Huffman length codes.
     #[cfg_attr(feature = "serde", serde(with = "BigArray"))]
-    len_codes: [u8; MAX_HUFF_SYMBOLS_0 + MAX_HUFF_SYMBOLS_1 + 137],
+    // MAX_HUFF_SYMBOLS_0 + MAX_HUFF_SYMBOLS_1 + 137
+    // Extended to 512 to allow masking to help evade bounds checks.
+    len_codes: [u8; LEN_CODES_SIZE],
 }
 
 impl DecompressorOxide {
@@ -287,6 +293,7 @@ impl DecompressorOxide {
     /// Returns the adler32 checksum of the currently decompressed data.
     /// Note: Will return Some(1) if decompressing zlib but ignoring adler32.
     #[inline]
+    #[cfg(not(feature = "rustc-dep-of-std"))]
     pub fn adler32(&self) -> Option<u32> {
         if self.state != State::Start && !self.state.is_failure() && self.z_header0 != 0 {
             Some(self.check_adler32)
@@ -297,6 +304,7 @@ impl DecompressorOxide {
 
     /// Returns the adler32 that was read from the zlib header if it exists.
     #[inline]
+    #[cfg(not(feature = "rustc-dep-of-std"))]
     pub fn adler32_header(&self) -> Option<u32> {
         if self.state != State::Start && self.state != State::BadZlibHeader && self.z_header0 != 0 {
             Some(self.z_adler32)
@@ -323,6 +331,7 @@ impl DecompressorOxide {
     /// Returns the current [`BlockBoundaryState`]. Should only be called when
     /// [`decompress()`] has returned [`TINFLStatus::BlockBoundary`];
     /// otherwise this will return `None`.
+    #[cfg(not(feature = "rustc-dep-of-std"))]
     pub fn block_boundary_state(&self) -> Option<BlockBoundaryState> {
         if self.state == core::State::ReadBlockHeader {
             // If we're in this state, undo_bytes should have emptied
@@ -347,6 +356,7 @@ impl DecompressorOxide {
     /// When calling [`decompress()`], the 32KiB of `out` preceding `out_pos` must be
     /// initialized with the same data that it contained when `block_boundary_state()`
     /// was called.
+    #[cfg(not(feature = "rustc-dep-of-std"))]
     pub fn from_block_boundary_state(st: &BlockBoundaryState) -> Self {
         DecompressorOxide {
             state: core::State::ReadBlockHeader,
@@ -389,7 +399,7 @@ impl Default for DecompressorOxide {
             code_size_dist: [0; MAX_HUFF_SYMBOLS_1],
             code_size_huffman: [0; MAX_HUFF_SYMBOLS_2],
             raw_header: [0; 4],
-            len_codes: [0; MAX_HUFF_SYMBOLS_0 + MAX_HUFF_SYMBOLS_1 + 137],
+            len_codes: [0; LEN_CODES_SIZE],
         }
     }
 }
@@ -439,6 +449,7 @@ enum State {
 }
 
 impl State {
+    #[cfg(not(feature = "rustc-dep-of-std"))]
     const fn is_failure(self) -> bool {
         matches!(
             self,
@@ -1126,7 +1137,9 @@ fn apply_match(
     }
 
     if cfg!(not(any(target_arch = "x86", target_arch = "x86_64"))) {
-        // We are not on x86 so copy manually.
+        // The copy from slice code seems to not give any added performance at least on
+        // armv7 so transfer manually
+        // Need to test on other platforms.
         transfer(out_slice, source_pos, out_pos, match_len, out_buf_size_mask);
         return;
     }
@@ -1594,13 +1607,14 @@ pub fn decompress(
                         flags, &mut in_iter, |r, l, symbol| {
                             l.dist = symbol as u32;
                             if l.dist < 16 {
-                                r.len_codes[l.counter as usize] = l.dist as u8;
+                                r.len_codes[l.counter as usize & LEN_CODES_MASK] = l.dist as u8;
                                 l.counter += 1;
                                 Action::None
                             } else if l.dist == 16 && l.counter == 0 {
                                 Action::Jump(BadCodeSizeDistPrevLookup)
                             } else {
-                                l.num_extra = [2, 3, 7][l.dist as usize - 16];
+                                // Last value is a dummy to allow mask.
+                                l.num_extra = [2, 3, 7, 0][(l.dist as usize - 16) & 3];
                                 Action::Jump(ReadExtraBitsCodeSize)
                             }
                         }
@@ -1608,13 +1622,20 @@ pub fn decompress(
                 } else if l.counter != u32::from(r.table_sizes[LITLEN_TABLE]) + u32::from(r.table_sizes[DIST_TABLE]) {
                     Action::Jump(BadCodeSizeSum)
                 } else {
+
                     r.code_size_literal[..r.table_sizes[LITLEN_TABLE] as usize]
-                        .copy_from_slice(&r.len_codes[..r.table_sizes[LITLEN_TABLE] as usize]);
+                        .copy_from_slice(&r.len_codes[..r.table_sizes[LITLEN_TABLE] as usize & LEN_CODES_MASK]);
 
                     let dist_table_start = r.table_sizes[LITLEN_TABLE] as usize;
+                    debug_assert!(dist_table_start < r.len_codes.len());
                     let dist_table_end = (r.table_sizes[LITLEN_TABLE] +
                                           r.table_sizes[DIST_TABLE]) as usize;
-                    r.code_size_dist[..r.table_sizes[DIST_TABLE] as usize]
+                    let code_size_dist_end = r.table_sizes[DIST_TABLE] as usize;
+                    debug_assert!(dist_table_end < r.len_codes.len());
+                    debug_assert!(code_size_dist_end < r.code_size_dist.len());
+                    let dist_table_start = dist_table_start & LEN_CODES_MASK;
+                    let dist_table_end = dist_table_end & LEN_CODES_MASK;
+                    r.code_size_dist[..code_size_dist_end & (MAX_HUFF_SYMBOLS_1 - 1)]
                         .copy_from_slice(&r.len_codes[dist_table_start..dist_table_end]);
 
                     r.block_type -= 1;
@@ -1626,15 +1647,22 @@ pub fn decompress(
                 let num_extra = l.num_extra.into();
                 read_bits(&mut l, num_extra, &mut in_iter, flags, |l, mut extra_bits| {
                     // Mask to avoid a bounds check.
-                    extra_bits += [3, 3, 11][(l.dist as usize - 16) & 3];
+                    // We can use 2 since the 2 first values are the same.
+                    extra_bits += [3, 3, 11][(l.dist as usize - 16) & 2];
                     let val = if l.dist == 16 {
-                        r.len_codes[l.counter as usize - 1]
+                        debug_assert!(l.counter as usize - 1 < r.len_codes.len());
+                        r.len_codes[(l.counter as usize - 1) & LEN_CODES_MASK]
                     } else {
                         0
                     };
 
+                    let fill_start = l.counter as usize;
+                    let fill_end = l.counter as usize + extra_bits as usize;
+                    debug_assert!(fill_start < r.len_codes.len());
+                    debug_assert!(fill_end < r.len_codes.len());
+
                     r.len_codes[
-                            l.counter as usize..l.counter as usize + extra_bits as usize
+                            fill_start & LEN_CODES_MASK..fill_end & LEN_CODES_MASK
                         ].fill(val);
                     l.counter += extra_bits as u32;
                     Action::Jump(ReadLitlenDistTablesCodeSize)
@@ -1883,12 +1911,10 @@ pub fn decompress(
                     } else {
                         Action::Jump(DoneForever)
                     }
-                } else {
-                    if flags & TINFL_FLAG_STOP_ON_BLOCK_BOUNDARY != 0 {
+                } else if !cfg!(feature="rustc-dep-of-std") && flags & TINFL_FLAG_STOP_ON_BLOCK_BOUNDARY != 0 {
                         Action::End(TINFLStatus::BlockBoundary)
-                    } else {
+                } else {
                         Action::Jump(ReadBlockHeader)
-                    }
                 }
             }),
 
@@ -1935,6 +1961,7 @@ pub fn decompress(
     };
 
     // If we're returning after completing a block, prepare for the next block when called again.
+    #[cfg(not(feature = "rustc-dep-of-std"))]
     if status == TINFLStatus::BlockBoundary {
         state = State::ReadBlockHeader;
     }

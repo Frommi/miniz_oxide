@@ -65,6 +65,6 @@ macro_rules! big_array {
 }
 
 big_array! {
-    288, 457,
+    288, 512,
     576, 1024,
 }
