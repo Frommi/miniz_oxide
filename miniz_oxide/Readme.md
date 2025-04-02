@@ -17,7 +17,9 @@ miniz_oxide 0.8.x currently requires at least Rust 1.56.0, though to leave some 
 
 miniz_oxide features no use of unsafe code.
 
-miniz_oxide can optionally be made to use a simd-accelerated version of adler32 via the [simd-adler32](https://crates.io/crates/simd-adler32) crate by enabling the 'simd' feature. This is not enabled by default as due to the use of simd intrinsics, the simd-adler32 has to use unsafe. The default setup uses the [adler2](https://crates.io/crates/adler2) crate which features no unsafe code. (a fork of the [adler](https://github.com/jonas-schievink/adler) crate as that crate is archived and no longer maintained.)
+miniz_oxide can optionally be made to use a simd-accelerated version of adler32 via the [simd-adler32](https://crates.io/crates/simd-adler32) crate by enabling the 'simd' feature which will  give a noticeable speedup on decoding, and a smaller speedup during encoding, if the data is encoded with a zlib header. Due to the increase in performance this is recommended, though not enabled by default for compatability reasons. Additionally, due to the use of simd intrinsics, the simd-adler32 has to use unsafe. The default setup uses the [adler2](https://crates.io/crates/adler2) crate which features no unsafe code. (a fork of the [adler](https://github.com/jonas-schievink/adler) crate as that crate is archived and no longer maintained.)
+
+The 'serde' feature enables serialization of the decompressor struct, or a subset of it at block boundaries, allowing compression to be suspended and resumed. This is still an experimental feature that may be expanded in the future the format may still change.
 
 ## Usage
 Simple compression/decompression:

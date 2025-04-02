@@ -1338,8 +1338,6 @@ fn decompress_fast(
 ///
 /// Returns a tuple containing the status of the compressor, the number of input bytes read, and the
 /// number of bytes output to `out`.
-///
-/// This function shouldn't panic pending any bugs.
 pub fn decompress(
     r: &mut DecompressorOxide,
     in_buf: &[u8],
