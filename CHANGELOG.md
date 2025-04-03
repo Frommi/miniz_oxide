@@ -3,6 +3,27 @@
 All notable changes to this project will be documented in this file.
 
 ---
+## [0.8.6](https://github.com/Frommi/miniz_oxide/compare/0.8.5..0.8.6) - 2025-04-03
+
+### Bug Fixes
+
+- **(deflate)** help the compiler evade two bounds checks to improve compression performance a little - ([633e59f](https://github.com/Frommi/miniz_oxide/commit/633e59fd7efa3fe73be7a712503a9b5ede7ef2c1)) - oyvindln
+- **(deflate)** further deflate performance improvements especially on fast mode - ([5a65104](https://github.com/Frommi/miniz_oxide/commit/5a651048f3ef69d65aa28ffb8ecb78229e081dc1)) - oyvindln
+- **(docs)** update miniz_oxide readme a bit - ([743ae50](https://github.com/Frommi/miniz_oxide/commit/743ae5065612893ac073ade262bf3a2933702a73)) - oyvindln
+- **(inflate)** don't use bit reverse lookup table when not using alloc and make it smaller - ([8e331bb](https://github.com/Frommi/miniz_oxide/commit/8e331bbccae4691d68e1135b87662fb61cdb05da)) - oyvindln
+- **(inflate)** correctly return MZError::buf from inflate on incomplete stream - ([061069e](https://github.com/Frommi/miniz_oxide/commit/061069eed84bcb7b7d84ade442fe31b817a3464f)) - oyvindln
+- **(inflate)** improve inflate perf in some cases when using wrapping buffer - ([44a3e1b](https://github.com/Frommi/miniz_oxide/commit/44a3e1b682b8fb61511afdd24397eec8c241edd8)) - oyvindln
+- **(inflate)** evade more bounds checks in inflate and disable stop on block boundary code when compiled as dep of rustc - ([953a54d](https://github.com/Frommi/miniz_oxide/commit/953a54d6924422e531984737c3a4c158b06d4271)) - oyvindln
+- **(inflate)** skip stream module when compiling as part of rustc std as it's not used there - ([073160c](https://github.com/Frommi/miniz_oxide/commit/073160c5f9f972d5245e0152e94a5d855a843a03)) - oyvindln
+- rename serde feature, separate serde test - ([eee6524](https://github.com/Frommi/miniz_oxide/commit/eee6524fbbd0e6ad05a16c90a2aa57e65816e7f1)) - oyvindln
+- remoe unused serde BigArray implementation sizes and update Readme - ([f73670a](https://github.com/Frommi/miniz_oxide/commit/f73670a193dfdd8ce3ce0dd24125efd6e1a90fcd)) - oyvindln
+- Block boundary test and cleanup ([#171](https://github.com/Frommi/miniz_oxide/issues/171)) - ([82ada74](https://github.com/Frommi/miniz_oxide/commit/82ada74738db584f54fe3c1310771d9ffa3cb924)) - Philip Taylor
+
+### Features
+- add derive(Serialize, Deserialize) to DecompressorOxide ([#166](https://github.com/Frommi/miniz_oxide/issues/166)) - ([c9e5996](https://github.com/Frommi/miniz_oxide/commit/c9e5996da3179261ed07f76f9d0beff0e5c91b4a)) - dishmaker
+- Add API to support random access at block boundaries ([#170](https://github.com/Frommi/miniz_oxide/issues/170)) - ([240bcdd](https://github.com/Frommi/miniz_oxide/commit/240bcdde45bc1befe8a43f9d53b955518da1d152)) - Philip Taylor
+
+---
 ## [0.8.5](https://github.com/Frommi/miniz_oxide/compare/0.8.4..0.8.5) - 2025-02-21
 
 ### Bug Fixes
