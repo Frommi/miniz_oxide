@@ -343,6 +343,15 @@ fn empty_stored() {
     let _ = decompress_to_vec_zlib(&enc).unwrap();
 }
 
+#[test]
+fn write_len_bytes_to_end() {
+    // Crashed due to overflow from condition being run in core::transfer due to accidentally using | instead of ||
+    // after updating it, found by fuzzer.
+    let data = get_test_file_data("tests/test_data/write_len_bytes_to_end");
+    // Invalid deflate stream but we only care about the overflow.
+    let _ = decompress_to_vec(&data);
+}
+
 /*
 #[test]
 fn partial_decompression_imap_issue_158() {

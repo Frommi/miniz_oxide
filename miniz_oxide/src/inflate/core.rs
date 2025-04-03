@@ -1046,7 +1046,7 @@ fn transfer(
 
     // The last 3 bytes can wrap as those are dealt with separately at the end.
     let not_wrapping =
-        (out_buf_size_mask == usize::MAX) | ((source_pos + match_len - 3) < out_slice.len());
+        (out_buf_size_mask == usize::MAX) || ((source_pos + match_len - 3) < out_slice.len());
 
     let end_pos = ((match_len >> 2) * 4) + out_pos;
     if not_wrapping && source_diff == 1 && out_pos > source_pos {
