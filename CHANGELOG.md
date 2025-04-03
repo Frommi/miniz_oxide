@@ -3,7 +3,19 @@
 All notable changes to this project will be documented in this file.
 
 ---
+## [0.8.7](https://github.com/Frommi/miniz_oxide/compare/0.8.6..0.8.7) - 2025-04-03
+
+
+
+### Bug Fixes
+
+- **(inflate)** make block boundary function a feature since it breaks semver and add to test - ([862fb2c](https://github.com/Frommi/miniz_oxide/commit/862fb2c2b8b7847294224a74c8055e98285a80ea)) - oyvindln
+
+
+---
 ## [0.8.6](https://github.com/Frommi/miniz_oxide/compare/0.8.5..0.8.6) - 2025-04-03
+
+Yanked as it broke semver due to adding an enum variant - fixed in 0.8.7 by adding the new functionality as an optional feature for now.
 
 ### Bug Fixes
 
