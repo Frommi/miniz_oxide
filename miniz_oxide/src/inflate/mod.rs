@@ -7,6 +7,7 @@ use std::error::Error;
 
 pub mod core;
 mod output_buffer;
+#[cfg(not(feature = "rustc-dep-of-std"))]
 pub mod stream;
 use self::core::*;
 
