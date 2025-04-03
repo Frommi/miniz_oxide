@@ -39,7 +39,7 @@ jobs:
         if: ${{ matrix.rust !=  '1.56.0' }} 
         run: cargo test
 
-  test:
+  test_b:
     name: TestB
     runs-on: ubuntu-latest
     steps:
