@@ -55,7 +55,7 @@ impl From<TINFLStatus> for tinfl_status {
             TINFLStatus::Done => TINFL_STATUS_DONE,
             TINFLStatus::NeedsMoreInput => TINFL_STATUS_NEEDS_MORE_INPUT,
             TINFLStatus::HasMoreOutput => TINFL_STATUS_HAS_MORE_OUTPUT,
-            TINFLStatus::BlockBoundary => panic!("not supported in C API"),
+            // TINFLStatus::BlockBoundary => panic!("not supported in C API"),
         }
     }
 }
