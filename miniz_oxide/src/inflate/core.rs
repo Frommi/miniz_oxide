@@ -164,6 +164,7 @@ pub mod inflate_flags {
     /// Return [`TINFLStatus::BlockBoundary`][super::TINFLStatus::BlockBoundary]
     /// on reaching the boundary between deflate blocks. Calling [`decompress()`][super::decompress]
     /// again will resume decompression of the next block.
+    #[cfg(feature = "block-boundary")]
     pub const TINFL_FLAG_STOP_ON_BLOCK_BOUNDARY: u32 = 128;
 }
 
@@ -193,8 +194,8 @@ enum HuffmanTableType {
 /// ([`TINFL_FLAG_PARSE_ZLIB_HEADER`], [`TINFL_FLAG_COMPUTE_ADLER32`]).
 /// When deserializing, you can reconstruct `bit_buf` from the previous byte in the input file
 /// (if you still have access to it), so `num_bits` is the only field that is always required.
-#[cfg(not(feature = "rustc-dep-of-std"))]
 #[derive(Clone)]
+#[cfg(feature = "block-boundary")]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct BlockBoundaryState {
     /// The number of bits from the last byte of input consumed,
@@ -215,7 +216,7 @@ pub struct BlockBoundaryState {
     pub check_adler32: u32,
 }
 
-#[cfg(not(feature = "rustc-dep-of-std"))]
+#[cfg(feature = "block-boundary")]
 impl Default for BlockBoundaryState {
     fn default() -> Self {
         BlockBoundaryState {
@@ -331,7 +332,7 @@ impl DecompressorOxide {
     /// Returns the current [`BlockBoundaryState`]. Should only be called when
     /// [`decompress()`] has returned [`TINFLStatus::BlockBoundary`];
     /// otherwise this will return `None`.
-    #[cfg(not(feature = "rustc-dep-of-std"))]
+    #[cfg(feature = "block-boundary")]
     pub fn block_boundary_state(&self) -> Option<BlockBoundaryState> {
         if self.state == core::State::ReadBlockHeader {
             // If we're in this state, undo_bytes should have emptied
@@ -356,7 +357,7 @@ impl DecompressorOxide {
     /// When calling [`decompress()`], the 32KiB of `out` preceding `out_pos` must be
     /// initialized with the same data that it contained when `block_boundary_state()`
     /// was called.
-    #[cfg(not(feature = "rustc-dep-of-std"))]
+    #[cfg(feature = "block-boundary")]
     pub fn from_block_boundary_state(st: &BlockBoundaryState) -> Self {
         DecompressorOxide {
             state: core::State::ReadBlockHeader,
@@ -1911,10 +1912,17 @@ pub fn decompress(
                     } else {
                         Action::Jump(DoneForever)
                     }
-                } else if !cfg!(feature="rustc-dep-of-std") && flags & TINFL_FLAG_STOP_ON_BLOCK_BOUNDARY != 0 {
-                        Action::End(TINFLStatus::BlockBoundary)
                 } else {
+                    #[cfg(feature = "block-boundary")]
+                    if flags & TINFL_FLAG_STOP_ON_BLOCK_BOUNDARY != 0 {
+                        Action::End(TINFLStatus::BlockBoundary)
+                    } else {
                         Action::Jump(ReadBlockHeader)
+                    }
+                    #[cfg(not(feature = "block-boundary"))]
+                    {
+                        Action::Jump(ReadBlockHeader)
+                    }
                 }
             }),
 
@@ -1961,7 +1969,7 @@ pub fn decompress(
     };
 
     // If we're returning after completing a block, prepare for the next block when called again.
-    #[cfg(not(feature = "rustc-dep-of-std"))]
+    #[cfg(feature = "block-boundary")]
     if status == TINFLStatus::BlockBoundary {
         state = State::ReadBlockHeader;
     }

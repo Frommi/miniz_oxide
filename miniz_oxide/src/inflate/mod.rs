@@ -18,6 +18,7 @@ const TINFL_STATUS_FAILED: i32 = -1;
 const TINFL_STATUS_DONE: i32 = 0;
 const TINFL_STATUS_NEEDS_MORE_INPUT: i32 = 1;
 const TINFL_STATUS_HAS_MORE_OUTPUT: i32 = 2;
+#[cfg(feature = "block-boundary")]
 const TINFL_STATUS_BLOCK_BOUNDARY: i32 = 3;
 
 /// Return status codes.
@@ -71,6 +72,7 @@ pub enum TINFLStatus {
     ///
     /// This is only returned if you use the
     /// [`TINFL_FLAG_STOP_ON_BLOCK_BOUNDARY`][core::inflate_flags::TINFL_FLAG_STOP_ON_BLOCK_BOUNDARY] flag.
+    #[cfg(feature = "block-boundary")]
     BlockBoundary = TINFL_STATUS_BLOCK_BOUNDARY as i8,
 }
 
@@ -85,6 +87,7 @@ impl TINFLStatus {
             TINFL_STATUS_DONE => Some(Done),
             TINFL_STATUS_NEEDS_MORE_INPUT => Some(NeedsMoreInput),
             TINFL_STATUS_HAS_MORE_OUTPUT => Some(HasMoreOutput),
+            #[cfg(feature = "block-boundary")]
             TINFL_STATUS_BLOCK_BOUNDARY => Some(BlockBoundary),
             _ => None,
         }
@@ -113,6 +116,7 @@ impl alloc::fmt::Display for DecompressError {
             TINFLStatus::Done => "", // Unreachable
             TINFLStatus::NeedsMoreInput => "Truncated input stream",
             TINFLStatus::HasMoreOutput => "Output size exceeded the specified limit",
+            #[cfg(feature = "block-boundary")]
             TINFLStatus::BlockBoundary => "Reached end of a deflate block",
         })
     }

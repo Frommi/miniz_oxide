@@ -2,7 +2,6 @@
 #![cfg(feature = "with-alloc")]
 extern crate miniz_oxide;
 
-use std::collections::HashSet;
 use std::io::Read;
 
 use miniz_oxide::deflate::{compress_to_vec, compress_to_vec_zlib};
@@ -19,7 +18,10 @@ fn get_test_file_data(name: &str) -> Vec<u8> {
 }
 
 // Low-quality RNG to generate incompressible test data, based on mrand48
+#[cfg(feature = "block-boundary")]
 struct Rng(u64);
+
+#[cfg(feature = "block-boundary")]
 impl Rng {
     fn new(seed: u32) -> Self {
         Self(((seed as u64) << 16) | 0x330E)
@@ -29,6 +31,8 @@ impl Rng {
         self.flat_map(|x| x.to_le_bytes()).take(n).collect()
     }
 }
+
+#[cfg(feature = "block-boundary")]
 impl Iterator for Rng {
     type Item = u32;
     fn next(&mut self) -> Option<u32> {
@@ -401,9 +405,10 @@ fn large_file() {
 
 */
 
-// Test the behavior of TINFL_FLAG_STOP_ON_BLOCK_BOUNDARY, block_boundary_state(),
+// Test the behavior of TINFL_FLAG_STOP_ON_block-boundary, block-boundary_state(),
 // and restarting the DecompressorOxide at a boundary.
 #[test]
+#[cfg(feature = "block-boundary")]
 fn block_boundary() {
     for zlib in [false, true] {
         for restart in [false, true] {
@@ -412,7 +417,9 @@ fn block_boundary() {
     }
 }
 
+#[cfg(feature = "block-boundary")]
 fn block_boundary_inner(zlib: bool, restart: bool) {
+    use std::collections::HashSet;
     // Compress some chunks of arbitrary data, ending each chunk with Sync (forcing a block boundary)
 
     // Large enough to trigger block boundaries in the middle of a chunk, so we're testing

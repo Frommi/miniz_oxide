@@ -39,6 +39,16 @@ jobs:
         if: ${{ matrix.rust !=  '1.56.0' }} 
         run: cargo test
 
+  test:
+    name: TestB
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - run: cargo test --manifest-path ./miniz_oxide/Cargo.toml --features block-boundary
+
   wasm:
     name: WebAssembly
     runs-on: ubuntu-latest
