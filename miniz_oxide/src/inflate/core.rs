@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 pub const TINFL_LZ_DICT_SIZE: usize = 32_768;
 
 /// A struct containing huffman code lengths and the huffman code tree used by the decompressor.
-#[derive(Clone)]
+#[cfg_attr(not(feature = "rustc-dep-of-std"), derive(Clone))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 struct HuffmanTable {
     /// Fast lookup table for shorter huffman codes.
@@ -231,7 +231,7 @@ impl Default for BlockBoundaryState {
 
 /// Main decompression struct.
 ///
-#[derive(Clone)]
+#[cfg_attr(not(feature = "rustc-dep-of-std"), derive(Clone))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct DecompressorOxide {
     /// Current state of the decompressor.
@@ -2058,7 +2058,7 @@ mod test {
         // This should fail with the out buffer being to small.
         let b_status = tinfl_decompress_oxide(&mut b, &encoded[..], &mut b_buf, flags);
 
-        assert_eq!(b_status.0, TINFLStatus::Failed);
+        assert!(b_status.0 == TINFLStatus::Failed);
 
         let flags = flags | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
 
@@ -2068,7 +2068,7 @@ mod test {
         let b_status = tinfl_decompress_oxide(&mut b, &encoded[..], &mut b_buf, flags);
 
         assert_eq!(b_buf[..b_status.2], b"Hello, zlib!"[..]);
-        assert_eq!(b_status.0, TINFLStatus::Done);
+        assert!(b_status.0 == TINFLStatus::Done);
     }
 
     #[cfg(feature = "with-alloc")]
@@ -2246,7 +2246,7 @@ mod test {
         // Check that we handle an empty buffer properly and not panicking.
         // https://github.com/Frommi/miniz_oxide/issues/23
         let res = decompress(&mut r, &encoded, &mut output_buf, 0, flags);
-        assert_eq!(res, (TINFLStatus::HasMoreOutput, 4, 0));
+        assert!(res == (TINFLStatus::HasMoreOutput, 4, 0));
     }
 
     #[test]
@@ -2260,7 +2260,7 @@ mod test {
         // Check that we handle an empty buffer properly and not panicking.
         // https://github.com/Frommi/miniz_oxide/issues/23
         let res = decompress(&mut r, &encoded, &mut output_buf, 0, flags);
-        assert_eq!(res, (TINFLStatus::HasMoreOutput, 2, 0));
+        assert!(res == (TINFLStatus::HasMoreOutput, 2, 0));
     }
 
     #[test]
