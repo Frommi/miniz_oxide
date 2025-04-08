@@ -4,6 +4,7 @@ name = "miniz_oxide_c_api-fuzz"
 version = "0.0.1"
 authors = ["Automatically generated"]
 publish = false
+edition = "2021"
 
 [package.metadata]
 cargo-fuzz = true
@@ -11,10 +12,18 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys="0.4.0"
 
+flate2 = "1.1.1"
+
 [dependencies.miniz_oxide_c_api]
 path = ".."
 [dependencies.miniz_oxide]
 path = "../miniz_oxide"
+
+
+# This seems to do the right thing but is this the correct way to
+# make flate2 use the local miniz_oxide when fuzzing?
+[patch.crates-io]
+miniz_oxide = { path = "../miniz_oxide" , features=["simd"]}
 
 # Prevent this from interfering with workspaces
 [workspace]
@@ -27,6 +36,10 @@ path = "fuzz_targets/fuzz_high.rs"
 [[bin]]
 name = "inflate_nonwrapping"
 path = "fuzz_targets/inflate_nonwrapping.rs"
+
+[[bin]]
+name = "via_flate2"
+path = "fuzz_targets/via_flate2.rs"
 
 [[bin]]
 name = "roundtrip"
