@@ -3,6 +3,16 @@
 All notable changes to this project will be documented in this file.
 
 ---
+## [0.8.8](https://github.com/Frommi/miniz_oxide/compare/0.8.7..0.8.8) - 2025-04-08
+
+### Bug Fixes
+
+- **(inflate)** fix possible `attempt to subtract with overflow` ([#172](https://github.com/Frommi/miniz_oxide/issues/172)) - ([db85297](https://github.com/Frommi/miniz_oxide/commit/db85297b646da470134ab079733d151b197efb87)) - Tymoteusz Kubicz
+- **(inflate)** use wrapping instead of saturating in transfer and add test cate for overflow panic in debug mode - ([4ed4535](https://github.com/Frommi/miniz_oxide/commit/4ed45352308f269cd49a1291e191d60f6b84f07c)) - oyvindln
+- disable a bunch more stuff that is not used when compiled as part of rustc - ([bf3cca6](https://github.com/Frommi/miniz_oxide/commit/bf3cca66bf4b38f3505f9613cff0f9c0fa6f8514)) - oyvindln
+- add fuzz target for running via flate2 - ([adadb9f](https://github.com/Frommi/miniz_oxide/commit/adadb9f53836de14b9b88d71337da36e59f32a24)) - oyvindln
+
+---
 ## [0.8.7](https://github.com/Frommi/miniz_oxide/compare/0.8.6..0.8.7) - 2025-04-03
 
 
