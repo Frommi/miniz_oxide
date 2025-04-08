@@ -349,11 +349,23 @@ fn empty_stored() {
 
 #[test]
 fn write_len_bytes_to_end() {
+    use miniz_oxide::inflate::core;
     // Crashed due to overflow from condition being run in core::transfer due to accidentally using | instead of ||
     // after updating it, found by fuzzer.
     let data = get_test_file_data("tests/test_data/write_len_bytes_to_end");
     // Invalid deflate stream but we only care about the overflow.
     let _ = decompress_to_vec(&data);
+
+    // Check also using wrapping buffer
+    let mut buf2 = vec![0; 2];
+    let mut decompressor = miniz_oxide::inflate::core::DecompressorOxide::new();
+    let _ = miniz_oxide::inflate::core::decompress(
+        &mut decompressor,
+        &data,
+        &mut buf2,
+        0,
+        core::inflate_flags::TINFL_FLAG_HAS_MORE_INPUT,
+    );
 }
 
 /*

@@ -1046,8 +1046,11 @@ fn transfer(
     };
 
     // The last 3 bytes can wrap as those are dealt with separately at the end.
+    // Use wrapping_sub rather than saturating for performance reasons here as
+    // if source_pos + match_len  is < 3 we just want to jump to the end
+    // condition anyhow.
     let not_wrapping = (out_buf_size_mask == usize::MAX)
-        || ((source_pos + match_len).saturating_sub(3) < out_slice.len());
+        || ((source_pos + match_len).wrapping_sub(3) < out_slice.len());
 
     let end_pos = ((match_len >> 2) * 4) + out_pos;
     if not_wrapping && source_diff == 1 && out_pos > source_pos {
