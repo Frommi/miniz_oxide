@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 
 ---
+## [0.8.9](https://github.com/Frommi/miniz_oxide/compare/0.8.8..0.8.9) - 2025-06-09
+
+### Other
+
+- Remove `compiler-builtins` from `rustc-dep-of-std` dependencies ([#173](https://github.com/Frommi/miniz_oxide/issues/173)) - ([025c06e](https://github.com/Frommi/miniz_oxide/commit/025c06ed3258817474f8c2608e6decc43ce1de73)) - Trevor Gross
+
+---
 ## [0.8.8](https://github.com/Frommi/miniz_oxide/compare/0.8.7..0.8.8) - 2025-04-08
 
 ### Bug Fixes
