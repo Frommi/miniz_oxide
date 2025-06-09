@@ -10,6 +10,8 @@ The Rust crate is found in the [miniz_oxide subdirectory](https://github.com/Fro
 
 For a friendlier streaming API using readers and writers, [flate2](https://crates.io/crates/flate2) can be used, which can use miniz_oxide as a rust-only back-end.
 
+IMPORTANT! Versions prior to 0.8.4 have a [massive](https://github.com/Frommi/miniz_oxide/issues/163) regression in compression performance in versions of rust 1.81 and newer due to a upstream regression. If miniz_oxide is part of your dependencies, please update to the latest version to avoid performance regressions!
+
 ## miniz_oxide_C_API
 The C API is intended to replicate the API exported from miniz, and in turn also part of zlib. The C header is generated using [cbindgen](https://github.com/eqrion/cbindgen). The current implementation has not seen a lot of testing outside of automated tests, is a bit weak in documentation and should be seen as experimental.
 
