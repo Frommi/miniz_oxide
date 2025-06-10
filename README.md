@@ -45,4 +45,4 @@ $ cargo +nightly fuzz run inflate_nonwrapping
 ```
 
 ### License
-This library (excluding the original miniz C code used for tests) is dual licensed under the MIT license and Apache 2.0 license. The library is based on the [miniz][MIT license](https://github.com/richgel999/miniz) C library by Rich Geldreich which is released under the MIT license.
+This library (excluding the original miniz C code used for tests) is dual licensed under the MIT license and Apache 2.0 license. The library is based on the [miniz](https://github.com/richgel999/miniz) C library by Rich Geldreich which is released under the MIT license.
