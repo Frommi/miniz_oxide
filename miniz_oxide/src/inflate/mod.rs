@@ -260,7 +260,33 @@ fn decompress_to_vec_inner(
 /// * `it` the iterator of input slices.
 /// * `zlib_header` if the first slice out of the iterator is expected to have a
 ///   Zlib header. Otherwise the slices are assumed to be the deflate data only.
-/// * `ignore_adler32` if the adler32 checksum should be calculated or not.
+/// * `ignore_adler32` if the adler32 checksum should be validated in case of
+///   of zlib data. (Set this to true if it should be ignored)
+///
+/// # Examples
+/// ```
+/// use core::iter;
+/// use core::result::Result;
+/// use miniz_oxide::inflate::decompress_slice_iter_to_slice;
+///
+/// fn main() -> Result<(), ()> {
+///     const ENCODED: [u8; 20] = [
+///         120, 156, 243, 72, 205, 201, 201, 215, 81, 168, 202, 201, 76, 82, 4, 0, 27, 101, 4, 19,
+///     ];
+///     let mut output = [0u8; 20];
+///     // Using `once` to do the whole buffer in one go. One could also use e.g
+///     // `slice::chunks` to easily split up a buffer into parts instead.
+///     let result =
+///         decompress_slice_iter_to_slice(&mut output, iter::once(ENCODED.as_slice()), true, false);
+///
+///     if let Ok(bytes) = result {
+///         if output[..bytes] == b"Hello, zlib!"[..] {
+///             return Ok(());
+///         }
+///     }
+///     Err(())
+/// }
+/// ```
 #[cfg(not(feature = "rustc-dep-of-std"))]
 pub fn decompress_slice_iter_to_slice<'out, 'inp>(
     out: &'out mut [u8],
