@@ -4265,7 +4265,7 @@ mem_cgroup_css_alloc(struct cgroup_subsys_state *parent_css)
 		page_counter_init(&memcg->kmem, NULL);
 		page_counter_init(&memcg->tcpmem, NULL);
 		/*
-		 * Deeper hierachy with use_hierarchy == false doesn't make
+		 * Deeper hierarchy with use_hierarchy == false doesn't make
 		 * much sense so let cgroup subsystem know about this
 		 * unfortunate state in our controller.
 		 */
