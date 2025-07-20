@@ -223,6 +223,9 @@ pub enum TDEFLFlush {
     /// Compress as much as there is space for, and then return waiting for more input.
     None = 0,
 
+    /// Try to flush all the current data and output an empty fixed block.
+    Partial = 1,
+
     /// Try to flush all the current data and output an empty raw block.
     Sync = 2,
 
@@ -240,6 +243,7 @@ impl From<MZFlush> for TDEFLFlush {
     fn from(flush: MZFlush) -> Self {
         match flush {
             MZFlush::None => TDEFLFlush::None,
+            MZFlush::Partial => TDEFLFlush::Partial,
             MZFlush::Sync => TDEFLFlush::Sync,
             MZFlush::Full => TDEFLFlush::Full,
             MZFlush::Finish => TDEFLFlush::Finish,
@@ -252,6 +256,7 @@ impl TDEFLFlush {
     pub const fn new(flush: i32) -> Result<Self, MZError> {
         match flush {
             0 => Ok(TDEFLFlush::None),
+            1 => Ok(TDEFLFlush::Partial),
             2 => Ok(TDEFLFlush::Sync),
             3 => Ok(TDEFLFlush::Full),
             4 => Ok(TDEFLFlush::Finish),
@@ -1692,6 +1697,8 @@ pub(crate) fn flush_block(
                         adler <<= 8;
                     }
                 }
+            } else if flush == TDEFLFlush::Partial {
+                output.put_bits(2, 10);
             } else {
                 // Sync or Full flush.
                 // Output an empty raw block.
