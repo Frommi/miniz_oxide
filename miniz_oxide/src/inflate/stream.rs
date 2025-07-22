@@ -55,7 +55,7 @@ impl ResetPolicy for FullReset {
     }
 }
 
-/// A struct that compbines a decompressor with extra data for streaming decompression.
+/// A struct that combines a decompressor with extra data for streaming decompression.
 ///
 #[derive(Clone)]
 pub struct InflateState {
