@@ -1,4 +1,29 @@
-//! Streaming decompression functionality.
+//! Core decompression functionality.
+//!
+//! # Using decompress with a wrapping buffer
+//!
+//! [`decompress`] and [`decompress_with_limit`] can be used with a wrapping buffer.
+//!
+//! To decompress with a wrapping buffer you must:
+//! - not pass `TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF` flag
+//! - pass an output buffer with a size of a power of 2
+//! - pass an output buffer  with a size greater or equal to the decompression window
+//!   (which cannot be more than 32KiB, so 32KiB is a safe size)
+//! - pass the same buffer on each call without modification
+//!
+//! You must process return values so that:
+//! - next call pass the input buffer without the first input bytes read skipped
+//! - next call pass the same output buffer
+//! - next call pass an out_pos incremented by the number of bytes output (wrapping to 0 if needed)
+//! - do a next call only if return status is `NeedsMoreInput` or `NeedsMoreInput`
+//!
+//! [`decompress`] will write to any byte after `out_pos` in the output buffer, but will not
+//! wrap around. This means that all bytes after `out_pos` must be saved while the ones before
+//! do not have to.
+//!
+//! [`decompress_with_limit`] will write to any byte after `out_pos` but not more than `out_max`
+//! and will not wrap around. This means that you can use the buffer as a ring buffer for your
+//! application usage, as long as you keep track of the number of disposable bytes.
 
 use super::*;
 use crate::shared::{update_adler32, HUFFMAN_LENGTH_ORDER};
