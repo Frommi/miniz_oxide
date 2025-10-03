@@ -1,4 +1,29 @@
-//! Streaming decompression functionality.
+//! Core decompression functionality.
+//!
+//! # Using decompress with a wrapping buffer
+//!
+//! [`decompress`] and [`decompress_with_limit`] can be used with a wrapping buffer.
+//!
+//! To decompress with a wrapping buffer you must:
+//! - not pass `TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF` flag
+//! - pass an output buffer with a size of a power of 2
+//! - pass an output buffer  with a size greater or equal to the decompression window
+//!   (which cannot be more than 32KiB, so 32KiB is a safe size)
+//! - pass the same buffer on each call without modification
+//!
+//! You must process return values so that:
+//! - next call pass the input buffer without the first input bytes read skipped
+//! - next call pass the same output buffer
+//! - next call pass an out_pos incremented by the number of bytes output (wrapping to 0 if needed)
+//! - do a next call only if return status is `NeedsMoreInput` or `NeedsMoreInput`
+//!
+//! [`decompress`] will write to any byte after `out_pos` in the output buffer, but will not
+//! wrap around. This means that all bytes after `out_pos` must be saved while the ones before
+//! do not have to.
+//!
+//! [`decompress_with_limit`] will write to any byte after `out_pos` but not more than `out_max`
+//! and will not wrap around. This means that you can use the buffer as a ring buffer for your
+//! application usage, as long as you keep track of the number of disposable bytes.
 
 use super::*;
 use crate::shared::{update_adler32, HUFFMAN_LENGTH_ORDER};
@@ -1362,6 +1387,27 @@ pub fn decompress(
     out_pos: usize,
     flags: u32,
 ) -> (TINFLStatus, usize, usize) {
+    decompress_with_limit(r, in_buf, out, out_pos, usize::MAX, flags)
+}
+
+/// Same as [`decompress()`] with a maximum decompressed byte count.
+///
+/// By default [`decompress()`] decompress untill end of `out` buffer if possible.
+/// `decompress_with_limit` will stop when `out_max` bytes have been decompressed,
+/// or when `out` buffer is full, whichever comes first.
+///
+/// This is especially useful when using a wrapping output buffer. This helps keeping
+/// some data that has not yet been consumed in the buffer while decompressing new bytes.
+///
+/// `out_max` is the maximum number of *bytes* that decompress will write
+pub fn decompress_with_limit(
+    r: &mut DecompressorOxide,
+    in_buf: &[u8],
+    out: &mut [u8],
+    out_pos: usize,
+    out_max: usize,
+    flags: u32,
+) -> (TINFLStatus, usize, usize) {
     let out_buf_size_mask = if flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0 {
         usize::MAX
     } else {
@@ -1383,7 +1429,7 @@ pub fn decompress(
 
     let mut state = r.state;
 
-    let mut out_buf = OutputBuffer::from_slice_and_pos(out, out_pos);
+    let mut out_buf = OutputBuffer::from_slice_pos_and_max(out, out_pos, out_max);
 
     // Make a local copy of the important variables here so we can work with them on the stack.
     let mut l = LocalVars {
@@ -1845,7 +1891,7 @@ pub fn decompress(
                     let source_pos = out_buf.position()
                         .wrapping_sub(l.dist as usize) & out_buf_size_mask;
 
-                    let out_len = out_buf.get_ref().len();
+                    let out_len = out_buf.bytes_left();
                     let match_end_pos = out_buf.position() + l.counter as usize;
 
                     if match_end_pos > out_len ||
