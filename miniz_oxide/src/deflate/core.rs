@@ -223,10 +223,12 @@ pub enum TDEFLFlush {
     /// Compress as much as there is space for, and then return waiting for more input.
     None = 0,
 
-    /// Try to flush all the current data and output an empty fixed block.
+    /// Try to flush all the current data and output an empty fixed
+    /// block (10 bits) to synchonize the stream.
     Partial = 1,
 
-    /// Try to flush all the current data and output an empty raw block.
+    /// Try to flush all the current data and output an empty raw
+    /// block (3-10 bits + 32 bits) to synchonize the stream.
     Sync = 2,
 
     /// Same as [`Sync`][Self::Sync], but reset the dictionary so that the following data does not
@@ -237,6 +239,23 @@ pub enum TDEFLFlush {
     ///
     /// On success this will yield a [`TDEFLStatus::Done`] return status.
     Finish = 4,
+
+    /// Try to flush all the current data and, if data is unaligned,
+    /// output an empty fixed block (10 bits) to synchonize the
+    /// stream.
+    PartialOpt = 5,
+
+    /// Try to flush all the current data and, if data is unaligned,
+    /// output an empty raw block (3-10 bits + 32 bits) to synchonize
+    /// the stream.
+    SyncOpt = 6,
+
+    /// Try to flush the current data but without any sync, which may
+    /// leave up to 7 bits of data not output.  You can use
+    /// `TDEFLFlush::PartialOpt` or `TDEFLFlush::SyncOpt` to add a
+    /// sync sequence on a future call if you later decide that you
+    /// have space downstream to forward that final byte.
+    NoSync = 7,
 }
 
 impl From<MZFlush> for TDEFLFlush {
@@ -260,6 +279,9 @@ impl TDEFLFlush {
             2 => Ok(TDEFLFlush::Sync),
             3 => Ok(TDEFLFlush::Full),
             4 => Ok(TDEFLFlush::Finish),
+            5 => Ok(TDEFLFlush::PartialOpt),
+            6 => Ok(TDEFLFlush::SyncOpt),
+            7 => Ok(TDEFLFlush::NoSync),
             _ => Err(MZError::Param),
         }
     }
@@ -428,6 +450,13 @@ impl CompressorOxide {
         );
         self.params.update_flags(flags);
         self.dict.update_flags(flags);
+    }
+
+    /// Check the number of unwritten bits after the last flush.
+    /// After a `NoSync` flush it can be used to test whether the
+    /// stream is aligned with a byte boundary.
+    pub fn unwritten_bit_count(&self) -> u32 {
+        self.params.saved_bits_in
     }
 }
 
@@ -648,6 +677,13 @@ impl OutputBufferOxide<'_> {
             let len = 8 - self.bits_in;
             self.put_bits(0, len);
         }
+    }
+
+    /// Test whether the output is currently on a byte boundary,
+    /// i.e. all current data has been output
+    #[inline]
+    fn is_byte_aligned(&self) -> bool {
+        self.bits_in == 0
     }
 
     #[inline]
@@ -1615,85 +1651,88 @@ pub(crate) fn flush_block(
         output.bit_buffer = d.params.saved_bit_buffer;
         output.bits_in = d.params.saved_bits_in;
 
-        // TODO: Don't think this second condition should be here but need to verify.
-        let use_raw_block = (d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0)
-            && (d.dict.lookahead_pos - d.dict.code_buf_dict_pos) <= d.dict.size;
-        debug_assert_eq!(
-            use_raw_block,
-            d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0
-        );
+        if d.lz.total_bytes > 0 || flush == TDEFLFlush::Finish {
+            // TODO: Don't think this second condition should be here but need to verify.
+            let use_raw_block = (d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0)
+                && (d.dict.lookahead_pos - d.dict.code_buf_dict_pos) <= d.dict.size;
+            debug_assert_eq!(
+                use_raw_block,
+                d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0
+            );
 
-        assert!(d.params.flush_remaining == 0);
-        d.params.flush_ofs = 0;
-        d.params.flush_remaining = 0;
+            assert!(d.params.flush_remaining == 0);
+            d.params.flush_ofs = 0;
+            d.params.flush_remaining = 0;
 
-        d.lz.init_flag();
+            d.lz.init_flag();
 
-        // If we are at the start of the stream, write the zlib header if requested.
-        if d.params.flags & TDEFL_WRITE_ZLIB_HEADER != 0 && d.params.block_index == 0 {
-            let header = zlib::header_from_flags(d.params.flags);
-            output.put_bits_no_flush(header[0].into(), 8);
-            output.put_bits(header[1].into(), 8);
-        }
-
-        // Output the block header.
-        output.put_bits((flush == TDEFLFlush::Finish) as u32, 1);
-
-        saved_buffer = output.save();
-
-        let comp_success = if !use_raw_block {
-            let use_static =
-                (d.params.flags & TDEFL_FORCE_ALL_STATIC_BLOCKS != 0) || (d.lz.total_bytes < 48);
-            compress_block(&mut d.huff, &mut output, &d.lz, use_static)?
-        } else {
-            false
-        };
-
-        // If we failed to compress anything and the output would take up more space than the output
-        // data, output a stored block instead, which has at most 5 bytes of overhead.
-        // We only use some simple heuristics for now.
-        // A stored block will have an overhead of at least 4 bytes containing the block length
-        // but usually more due to the length parameters having to start at a byte boundary and thus
-        // requiring up to 5 bytes of padding.
-        // As a static block will have an overhead of at most 1 bit per byte
-        // (as literals are either 8 or 9 bytes), a raw block will
-        // never take up less space if the number of input bytes are less than 32.
-        let expanded = (d.lz.total_bytes > 32)
-            && (output.inner_pos - saved_buffer.pos + 1 >= (d.lz.total_bytes as usize))
-            && (d.dict.lookahead_pos - d.dict.code_buf_dict_pos <= d.dict.size);
-
-        if use_raw_block || expanded {
-            output.load(saved_buffer);
-
-            // Block header.
-            output.put_bits(0, 2);
-
-            // Block length has to start on a byte boundary, so pad.
-            output.pad_to_bytes();
-
-            // Block length and ones complement of block length.
-            output.put_bits(d.lz.total_bytes & 0xFFFF, 16);
-            output.put_bits(!d.lz.total_bytes & 0xFFFF, 16);
-
-            // Write the actual bytes.
-            let start = d.dict.code_buf_dict_pos & LZ_DICT_SIZE_MASK;
-            let end = (d.dict.code_buf_dict_pos + d.lz.total_bytes as usize) & LZ_DICT_SIZE_MASK;
-            let dict = &mut d.dict.b.dict;
-            if start < end {
-                // The data does not wrap around.
-                output.write_bytes(&dict[start..end]);
-            } else if d.lz.total_bytes > 0 {
-                // The data wraps around and the input was not 0 bytes.
-                output.write_bytes(&dict[start..LZ_DICT_SIZE]);
-                output.write_bytes(&dict[..end]);
+            // If we are at the start of the stream, write the zlib header if requested.
+            if d.params.flags & TDEFL_WRITE_ZLIB_HEADER != 0 && d.params.block_index == 0 {
+                let header = zlib::header_from_flags(d.params.flags);
+                output.put_bits_no_flush(header[0].into(), 8);
+                output.put_bits(header[1].into(), 8);
             }
-        } else if !comp_success {
-            output.load(saved_buffer);
-            compress_block(&mut d.huff, &mut output, &d.lz, true)?;
+
+            // Output the block header.
+            output.put_bits((flush == TDEFLFlush::Finish) as u32, 1);
+
+            saved_buffer = output.save();
+
+            let comp_success = if !use_raw_block {
+                let use_static = (d.params.flags & TDEFL_FORCE_ALL_STATIC_BLOCKS != 0)
+                    || (d.lz.total_bytes < 48);
+                compress_block(&mut d.huff, &mut output, &d.lz, use_static)?
+            } else {
+                false
+            };
+
+            // If we failed to compress anything and the output would take up more space than the output
+            // data, output a stored block instead, which has at most 5 bytes of overhead.
+            // We only use some simple heuristics for now.
+            // A stored block will have an overhead of at least 4 bytes containing the block length
+            // but usually more due to the length parameters having to start at a byte boundary and thus
+            // requiring up to 5 bytes of padding.
+            // As a static block will have an overhead of at most 1 bit per byte
+            // (as literals are either 8 or 9 bytes), a raw block will
+            // never take up less space if the number of input bytes are less than 32.
+            let expanded = (d.lz.total_bytes > 32)
+                && (output.inner_pos - saved_buffer.pos + 1 >= (d.lz.total_bytes as usize))
+                && (d.dict.lookahead_pos - d.dict.code_buf_dict_pos <= d.dict.size);
+
+            if use_raw_block || expanded {
+                output.load(saved_buffer);
+
+                // Block header.
+                output.put_bits(0, 2);
+
+                // Block length has to start on a byte boundary, so pad.
+                output.pad_to_bytes();
+
+                // Block length and ones complement of block length.
+                output.put_bits(d.lz.total_bytes & 0xFFFF, 16);
+                output.put_bits(!d.lz.total_bytes & 0xFFFF, 16);
+
+                // Write the actual bytes.
+                let start = d.dict.code_buf_dict_pos & LZ_DICT_SIZE_MASK;
+                let end =
+                    (d.dict.code_buf_dict_pos + d.lz.total_bytes as usize) & LZ_DICT_SIZE_MASK;
+                let dict = &mut d.dict.b.dict;
+                if start < end {
+                    // The data does not wrap around.
+                    output.write_bytes(&dict[start..end]);
+                } else if d.lz.total_bytes > 0 {
+                    // The data wraps around and the input was not 0 bytes.
+                    output.write_bytes(&dict[start..LZ_DICT_SIZE]);
+                    output.write_bytes(&dict[..end]);
+                }
+            } else if !comp_success {
+                output.load(saved_buffer);
+                compress_block(&mut d.huff, &mut output, &d.lz, true)?;
+            }
         }
 
-        if flush != TDEFLFlush::None {
-            if flush == TDEFLFlush::Finish {
+        match flush {
+            TDEFLFlush::Finish => {
                 output.pad_to_bytes();
                 if d.params.flags & TDEFL_WRITE_ZLIB_HEADER != 0 {
                     let mut adler = d.params.adler32;
@@ -1702,16 +1741,31 @@ pub(crate) fn flush_block(
                         adler <<= 8;
                     }
                 }
-            } else if flush == TDEFLFlush::Partial {
+            }
+            TDEFLFlush::Partial => {
                 output.put_bits(2, 10);
-            } else {
-                // Sync or Full flush.
+            }
+            TDEFLFlush::PartialOpt => {
+                if !output.is_byte_aligned() {
+                    output.put_bits(2, 10);
+                }
+            }
+            TDEFLFlush::Sync | TDEFLFlush::Full => {
                 // Output an empty raw block.
                 output.put_bits(0, 3);
                 output.pad_to_bytes();
                 output.put_bits(0, 16);
                 output.put_bits(0xFFFF, 16);
             }
+            TDEFLFlush::SyncOpt => {
+                if !output.is_byte_aligned() {
+                    output.put_bits(0, 3);
+                    output.pad_to_bytes();
+                    output.put_bits(0, 16);
+                    output.put_bits(0xFFFF, 16);
+                }
+            }
+            TDEFLFlush::None | TDEFLFlush::NoSync => (),
         }
 
         d.huff.count[0][..MAX_HUFF_SYMBOLS_0].fill(0);
