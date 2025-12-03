@@ -327,6 +327,7 @@ const fn read_u16_le<const N: usize>(slice: &[u8; N], pos: usize) -> u16 {
 }
 
 /// Main compression struct.
+#[derive(Clone)]
 pub struct CompressorOxide {
     pub(crate) lz: LZOxide,
     pub(crate) params: ParamsOxide,
@@ -698,6 +699,7 @@ impl BitBuffer {
 /// NOTE: Only the literal/lengths have enough symbols to actually use
 /// the full array. It's unclear why it's defined like this in miniz,
 /// it could be for cache/alignment reasons.
+#[derive(Clone)]
 pub(crate) struct HuffmanOxide {
     /// Number of occurrences of each symbol.
     pub count: [[u16; MAX_HUFF_SYMBOLS]; MAX_HUFF_TABLES],
@@ -1131,6 +1133,7 @@ impl HuffmanOxide {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct DictOxide {
     /// The maximum number of checks in the hash chain, for the initial,
     /// and the lazy match respectively.
@@ -1344,6 +1347,7 @@ impl DictOxide {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct ParamsOxide {
     pub flags: u32,
     pub greedy_parsing: bool,
@@ -1419,6 +1423,7 @@ impl ParamsOxide {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct LZOxide {
     pub codes: [u8; LZ_CODE_BUF_SIZE],
     pub code_position: usize,
