@@ -1,7 +1,7 @@
-use serde::de::{Deserialize, Deserializer, Error, SeqAccess, Visitor};
-use serde::ser::{Serialize, SerializeTuple, Serializer};
 use core::fmt;
 use core::marker::PhantomData;
+use serde::de::{Deserialize, Deserializer, Error, SeqAccess, Visitor};
+use serde::ser::{Serialize, SerializeTuple, Serializer};
 
 pub trait BigArray<'de>: Sized {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

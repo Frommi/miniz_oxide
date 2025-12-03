@@ -548,3 +548,47 @@ fn block_boundary_inner(zlib: bool, restart: bool) {
         "every Sync must have a corresponding BlockBoundary"
     );
 }
+
+#[test]
+fn change_compression_level_after_start() {
+    use miniz_oxide::deflate::core::{self, TDEFLFlush, TDEFLStatus};
+    use miniz_oxide::deflate::CompressionLevel;
+    use miniz_oxide::inflate::decompress_to_vec;
+
+    let mut compressed = Vec::new();
+    let data = b"data 1 data 2"; //get_test_file_data("tests/test_data/numbers.txt");
+
+    {
+        let mut state =
+            core::CompressorOxide::new(core::create_comp_flags_from_zip_params(0, 0, 0));
+
+        let mut buf = vec![0; data.len()]; // compressed chunk
+
+        let split_point = data.len() / 2;
+
+        let (status, in_read, out_written) =
+            core::compress(&mut state, &data[..split_point], &mut buf, TDEFLFlush::None);
+        assert_eq!(status, TDEFLStatus::Okay);
+
+        compressed.extend_from_slice(&buf[..out_written]);
+
+        state.set_compression_level(CompressionLevel::BestCompression);
+
+        // Finish compression
+        let (status, _in_read, out_written) =
+            core::compress(&mut state, &data[in_read..], &mut buf, TDEFLFlush::Finish);
+        // Finish compression
+        compressed.extend_from_slice(&buf[..out_written]);
+
+        if status != TDEFLStatus::Done {
+            let (status, _in_read, _out_written) =
+                core::compress(&mut state, &[], &mut buf, TDEFLFlush::Finish);
+            assert_eq!(status, TDEFLStatus::Done);
+        }
+
+        compressed.extend_from_slice(&buf[..out_written]);
+    }
+
+    let decomp = decompress_to_vec(&compressed).unwrap();
+    assert_eq!(data[..], decomp);
+}

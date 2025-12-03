@@ -3,6 +3,23 @@
 All notable changes to this project will be documented in this file.
 
 ---
+## [0.8.10](https://github.com/Frommi/miniz_oxide/compare/0.8.9..0.8.10) - 2025-12-03
+
+### Documentation
+
+- **(inflate)** add documentation and doctest for decompress_slice_iter_to_slice - ([97465ca](https://github.com/Frommi/miniz_oxide/commit/97465ca2e441b204d4ccffe3157a0bd975a6765d)) - oyvindln
+
+### Miscellaneous Tasks
+
+- Do not force `std` with `serde` feature ([#178](https://github.com/Frommi/miniz_oxide/issues/178)) - ([4f38d06](https://github.com/Frommi/miniz_oxide/commit/4f38d065596d7f2078d3266c9ab130aec9943c5b)) - clabby
+- update ci to run at 1.60 since that is min version now due to serde dep thing - ([cb87f3c](https://github.com/Frommi/miniz_oxide/commit/cb87f3cf57fc02e409abb7db3b6ef1ac1c22a1f9)) - oyvindln
+
+### Other
+
+- Implement support for partial flushes ([#179](https://github.com/Frommi/miniz_oxide/issues/179)) - ([2ede365](https://github.com/Frommi/miniz_oxide/commit/2ede365ff9b7d9eac8162d6022f480473fea2c8f)) - Jonathan Behrens
+- Add decompress_with_limit to handle ring buffers ([#183](https://github.com/Frommi/miniz_oxide/issues/183)) - ([bac1abe](https://github.com/Frommi/miniz_oxide/commit/bac1abee827765b7d639ba9c574c28e444d7d3df)) - peckpeck
+
+---
 ## [0.8.9](https://github.com/Frommi/miniz_oxide/compare/0.8.8..0.8.9) - 2025-06-09
 
 ### Other

@@ -1,4 +1,3 @@
-use crate::deflate::buffer::{update_hash, LZ_HASH_SHIFT, LZ_HASH_SIZE};
 use crate::deflate::core::{
     flush_block, CallbackOxide, CompressorOxide, TDEFLFlush, TDEFLStatus, LZ_DICT_SIZE,
     LZ_DICT_SIZE_MASK, MAX_MATCH_LEN, MIN_MATCH_LEN,
@@ -30,12 +29,6 @@ pub(crate) fn compress_stored(d: &mut CompressorOxide, callback: &mut CallbackOx
             let dictb = &mut d.dict.b;
 
             let mut dst_pos = (lookahead_pos + lookahead_size) & LZ_DICT_SIZE_MASK;
-            let mut ins_pos = lookahead_pos + lookahead_size - 2;
-            // Start the hash value from the first two bytes
-            let mut hash = update_hash(
-                u16::from(dictb.dict[ins_pos & LZ_DICT_SIZE_MASK]),
-                dictb.dict[(ins_pos + 1) & LZ_DICT_SIZE_MASK],
-            );
 
             lookahead_size += num_bytes_to_process;
 
@@ -46,15 +39,8 @@ pub(crate) fn compress_stored(d: &mut CompressorOxide, callback: &mut CallbackOx
                     dictb.dict[LZ_DICT_SIZE + dst_pos] = c;
                 }
 
-                // Generate hash from the current byte,
-                hash = update_hash(hash, c);
-                dictb.next[ins_pos & LZ_DICT_SIZE_MASK] = dictb.hash[hash as usize];
-                // and insert it into the hash chain.
-                dictb.hash[hash as usize] = ins_pos as u16;
                 dst_pos = (dst_pos + 1) & LZ_DICT_SIZE_MASK;
-                ins_pos += 1;
             }
-            src_pos += num_bytes_to_process;
         } else {
             let dictb = &mut d.dict.b;
             for &c in &in_buf[src_pos..src_pos + num_bytes_to_process] {
@@ -65,22 +51,10 @@ pub(crate) fn compress_stored(d: &mut CompressorOxide, callback: &mut CallbackOx
                 }
 
                 lookahead_size += 1;
-                if lookahead_size + d.dict.size >= MIN_MATCH_LEN.into() {
-                    let ins_pos = lookahead_pos + lookahead_size - 3;
-                    let hash = ((u32::from(dictb.dict[ins_pos & LZ_DICT_SIZE_MASK])
-                        << (LZ_HASH_SHIFT * 2))
-                        ^ ((u32::from(dictb.dict[(ins_pos + 1) & LZ_DICT_SIZE_MASK])
-                            << LZ_HASH_SHIFT)
-                            ^ u32::from(c)))
-                        & (LZ_HASH_SIZE as u32 - 1);
-
-                    dictb.next[ins_pos & LZ_DICT_SIZE_MASK] = dictb.hash[hash as usize];
-                    dictb.hash[hash as usize] = ins_pos as u16;
-                }
             }
-
-            src_pos += num_bytes_to_process;
         }
+
+        src_pos += num_bytes_to_process;
 
         d.dict.size = cmp::min(LZ_DICT_SIZE - lookahead_size, d.dict.size);
         if d.params.flush == TDEFLFlush::None && lookahead_size < MAX_MATCH_LEN {

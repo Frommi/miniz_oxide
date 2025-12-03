@@ -200,6 +200,7 @@ pub enum CompressionStrategy {
     /// Only use matches that are at least 5 bytes long.
     Filtered = 1,
     /// Don't look for matches, only huffman encode the literals.
+    /// (This is not optimally implemented at the moment and will not provide much of a speedup)
     HuffmanOnly = 2,
     /// Only look for matches with a distance of 1, i.e do run-length encoding only.
     RLE = 3,
@@ -395,6 +396,11 @@ impl CompressorOxide {
     /// Using this to change level after compression has started is supported.
     /// # Notes
     /// The compression strategy will be reset to the default one when this is called.
+    ///
+    /// If using the zlib wrapper, increasing the compression level
+    /// from to one with a higher required window_bits value
+    /// after initialization will fail and leave the compressor at the
+    /// current level.
     pub fn set_compression_level(&mut self, level: CompressionLevel) {
         let format = self.data_format();
         self.set_format_and_level(format, level as u8);
@@ -405,6 +411,11 @@ impl CompressorOxide {
     /// Using this to change level after compression has started is supported.
     /// # Notes
     /// The compression strategy will be reset to the default one when this is called.
+    ///
+    /// If using the zlib wrapper, increasing the compression level
+    /// from to one with a higher required window_bits value
+    /// after initialization will fail and leave the compressor at the
+    /// current level.
     pub fn set_compression_level_raw(&mut self, level: u8) {
         let format = self.data_format();
         self.set_format_and_level(format, level);
@@ -419,12 +430,22 @@ impl CompressorOxide {
     /// This function mainly intended for setting the initial settings after e.g creating with
     /// `default` or after calling `CompressorOxide::reset()`, and behaviour may be changed
     /// to disallow calling it after starting compression in the future.
+    ///
+    /// If using the zlib wrapper, increasing the compression level
+    /// from to one with a higher required window_bits value
+    /// after initialization will fail and leave the compressor at the
+    /// current level.
     pub fn set_format_and_level(&mut self, data_format: DataFormat, level: u8) {
         let flags = create_comp_flags_from_zip_params(
             level.into(),
             data_format.to_window_bits(),
             CompressionStrategy::Default as i32,
         );
+        if data_format == DataFormat::Zlib
+            && window_bits_from_flags(flags) > self.params.window_bits_max
+        {
+            return;
+        }
         self.params.update_flags(flags);
         self.dict.update_flags(flags);
     }
@@ -1347,6 +1368,12 @@ impl DictOxide {
 pub(crate) struct ParamsOxide {
     pub flags: u32,
     pub greedy_parsing: bool,
+    // If using a zlib header
+    // we want to restrict changing
+    // compression level higher than 1 if
+    // has been 1 or lower since the header
+    // will say the window size is lower than 32k.
+    pub window_bits_max: u8,
     pub block_index: u32,
 
     pub saved_match_dist: u32,
@@ -1376,6 +1403,7 @@ impl ParamsOxide {
         ParamsOxide {
             flags,
             greedy_parsing: flags & TDEFL_GREEDY_PARSING_FLAG != 0,
+            window_bits_max: window_bits_from_flags(flags),
             block_index: 0,
             saved_match_dist: 0,
             saved_match_len: 0,
@@ -2200,6 +2228,9 @@ fn flush_output_buffer(c: &mut CallbackOxide, p: &mut ParamsOxide) -> (TDEFLStat
 /// # Returns
 /// Returns a tuple containing the current status of the compressor, the current position
 /// in the input buffer and the current position in the output buffer.
+/// A result of [`TDEFLStatus::Done`] indicates that compression is finished, and further calls to this function will
+/// result in [`TDEFLStatus::BadParam`].
+/// See [`TDEFLStatus`] for other return values.
 pub fn compress(
     d: &mut CompressorOxide,
     in_buf: &[u8],
@@ -2372,6 +2403,19 @@ pub fn create_comp_flags_from_zip_params(level: i32, window_bits: i32, strategy:
     }
 
     comp_flags
+}
+
+/// Check if the window is
+fn window_bits_from_flags(flags: u32) -> u8 {
+    if (flags & TDEFL_FORCE_ALL_RAW_BLOCKS & TDEFL_RLE_MATCHES) != 0
+        || (flags & MAX_PROBES_MASK) == 0
+    {
+        1
+    } else if (flags & MAX_PROBES_MASK) == 1 {
+        12
+    } else {
+        15
+    }
 }
 
 #[cfg(test)]
