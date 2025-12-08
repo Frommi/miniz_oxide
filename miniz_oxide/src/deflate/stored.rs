@@ -4,11 +4,21 @@ use crate::deflate::core::{
 };
 use core::cmp;
 
+/// Compression function for stored blocks, split out from the main compression function.
 pub(crate) fn compress_stored(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool {
     let in_buf = match callback.buf() {
         None => return true,
         Some(in_buf) => in_buf,
     };
+
+    // Right now there isn't any code for re-adding previous data to the hash chain if compression is switched
+    // from stored mode to level 1 or higher after first starting compression at level 0
+    // which causes a slight deviation from oroginal miniz behaviour but much faster
+    // stored compression since original miniz does this by being super inefficient
+    // and adds data to hash table when doing stored and rle compression.
+    // Ideally we would handle it like zlib which keeps track of previous data and
+    // only adds to hash table when switching over to actual compression but that
+    // would need a bunch of more work.
 
     // Make sure this is cleared in case compression level is switched later.
     // TODO: It's possible we don't need this or could do this elsewhere later
@@ -19,6 +29,8 @@ pub(crate) fn compress_stored(d: &mut CompressorOxide, callback: &mut CallbackOx
     let mut lookahead_size = d.dict.lookahead_size;
     let mut lookahead_pos = d.dict.lookahead_pos;
 
+    // TODO: This mostly copied from the existing miniz code that was part of the main compression function
+    // but could be much simplified and optimized further to a simple copy.
     while src_pos < in_buf.len() || (d.params.flush != TDEFLFlush::None && lookahead_size != 0) {
         let src_buf_left = in_buf.len() - src_pos;
         let num_bytes_to_process = cmp::min(src_buf_left, MAX_MATCH_LEN - lookahead_size);
@@ -66,7 +78,6 @@ pub(crate) fn compress_stored(d: &mut CompressorOxide, callback: &mut CallbackOx
         bytes_written += 1;
 
         lookahead_pos += len_to_move;
-        assert!(lookahead_size >= len_to_move);
         lookahead_size -= len_to_move;
         d.dict.size = cmp::min(d.dict.size + len_to_move, LZ_DICT_SIZE);
 

@@ -194,6 +194,7 @@ pub mod deflate_flags {
 /// The non-default settings offer some special-case compression variants.
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum CompressionStrategy {
     /// Don't use any of the special strategies.
     Default = 0,
@@ -218,6 +219,7 @@ impl From<CompressionStrategy> for i32 {
 
 /// A list of deflate flush types.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum TDEFLFlush {
     /// Normal operation.
     ///
@@ -2014,7 +2016,7 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
         }
 
         lookahead_pos += len_to_move;
-        assert!(lookahead_size >= len_to_move);
+        debug_assert!(lookahead_size >= len_to_move);
         lookahead_size -= len_to_move;
         d.dict.size = cmp::min(d.dict.size + len_to_move, LZ_DICT_SIZE);
 

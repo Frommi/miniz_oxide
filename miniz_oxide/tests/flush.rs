@@ -13,6 +13,8 @@ use miniz_oxide::DataFormat;
 /// on that byte-string to see that it gives the correct result,
 /// i.e. right number of bits added, and successful sync of the
 /// stream.
+/// Don't run this by default as it takes a really long time.
+#[ignore]
 #[test]
 fn test_flush() {
     let mut found = 0;

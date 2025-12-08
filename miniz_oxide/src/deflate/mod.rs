@@ -15,6 +15,7 @@ use self::core::*;
 /// of checks for matches in the hash chains and whether to use lazy or greedy parsing.
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum CompressionLevel {
     /// Don't do any compression, only output uncompressed blocks.
     NoCompression = 0,
