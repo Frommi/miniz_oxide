@@ -93,6 +93,21 @@ fn test_flush() {
     }
 }
 
+/// Test that a sync at start of a stream inserts the Zlib header
+/// correctly
+#[test]
+fn check_zlib_with_sync_at_start() {
+    // Test sync gets zlib header
+    compress(b"", &[TDEFLFlush::Sync]);
+    compress(b"", &[TDEFLFlush::Partial]);
+
+    // Test that second sync DOESN'T get zlib header
+    // (i.e. `block_index` handling is correct)
+    compress(b"", &[TDEFLFlush::Sync, TDEFLFlush::Sync]);
+    compress(b"", &[TDEFLFlush::Partial, TDEFLFlush::Partial]);
+    compress(b"", &[TDEFLFlush::NoSync, TDEFLFlush::Sync]);
+}
+
 // Low-quality RNG, copied from test.rs
 struct Rng(u64);
 
