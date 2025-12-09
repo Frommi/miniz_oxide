@@ -1681,6 +1681,16 @@ pub(crate) fn flush_block(
         output.bit_buffer = d.params.saved_bit_buffer;
         output.bits_in = d.params.saved_bits_in;
 
+        // If we are at the start of the stream, write the zlib header
+        // if requested.  Note: Even if block-writing is skipped
+        // below, `block_index` is still incremented, so this is done
+        // only once
+        if d.params.flags & TDEFL_WRITE_ZLIB_HEADER != 0 && d.params.block_index == 0 {
+            let header = zlib::header_from_flags(d.params.flags);
+            output.put_bits_no_flush(header[0].into(), 8);
+            output.put_bits(header[1].into(), 8);
+        }
+
         if d.lz.total_bytes > 0 || flush == TDEFLFlush::Finish {
             // TODO: Don't think this second condition should be here but need to verify.
             let use_raw_block = (d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0)
@@ -1695,13 +1705,6 @@ pub(crate) fn flush_block(
             d.params.flush_remaining = 0;
 
             d.lz.init_flag();
-
-            // If we are at the start of the stream, write the zlib header if requested.
-            if d.params.flags & TDEFL_WRITE_ZLIB_HEADER != 0 && d.params.block_index == 0 {
-                let header = zlib::header_from_flags(d.params.flags);
-                output.put_bits_no_flush(header[0].into(), 8);
-                output.put_bits(header[1].into(), 8);
-            }
 
             // Output the block header.
             output.put_bits((flush == TDEFLFlush::Finish) as u32, 1);
