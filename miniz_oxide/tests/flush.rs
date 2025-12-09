@@ -13,17 +13,27 @@ use miniz_oxide::DataFormat;
 /// on that byte-string to see that it gives the correct result,
 /// i.e. right number of bits added, and successful sync of the
 /// stream.
-/// Don't run this by default as it takes a really long time.
-#[ignore]
 #[test]
 fn test_flush() {
     let mut found = 0;
     let mut n = 1;
+    // Typically takes 59 iterations, but that could vary slightly if
+    // compression algorithm is tweaked
     while found != 255 {
         let data = Rng::new(987654321).octal(n);
         n += 1;
 
         let base = compress(&data, &[TDEFLFlush::NoSync]);
+
+        assert!(
+            n != 1024,
+            "BAILING OUT: Unexpected behaviour from compressor.  \
+             Tested different 1024 compression-lengths, \
+             and only these bit-lengths were found: {found:08b}. \
+             For example: compressing {n} octal digits results in {} bytes + {} bits",
+            base >> 3,
+            base & 7
+        );
 
         let mask = 1 << (base & 7);
         if (found & mask) != 0 {
