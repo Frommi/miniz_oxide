@@ -12,6 +12,9 @@ pub const TINFL_DECOMPRESS_MEM_TO_MEM_FAILED: size_t = usize::MAX;
 #[allow(bad_style)]
 #[repr(C)]
 pub enum tinfl_status {
+    /* This flag is a placeholder to cover return statuses not implemented or handled yet.. */
+    TINFL_STATUS_UNKNOWN = -32,
+
     /* This flags indicates the inflator needs 1 or more input bytes to make forward progress, but the caller is indicating that no more are available. The compressed data */
     /* is probably corrupted. If you call the inflator again with more bytes it'll try to continue processing the input but this is a BAD sign (either the data is corrupted or you called it incorrectly). */
     /* If you call it again with no input you'll just get TINFL_STATUS_FAILED_CANNOT_MAKE_PROGRESS again. */
@@ -55,6 +58,7 @@ impl From<TINFLStatus> for tinfl_status {
             TINFLStatus::Done => TINFL_STATUS_DONE,
             TINFLStatus::NeedsMoreInput => TINFL_STATUS_NEEDS_MORE_INPUT,
             TINFLStatus::HasMoreOutput => TINFL_STATUS_HAS_MORE_OUTPUT,
+            _ => TINFL_STATUS_UNKNOWN,
             // TINFLStatus::BlockBoundary => panic!("not supported in C API"),
         }
     }
