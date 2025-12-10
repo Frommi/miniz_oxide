@@ -71,8 +71,8 @@ impl HuffmanTable {
     /// If the returned value is negative, the code wasn't found in the
     /// fast lookup table and the full tree has to be traversed to find the code.
     #[inline]
-    fn fast_lookup(&self, bit_buf: BitBuffer) -> i16 {
-        self.look_up[(bit_buf & BitBuffer::from(FAST_LOOKUP_SIZE - 1)) as usize]
+    const fn fast_lookup(&self, bit_buf: BitBuffer) -> i16 {
+        self.look_up[(bit_buf & (FAST_LOOKUP_SIZE - 1) as BitBuffer) as usize]
     }
 
     /// Get the symbol and the code length from the huffman tree.

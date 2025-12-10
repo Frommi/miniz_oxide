@@ -26,6 +26,7 @@ const TINFL_STATUS_BLOCK_BOUNDARY: i32 = 3;
 #[repr(i8)]
 #[cfg_attr(not(feature = "rustc-dep-of-std"), derive(Hash, Debug))]
 #[derive(Copy, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TINFLStatus {
     /// More input data was expected, but the caller indicated that there was no more data, so the
     /// input stream is likely truncated.

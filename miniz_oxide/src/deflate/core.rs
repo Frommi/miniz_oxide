@@ -493,7 +493,8 @@ impl CompressorOxide {
     /// Check the number of unwritten bits after the last flush.
     /// After a `NoSync` flush it can be used to test whether the
     /// stream is aligned with a byte boundary.
-    pub fn unwritten_bit_count(&self) -> u32 {
+    #[inline]
+    pub const fn unwritten_bit_count(&self) -> u32 {
         self.params.saved_bits_in
     }
 }
@@ -720,7 +721,7 @@ impl OutputBufferOxide<'_> {
     /// Test whether the output is currently on a byte boundary,
     /// i.e. all current data has been output
     #[inline]
-    fn is_byte_aligned(&self) -> bool {
+    const fn is_byte_aligned(&self) -> bool {
         self.bits_in == 0
     }
 
@@ -2490,7 +2491,7 @@ pub const fn create_comp_flags_from_zip_params(level: i32, window_bits: i32, str
 }
 
 /// Check if the window is
-fn window_bits_from_flags(flags: u32) -> u8 {
+const fn window_bits_from_flags(flags: u32) -> u8 {
     if (flags & TDEFL_FORCE_ALL_RAW_BLOCKS & TDEFL_RLE_MATCHES) != 0
         || (flags & MAX_PROBES_MASK) == 0
     {
