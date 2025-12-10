@@ -144,9 +144,8 @@ impl Iterator for Rng {
 /// sync the stream.
 fn compress(mut data: &[u8], modes: &[TDEFLFlush]) -> usize {
     let save_data = data;
-    let mut compressor = CompressorOxide::new(0);
-    compressor.set_format_and_level(DataFormat::Zlib, 0);
-    compressor.set_compression_level(CompressionLevel::BestCompression);
+    let mut compressor =
+        CompressorOxide::with_format_and_level(DataFormat::Zlib, CompressionLevel::BestCompression);
 
     let mut out = Vec::new();
     loop {

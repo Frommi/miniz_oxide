@@ -367,6 +367,7 @@ impl CompressorOxide {
     ///
     /// # Notes
     /// This function may be changed to take different parameters in the future.
+    #[inline]
     pub fn new(flags: u32) -> Self {
         CompressorOxide {
             lz: LZOxide::new(),
@@ -374,6 +375,20 @@ impl CompressorOxide {
             huff: Box::default(),
             dict: DictOxide::new(flags),
         }
+    }
+
+    /// Create a new `CompressorOxide` with the given flags.
+    ///
+    pub fn with_format_and_level(
+        data_format: DataFormat,
+        level: CompressionLevel,
+    ) -> CompressorOxide {
+        let flags = create_comp_flags_from_zip_params(
+            level as i32,
+            data_format.to_window_bits(),
+            CompressionStrategy::Default as i32,
+        );
+        CompressorOxide::new(flags)
     }
 
     /// Get the adler32 checksum of the currently encoded data.
@@ -2437,9 +2452,14 @@ fn compress_inner(
 ///
 /// # Notes
 /// This function may be removed or moved to the `miniz_oxide_c_api` in the future.
-pub fn create_comp_flags_from_zip_params(level: i32, window_bits: i32, strategy: i32) -> u32 {
+pub const fn create_comp_flags_from_zip_params(level: i32, window_bits: i32, strategy: i32) -> u32 {
     let num_probes = (if level >= 0 {
-        cmp::min(10, level)
+        if level > 10 {
+            10
+        } else {
+            level
+        }
+        //cmp::min(10, level)
     } else {
         CompressionLevel::DefaultLevel as i32
     }) as usize;
@@ -2448,7 +2468,7 @@ pub fn create_comp_flags_from_zip_params(level: i32, window_bits: i32, strategy:
     } else {
         0
     };
-    let mut comp_flags = u32::from(NUM_PROBES[num_probes]) | greedy;
+    let mut comp_flags = NUM_PROBES[num_probes] as u32 | greedy;
 
     if window_bits > 0 {
         comp_flags |= TDEFL_WRITE_ZLIB_HEADER;
