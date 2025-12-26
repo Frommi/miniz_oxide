@@ -362,6 +362,35 @@ pub struct CompressorOxide {
     pub(crate) dict: DictOxide,
 }
 
+const fn change_window_bits_from_format(window_bits: u8, data_format: DataFormat) -> i32 {
+    match data_format {
+        DataFormat::Zlib | DataFormat::ZLibIgnoreChecksum => window_bits as i32,
+        DataFormat::Raw => -(window_bits as i32),
+    }
+}
+
+/// Limit compression settings by window_bits as a simple way to implement smaller window sizes
+fn limit_level_by_window_bits(
+    window_bits: u8,
+    current_level: i32,
+    current_strategy: CompressionStrategy,
+) -> (i32, CompressionStrategy) {
+    if window_bits < 12 {
+        // If less than 12, use RLE (i.e window size of 1) unless huffman only or stored blocks are requested.
+        if current_strategy != CompressionStrategy::HuffmanOnly && current_level != 0 {
+            (1, CompressionStrategy::RLE)
+        } else {
+            (current_level, current_strategy)
+        }
+    // If less than 15 but 12 or more, use fast mode that uses a 4k window size.
+    } else if window_bits < MZ_DEFAULT_WINDOW_BITS as u8 {
+        (cmp::min(current_level, 1), current_strategy)
+    // If window bits is the full 15 just use the requested settings.
+    } else {
+        (current_level, current_strategy)
+    }
+}
+
 impl CompressorOxide {
     /// Create a new `CompressorOxide` with the given flags.
     ///
@@ -371,7 +400,7 @@ impl CompressorOxide {
     pub fn new(flags: u32) -> Self {
         CompressorOxide {
             lz: LZOxide::new(),
-            params: ParamsOxide::new(flags),
+            params: ParamsOxide::new(flags, MZ_DEFAULT_WINDOW_BITS as u8),
             huff: Box::default(),
             dict: DictOxide::new(flags),
         }
@@ -389,6 +418,34 @@ impl CompressorOxide {
             CompressionStrategy::Default as i32,
         );
         CompressorOxide::new(flags)
+    }
+
+    /// Create a new 'CompressorOxide with the current format, level, strategy and window bits
+    ///
+    ///
+    /// Level will is limited to 10, and window bits is clamped to 15
+    pub fn with_params(
+        data_format: DataFormat,
+        level: u8,
+        strategy: CompressionStrategy,
+        window_bits: u8,
+    ) -> CompressorOxide {
+        let window_bits = cmp::min(window_bits, 15);
+        let level = cmp::min(level, 10);
+        let (level, strategy) = limit_level_by_window_bits(window_bits, level as i32, strategy);
+
+        let flags = create_comp_flags_from_zip_params(
+            level,
+            change_window_bits_from_format(window_bits, data_format),
+            strategy as i32,
+        );
+
+        CompressorOxide {
+            lz: LZOxide::new(),
+            params: ParamsOxide::new(flags, window_bits),
+            huff: Box::default(),
+            dict: DictOxide::new(flags),
+        }
     }
 
     /// Get the adler32 checksum of the currently encoded data.
@@ -433,14 +490,14 @@ impl CompressorOxide {
 
     /// Set the compression level of the compressor.
     ///
-    /// Using this to change level after compression has started is supported.
+    /// Changing compression level after compression has started will likely result in failure.
     /// # Notes
     /// The compression strategy will be reset to the default one when this is called.
     ///
     /// If using the zlib wrapper, increasing the compression level
-    /// from to one with a higher required window_bits value
-    /// after initialization will fail and leave the compressor at the
-    /// current level.
+    /// to one that requires a higher window_bits value
+    /// than the max set at initialization will fail and leave the
+    /// compressor at the current level.
     pub fn set_compression_level(&mut self, level: CompressionLevel) {
         let format = self.data_format();
         self.set_format_and_level(format, level as u8);
@@ -448,14 +505,14 @@ impl CompressorOxide {
 
     /// Set the compression level of the compressor using an integer value.
     ///
-    /// Using this to change level after compression has started is supported.
+    /// Changing compression level after compression has started will likely result in failure.
     /// # Notes
     /// The compression strategy will be reset to the default one when this is called.
     ///
     /// If using the zlib wrapper, increasing the compression level
-    /// from to one with a higher required window_bits value
-    /// after initialization will fail and leave the compressor at the
-    /// current level.
+    /// to one that requires a higher window_bits value
+    /// than the max set at initialization will fail and leave the
+    /// compressor at the current level.
     pub fn set_compression_level_raw(&mut self, level: u8) {
         let format = self.data_format();
         self.set_format_and_level(format, level);
@@ -466,15 +523,17 @@ impl CompressorOxide {
     /// Changing the `DataFormat` after compression has started will result in
     /// a corrupted stream.
     ///
+    /// Changing compression level after compression has started will likely result in failure.
+    ///
     /// # Notes
     /// This function mainly intended for setting the initial settings after e.g creating with
     /// `default` or after calling `CompressorOxide::reset()`, and behaviour may be changed
     /// to disallow calling it after starting compression in the future.
     ///
     /// If using the zlib wrapper, increasing the compression level
-    /// from to one with a higher required window_bits value
-    /// after initialization will fail and leave the compressor at the
-    /// current level.
+    /// to one that requires a higher window_bits value
+    /// than the max set at initialization will fail and leave the
+    /// compressor at the current level.
     pub fn set_format_and_level(&mut self, data_format: DataFormat, level: u8) {
         let flags = create_comp_flags_from_zip_params(
             level.into(),
@@ -505,7 +564,7 @@ impl Default for CompressorOxide {
     fn default() -> Self {
         CompressorOxide {
             lz: LZOxide::new(),
-            params: ParamsOxide::new(DEFAULT_FLAGS),
+            params: ParamsOxide::new(DEFAULT_FLAGS, MZ_DEFAULT_WINDOW_BITS as u8),
             huff: Box::default(),
             dict: DictOxide::new(DEFAULT_FLAGS),
         }
@@ -1457,11 +1516,11 @@ pub(crate) struct ParamsOxide {
 }
 
 impl ParamsOxide {
-    fn new(flags: u32) -> Self {
+    fn new(flags: u32, window_bits: u8) -> Self {
         ParamsOxide {
             flags,
             greedy_parsing: flags & TDEFL_GREEDY_PARSING_FLAG != 0,
-            window_bits_max: window_bits_from_flags(flags),
+            window_bits_max: window_bits,
             block_index: 0,
             saved_match_dist: 0,
             saved_match_len: 0,
@@ -1702,7 +1761,7 @@ pub(crate) fn flush_block(
         // below, `block_index` is still incremented, so this is done
         // only once
         if d.params.flags & TDEFL_WRITE_ZLIB_HEADER != 0 && d.params.block_index == 0 {
-            let header = zlib::header_from_flags(d.params.flags);
+            let header = zlib::header_from_flags(d.params.flags, d.params.window_bits_max);
             output.put_bits_no_flush(header[0].into(), 8);
             output.put_bits(header[1].into(), 8);
         }
@@ -2455,6 +2514,7 @@ fn compress_inner(
 /// This function may be removed or moved to the `miniz_oxide_c_api` in the future.
 pub const fn create_comp_flags_from_zip_params(level: i32, window_bits: i32, strategy: i32) -> u32 {
     let num_probes = (if level >= 0 {
+        // Manual min since cmp::min is not const.
         if level > 10 {
             10
         } else {
@@ -2586,6 +2646,8 @@ mod test {
 
     #[test]
     fn zlib_window_bits() {
+        use super::TDEFL_RLE_MATCHES;
+        use crate::deflate::CompressionLevel;
         use crate::inflate::stream::{inflate, InflateState};
         use crate::DataFormat;
         use alloc::boxed::Box;
@@ -2594,8 +2656,17 @@ mod test {
             6, 2, 6,
         ];
         let mut encoded = vec![];
-        let flags = create_comp_flags_from_zip_params(2, 1, CompressionStrategy::RLE.into());
-        let mut d = CompressorOxide::new(flags);
+
+        // Create compressor with small window bits param
+        let mut d = CompressorOxide::with_params(
+            DataFormat::Zlib,
+            CompressionLevel::DefaultCompression.into(),
+            CompressionStrategy::Default,
+            1,
+        );
+
+        assert!((d.params.flags & TDEFL_RLE_MATCHES) != 0);
+
         let (status, in_consumed) =
             compress_to_output(&mut d, &slice, TDEFLFlush::Finish, |out: &[u8]| {
                 encoded.extend_from_slice(out);
