@@ -26,7 +26,7 @@ name = "miniz_oxide_c_api"
 cc = "1.0.83"
 libc = "0.2.22"
 crc32fast = "1.2.0"
-miniz_oxide = { path = "miniz_oxide", version = "0.8.0" }
+miniz_oxide = { path = "miniz_oxide", version = "0.9.0" }
 
 [build-dependencies]
 cc = "1.0"
