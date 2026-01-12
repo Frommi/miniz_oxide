@@ -3,21 +3,33 @@
 All notable changes to this project will be documented in this file.
 
 ---
-## [0.8.10](https://github.com/Frommi/miniz_oxide/compare/0.8.9..0.8.10) - 2025-12-03
+## [0.9.0](https://github.com/Frommi/miniz_oxide/compare/0.8.9..0.9.0) - 2026-01-12
+
+Version bump due to a minor API break for having to add enum variants. Many enums have been made non_exhaustive to make it easier to avoid API breaks in the future.
+The minimum rust version is now 1.60.
+
+### Bug Fixes
+
+- **(deflate)** simplify stored compression, fixes to updating compresson level after start - ([c5a7662](https://github.com/Frommi/miniz_oxide/commit/c5a7662b061d7853d3498da4f0f165687116c324)) - oyvindln
+- **(deflate)** make more stuff non_exhaustive, reduce deflate stack usage a tiny bit - ([cd2d14f](https://github.com/Frommi/miniz_oxide/commit/cd2d14f0c24e29b18db9538a1ac6cb9519e86d09)) - oyvindln
+- **(miniz_oxide)** make tdeflflush and compressionstrategy non exhaustive - ([130d51d](https://github.com/Frommi/miniz_oxide/commit/130d51d5437f09e38f85e4f6ee36ed474c636ba5)) - oyvindln
+- fix flush test, make new simpler init function for compressoroxide and make flag creation function const - ([3bb0d51](https://github.com/Frommi/miniz_oxide/commit/3bb0d51b8da1c8e4536f58fb993915726d410d18)) - oyvindln
+- make more funtions const and make tinflstatus non_exhaustive - ([84a94e8](https://github.com/Frommi/miniz_oxide/commit/84a94e80534804151f3af5d7cf5ff6b461a8bf89)) - oyvindln
 
 ### Documentation
 
 - **(inflate)** add documentation and doctest for decompress_slice_iter_to_slice - ([97465ca](https://github.com/Frommi/miniz_oxide/commit/97465ca2e441b204d4ccffe3157a0bd975a6765d)) - oyvindln
 
-### Miscellaneous Tasks
+### Features
 
-- Do not force `std` with `serde` feature ([#178](https://github.com/Frommi/miniz_oxide/issues/178)) - ([4f38d06](https://github.com/Frommi/miniz_oxide/commit/4f38d065596d7f2078d3266c9ab130aec9943c5b)) - clabby
-- update ci to run at 1.60 since that is min version now due to serde dep thing - ([cb87f3c](https://github.com/Frommi/miniz_oxide/commit/cb87f3cf57fc02e409abb7db3b6ef1ac1c22a1f9)) - oyvindln
+- feat(deflate): add window_bits feature for deflate, don't set wbits - ([e70e395](https://github.com/Frommi/miniz_oxide/commit/e70e395c8f94a97b3c056a1b2fdab54163624836)) - oyvindln
 
 ### Other
 
 - Implement support for partial flushes ([#179](https://github.com/Frommi/miniz_oxide/issues/179)) - ([2ede365](https://github.com/Frommi/miniz_oxide/commit/2ede365ff9b7d9eac8162d6022f480473fea2c8f)) - Jonathan Behrens
 - Add decompress_with_limit to handle ring buffers ([#183](https://github.com/Frommi/miniz_oxide/issues/183)) - ([bac1abe](https://github.com/Frommi/miniz_oxide/commit/bac1abee827765b7d639ba9c574c28e444d7d3df)) - peckpeck
+- Flush improvements ([#185](https://github.com/Frommi/miniz_oxide/issues/185)) - ([0d276ac](https://github.com/Frommi/miniz_oxide/commit/0d276ac4dce97dcefd71effec8277b420145f508)) - Jim Peters
+- Fix flush_block to always insert zlib header correctly ([#187](https://github.com/Frommi/miniz_oxide/issues/187)) - ([414d9b8](https://github.com/Frommi/miniz_oxide/commit/414d9b88f46b95c7b9bb60de1c9dcf1fcaed8395)) - Jim Peters
 
 ---
 ## [0.8.9](https://github.com/Frommi/miniz_oxide/compare/0.8.8..0.8.9) - 2025-06-09
