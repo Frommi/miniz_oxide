@@ -45,6 +45,10 @@ path = "fuzz_targets/via_flate2.rs"
 name = "roundtrip"
 path = "fuzz_targets/roundtrip.rs"
 
+[[bin]]
+name = "roundtrip_zlib"
+path = "fuzz_targets/roundtrip_zlib.rs"
+
 [features]
 default = ["fuzzing"]
 fuzzing = ["miniz_oxide_c_api/fuzzing"]

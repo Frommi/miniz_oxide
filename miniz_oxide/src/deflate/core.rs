@@ -104,8 +104,8 @@ const SMALL_DIST_SYM: [u8; 512] = [
     17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17, 17
 ];
 
-/// Number of extra bits for distances smaller than 512.
-#[rustfmt::skip]
+// /// Number of extra bits for distances smaller than 512.
+/*#[rustfmt::skip]
 const SMALL_DIST_EXTRA: [u8; 512] = [
     0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
     4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
@@ -123,6 +123,18 @@ const SMALL_DIST_EXTRA: [u8; 512] = [
     7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
     7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
     7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7
+];*/
+
+/// Number of extra bits for distances smaller than 512.
+/// Reduced by 4 using bit shift
+#[rustfmt::skip]
+const SMALL_DIST_EXTRA: [u8; 128] = [
+    0, 1, 2, 2, 3, 3, 3, 3,
+    4, 4, 4, 4, 4, 4, 4, 4,
+    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
 ];
 
 /// Base values to calculate distances above 512.
@@ -1673,7 +1685,7 @@ fn compress_lz_codes(
 
             if match_dist < 512 {
                 sym = SMALL_DIST_SYM[match_dist as usize] as usize;
-                num_extra_bits = SMALL_DIST_EXTRA[match_dist as usize] as usize;
+                num_extra_bits = SMALL_DIST_EXTRA[(match_dist >> 2) as usize] as usize;
             } else {
                 sym = LARGE_DIST_SYM[(match_dist >> 8) as usize] as usize;
                 num_extra_bits = LARGE_DIST_EXTRA[(match_dist >> 8) as usize] as usize;
@@ -1775,7 +1787,7 @@ pub(crate) fn flush_block(
                 d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0
             );
 
-            assert!(d.params.flush_remaining == 0);
+            debug_assert!(d.params.flush_remaining == 0);
             d.params.flush_ofs = 0;
             d.params.flush_remaining = 0;
 
@@ -1947,8 +1959,9 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
     let mut saved_match_len = d.params.saved_match_len;
 
     while src_pos < in_buf.len() || (d.params.flush != TDEFLFlush::None && lookahead_size != 0) {
-        let src_buf_left = in_buf.len() - src_pos;
-        let num_bytes_to_process = cmp::min(src_buf_left, MAX_MATCH_LEN - lookahead_size);
+        let in_buf_left = &in_buf[src_pos..];
+        let num_bytes_to_process = cmp::min(in_buf_left.len(), MAX_MATCH_LEN - lookahead_size);
+        let bytes_to_process = &in_buf_left[..num_bytes_to_process];
 
         if lookahead_size + d.dict.size >= usize::from(MIN_MATCH_LEN) - 1
             && num_bytes_to_process > 0
@@ -1965,7 +1978,7 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
 
             lookahead_size += num_bytes_to_process;
 
-            for &c in &in_buf[src_pos..src_pos + num_bytes_to_process] {
+            for &c in bytes_to_process {
                 // Add byte to input buffer.
                 dictb.dict[dst_pos] = c;
                 if dst_pos < MAX_MATCH_LEN - 1 {
@@ -1984,7 +1997,7 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
             src_pos += num_bytes_to_process;
         } else {
             let dictb = &mut d.dict.b;
-            for &c in &in_buf[src_pos..src_pos + num_bytes_to_process] {
+            for &c in bytes_to_process {
                 let dst_pos = (lookahead_pos + lookahead_size) & LZ_DICT_SIZE_MASK;
                 dictb.dict[dst_pos] = c;
                 if dst_pos < MAX_MATCH_LEN - 1 {
