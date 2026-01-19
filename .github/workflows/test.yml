@@ -28,7 +28,7 @@ jobs:
             os: windows-latest
             rust: stable-x86_64-gnu
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.rust }}
@@ -43,7 +43,7 @@ jobs:
     name: TestB
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
@@ -53,11 +53,11 @@ jobs:
     name: WebAssembly
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          targets: ${{ matrix.target }}
+          targets: wasm32-unknown-unknown
       - run: cargo test --manifest-path ./miniz_oxide/Cargo.toml --target wasm32-unknown-unknown
 
   wasip1:
@@ -66,19 +66,19 @@ jobs:
     env:
       CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v5
       - uses: bytecodealliance/actions/wasmtime/setup@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          targets: ${{ matrix.target }}
+          targets: wasm32-wasip1
       - run: cargo test --manifest-path ./miniz_oxide/Cargo.toml --target wasm32-wasip1
 
   serde:
     name: TestSerde
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
