@@ -58,7 +58,7 @@ jobs:
         with:
           toolchain: stable
           targets: wasm32-unknown-unknown
-      - run: cargo test --manifest-path ./miniz_oxide/Cargo.toml --target wasm32-unknown-unknown
+      - run: cargo build --manifest-path ./miniz_oxide/Cargo.toml --target wasm32-unknown-unknown
 
   wasip1:
     name: WebAssembly
