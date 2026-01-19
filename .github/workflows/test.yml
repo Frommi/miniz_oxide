@@ -52,16 +52,27 @@ jobs:
   wasm:
     name: WebAssembly
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        target: [wasm32-unknown-unknown, wasm32-wasip1]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
           targets: ${{ matrix.target }}
-      - run: cargo test --manifest-path ./miniz_oxide/Cargo.toml --target ${{ matrix.target }}
+      - run: cargo test --manifest-path ./miniz_oxide/Cargo.toml --target wasm32-unknown-unknown
+
+  wasip1:
+    name: WebAssembly
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: bytecodealliance/actions/wasmtime/setup@v1
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - run: cargo test --manifest-path ./miniz_oxide/Cargo.toml --target wasm32-wasip1
 
   serde:
     name: TestSerde
