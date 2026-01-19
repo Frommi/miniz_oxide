@@ -61,7 +61,7 @@ jobs:
         with:
           toolchain: stable
           targets: ${{ matrix.target }}
-      - run: cargo build -p miniz_oxide --target ${{ matrix.target }}
+      - run: cargo test --manifest-path ./miniz_oxide/Cargo.toml --target ${{ matrix.target }}
 
   serde:
     name: TestSerde

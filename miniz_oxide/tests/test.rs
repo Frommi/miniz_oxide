@@ -2,12 +2,14 @@
 #![cfg(feature = "with-alloc")]
 extern crate miniz_oxide;
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::Read;
 
 use miniz_oxide::deflate::{compress_to_vec, compress_to_vec_zlib};
 use miniz_oxide::inflate::{decompress_to_vec, decompress_to_vec_zlib, TINFLStatus};
 use miniz_oxide::MZError;
 
+#[cfg(not(target_arch = "wasm32"))]
 fn get_test_file_data(name: &str) -> Vec<u8> {
     use std::fs::File;
     let mut input = Vec::new();
@@ -42,6 +44,7 @@ impl Iterator for Rng {
 }
 
 /// Fuzzed file that caused issues for the inflate library.
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn inf_issue_14() {
     let data = get_test_file_data("tests/test_data/issue_14.zlib");
@@ -52,6 +55,7 @@ fn inf_issue_14() {
 }
 
 /// Fuzzed file that causes panics (subtract-with-overflow in debug, out-of-bounds in release)
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn inf_issue_19() {
     let data = get_test_file_data("tests/test_data/issue_19.deflate");
@@ -60,6 +64,7 @@ fn inf_issue_19() {
 
 /// Fuzzed (invalid )file that resulted in an infinite loop as inflate read a code as having 0
 /// length.
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn decompress_zero_code_len_oom() {
     let data = get_test_file_data("tests/test_data/invalid_code_len_oom");
@@ -68,16 +73,24 @@ fn decompress_zero_code_len_oom() {
 
 /// Same problem as previous test but in the end of input huffman decode part of
 /// `decode_huffman_code`
+#[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn decompress_zero_code_len_2() {
     let data = get_test_file_data("tests/test_data/invalid_code_len_oom");
     let _ = decompress_to_vec(data.as_slice());
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn get_test_data() -> Vec<u8> {
     use std::env;
     let path = env::var("TEST_FILE").unwrap_or_else(|_| "../miniz/miniz.c".to_string());
     get_test_file_data(&path)
+}
+
+#[cfg(target_arch = "wasm32")]
+// wasm can't read from filesystem so just use a string for now.
+fn get_test_data() -> Vec<u8> {
+    b"Test Data test data te37y5t8312yth684awgh048w6th8637test data".to_vec()
 }
 
 fn roundtrip(level: u8) {
@@ -121,6 +134,7 @@ fn zlib_header_level() {
 }
 
 #[test]
+#[cfg(not(target_arch = "wasm32"))]
 fn need_more_input_has_more_output_at_same_time() {
     use miniz_oxide::inflate::core;
 
@@ -237,6 +251,7 @@ fn issue_119_inflate_with_exact_limit() {
 }
 
 #[test]
+#[cfg(not(target_arch = "wasm32"))]
 fn issue_130_reject_invalid_table_sizes() {
     let input = get_test_file_data("tests/test_data/issue_130_table_size.bin");
 
@@ -348,6 +363,7 @@ fn empty_stored() {
 }
 
 #[test]
+#[cfg(not(target_arch = "wasm32"))]
 fn write_len_bytes_to_end() {
     use miniz_oxide::inflate::core;
     // Crashed due to overflow from condition being run in core::transfer due to accidentally using | instead of ||
