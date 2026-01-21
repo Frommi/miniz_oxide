@@ -1,6 +1,8 @@
 //! Streaming compression functionality.
 
 use alloc::boxed::Box;
+#[cfg(target_arch = "wasm32")]
+use alloc::vec;
 use core::convert::TryInto;
 use core::{cmp, mem};
 
@@ -1578,16 +1580,33 @@ impl ParamsOxide {
 
 #[derive(Clone)]
 pub(crate) struct LZOxide {
+    #[cfg(target_arch = "wasm32")]
+    pub codes: Box<[u8; LZ_CODE_BUF_SIZE]>,
+    #[cfg(not(target_arch = "wasm32"))]
     pub codes: [u8; LZ_CODE_BUF_SIZE],
     pub code_position: usize,
     pub flag_position: usize,
 
-    // The total number of bytes in the current block.
     pub total_bytes: u32,
     pub num_flags_left: u32,
 }
 
 impl LZOxide {
+    #[cfg(target_arch = "wasm32")]
+    fn new() -> Self {
+        LZOxide {
+            codes: vec![0; LZ_CODE_BUF_SIZE]
+                .into_boxed_slice()
+                .try_into()
+                .unwrap(),
+            code_position: 1,
+            flag_position: 0,
+            total_bytes: 0,
+            num_flags_left: 8,
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     const fn new() -> Self {
         LZOxide {
             codes: [0; LZ_CODE_BUF_SIZE],
