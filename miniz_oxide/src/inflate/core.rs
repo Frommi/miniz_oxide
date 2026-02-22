@@ -915,30 +915,47 @@ fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Option<Action> {
             total_symbols[cs] += 1;
         }
 
-        let mut used_symbols = 0;
         let mut total = 0u32;
-        // Count up the total number of used lengths and check that the table is not under or over-subscribed.
-        for (&ts, next) in total_symbols.iter().zip(next_code[1..].iter_mut()).skip(1) {
-            used_symbols += ts;
-            total += u32::from(ts);
-            total <<= 1;
-            *next = total;
+        let mut max_code_len = 0u32;
+        // Count up the total number of used lengths and check that the table
+        // is not over-subscribed at any step (matching zlib's inftrees.c).
+        {
+            let mut left = 1i32;
+            for (i, (&ts, next)) in total_symbols
+                .iter()
+                .zip(next_code[1..].iter_mut())
+                .enumerate()
+                .skip(1)
+            {
+                if ts > 0 {
+                    max_code_len = i as u32;
+                }
+                total += u32::from(ts);
+                total <<= 1;
+                *next = total;
+
+                left <<= 1;
+                left -= i32::from(ts);
+                if left < 0 {
+                    // Over-subscribed: too many codes for the available bit space.
+                    return Some(Action::Jump(BadTotalSymbols));
+                }
+            }
         }
 
+        // A complete Huffman code has total == 65536 (2^16 after left-shifting
+        // through all 15 possible code lengths). If total != 65536 the code is
+        // incomplete (unused bit patterns remain).
         //
-        // While it's not explicitly stated in the spec, a hufflen table
-        // with a single length (or none) would be invalid as there needs to be
-        // at minimum a length for both a non-zero length huffman code for the end of block symbol
-        // and one of the codes to represent 0 to make sense - so just reject that here as well.
-        //
-        // The distance table is allowed to have a single distance code though according to the spect it is
-        // supposed to be accompanied by a second dummy code. It can also be empty indicating no used codes.
-        //
-        // The literal/length table can not be empty as there has to be an end of block symbol,
-        // The standard doesn't specify that there should be a dummy code in case of a single
-        // symbol (i.e an empty block). Normally that's not an issue though the code will have
-        // to take that into account later on in case of malformed input.
-        if total != 65_536 && (used_symbols > 1 || bt == HUFFLEN_TABLE) {
+        // Per RFC 1951 and zlib's inftrees.c:
+        // - Code length (hufflen) tables must always be complete.
+        // - Literal/length and distance tables may be incomplete when
+        //   max_code_len <= 1: either all symbols are unused (max_code_len == 0,
+        //   e.g. a distance table with no backreferences) or a single symbol is
+        //   encoded with a 1-bit code (e.g. an EOB-only litlen table).
+        //   Tables with max_code_len > 1 that are incomplete are rejected, as
+        //   they have multi-bit codes that don't form a valid prefix code.
+        if total != 65_536 && (bt == HUFFLEN_TABLE || max_code_len > 1) {
             return Some(Action::Jump(BadTotalSymbols));
         }
 
