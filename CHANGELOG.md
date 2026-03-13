@@ -3,6 +3,19 @@
 All notable changes to this project will be documented in this file.
 
 ---
+## [0.9.1](https://github.com/Frommi/miniz_oxide/compare/0.9.0..0.9.1) - 2026-03-13
+
+### Bug Fixes
+
+- reject incomplete Huffman trees with max code length > 1 ([#190](https://github.com/Frommi/miniz_oxide/issues/190)) - ([c40992a](https://github.com/Frommi/miniz_oxide/commit/c40992ad6df8040794df767290ed0ffc45edc2e0)) - Lilith River
+- bump simd_adler32 dependency version (needed for wasm issue fix) - ([a9b3756](https://github.com/Frommi/miniz_oxide/commit/a9b3756c8d324c736275287b1d42e8bbd44867ee)) - oyvindln
+
+### Other
+
+- add wasmtime to workflow for running tests with wasip1 - ([f70ad10](https://github.com/Frommi/miniz_oxide/commit/f70ad1034010127057ba9e136edeac0c34adb853)) - oyvindln
+- box LZOxide.codes on wasm32 to reduce stack allocation ([#189](https://github.com/Frommi/miniz_oxide/issues/189)) - ([d0f3e0c](https://github.com/Frommi/miniz_oxide/commit/d0f3e0cb44fb9a0ce0b876010025949700533258)) - Fabrício Bracht
+
+---
 ## [0.9.0](https://github.com/Frommi/miniz_oxide/compare/0.8.9..0.9.0) - 2026-01-12
 
 Version bump due to a minor API break for having to add enum variants. Many enums have been made non_exhaustive to make it easier to avoid API breaks in the future.
