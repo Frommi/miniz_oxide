@@ -615,8 +615,8 @@ fn change_compression_level_after_start() {
 #[test]
 fn issue_137_reject_incomplete_litlen_tree() {
     let corrupt_input: &[u8] = &[
-        120, 1, 237, 224, 144, 1, 36, 73, 146, 36, 73, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 122, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
+        120, 1, 237, 224, 144, 1, 36, 73, 146, 36, 73, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 122, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
     ];
 
     let result = decompress_to_vec_zlib(corrupt_input);
