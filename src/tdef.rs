@@ -170,19 +170,19 @@ unmangle!(
                         return tdefl_status::TDEFL_STATUS_BAD_PARAM;
                     }
 
-                    let in_slice = (in_buf as *const u8)
-                        .as_ref()
-                        .map_or(&[][..], |in_buf| slice::from_raw_parts(in_buf, in_buf_size));
+                    let empty_in = [];
+                    let in_slice = if in_buf_size == 0 {
+                        &empty_in[..]
+                    } else {
+                        slice::from_raw_parts(in_buf as *const u8, in_buf_size)
+                    };
 
                     let res = match compressor_wrap.callback {
-                        None => match (out_buf as *mut u8).as_mut() {
-                            Some(out_buf) => compress(
-                                compressor,
-                                in_slice,
-                                slice::from_raw_parts_mut(out_buf, out_buf_size),
-                                flush,
-                            ),
-                            None => {
+                        None => {
+                            let mut empty_out = [];
+                            let out_slice = if out_buf_size == 0 {
+                                &mut empty_out[..]
+                            } else if out_buf.is_null() {
                                 if let Some(size) = in_size {
                                     *size = 0
                                 }
@@ -190,8 +190,12 @@ unmangle!(
                                     *size = 0
                                 }
                                 return tdefl_status::TDEFL_STATUS_BAD_PARAM;
-                            }
-                        },
+                            } else {
+                                slice::from_raw_parts_mut(out_buf as *mut u8, out_buf_size)
+                            };
+
+                            compress(compressor, in_slice, out_slice, flush)
+                        }
                         Some(ref func) => {
                             if out_buf_size > 0 || !out_buf.is_null() {
                                 if let Some(size) = in_size {
@@ -205,7 +209,7 @@ unmangle!(
                             let res =
                                 compress_to_output(compressor, in_slice, flush, |out: &[u8]| {
                                     (func.put_buf_func)(
-                                        &(out[0]) as *const u8 as *const c_void,
+                                        out.as_ptr().cast::<c_void>(),
                                         out.len() as i32,
                                         func.put_buf_user,
                                     ) != 0
