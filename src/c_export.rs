@@ -290,10 +290,12 @@ unmangle!(
     ///
     /// Returns MZ_ADLER32_INIT if ptr is `ptr::null`.
     pub unsafe extern "C" fn mz_adler32(adler: c_ulong, ptr: *const u8, buf_len: usize) -> c_ulong {
-        ptr.as_ref().map_or(MZ_ADLER32_INIT as c_ulong, |r| {
-            let data = slice::from_raw_parts(r, buf_len);
+        if ptr.is_null() {
+            MZ_ADLER32_INIT as c_ulong
+        } else {
+            let data = slice::from_raw_parts(ptr, buf_len);
             mz_adler32_oxide(adler as u32, data) as c_ulong
-        })
+        }
     }
 
     /// Calculate crc-32 of the provided buffer with the initial CRC32 checksum of `crc`.
@@ -301,10 +303,12 @@ unmangle!(
     ///
     /// Returns MZ_CRC32_INIT if ptr is `ptr::null`.
     pub unsafe extern "C" fn mz_crc32(crc: c_ulong, ptr: *const u8, buf_len: size_t) -> c_ulong {
-        ptr.as_ref().map_or(MZ_CRC32_INIT, |r| {
-            let data = slice::from_raw_parts(r, buf_len);
+        if ptr.is_null() {
+            MZ_CRC32_INIT
+        } else {
+            let data = slice::from_raw_parts(ptr, buf_len);
             mz_crc32_oxide(crc as u32, data) as c_ulong
-        })
+        }
     }
 );
 
