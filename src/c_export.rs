@@ -231,15 +231,23 @@ impl<'io, ST: StateType> StreamOxide<'io, ST> {
             return Err(MZError::Param);
         }
 
-        let in_slice = stream
-            .next_in
-            .as_ref()
-            .map(|ptr| slice::from_raw_parts(ptr, stream.avail_in as usize));
+        let in_slice = if stream.next_in.is_null() {
+            None
+        } else {
+            Some(slice::from_raw_parts(
+                stream.next_in,
+                stream.avail_in as usize,
+            ))
+        };
 
-        let out_slice = stream
-            .next_out
-            .as_mut()
-            .map(|ptr| slice::from_raw_parts_mut(ptr, stream.avail_out as usize));
+        let out_slice = if stream.next_out.is_null() {
+            None
+        } else {
+            Some(slice::from_raw_parts_mut(
+                stream.next_out,
+                stream.avail_out as usize,
+            ))
+        };
 
         Ok(StreamOxide {
             next_in: in_slice,
