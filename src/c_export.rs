@@ -299,3 +299,58 @@ unmangle!(
         })
     }
 );
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::tdef::Compressor;
+
+    #[test]
+    fn miri_witness_stream_oxide_try_new_input_provenance() {
+        let data = *b"stream input";
+        let mut stream = mz_stream {
+            next_in: data.as_ptr(),
+            avail_in: data.len() as c_uint,
+            data_type: StateTypeEnum::DeflateType,
+            ..Default::default()
+        };
+
+        // Under Miri this trips the raw-pointer-to-reference widening of the input buffer.
+        let stream_oxide = unsafe { StreamOxide::<Compressor>::try_new(&mut stream) }.unwrap();
+        assert_eq!(stream_oxide.next_in.unwrap(), &data);
+    }
+
+    #[test]
+    fn miri_witness_stream_oxide_try_new_output_provenance() {
+        let mut out = [0_u8; 16];
+        let mut stream = mz_stream {
+            next_out: out.as_mut_ptr(),
+            avail_out: out.len() as c_uint,
+            data_type: StateTypeEnum::DeflateType,
+            ..Default::default()
+        };
+
+        // Under Miri this trips the raw-pointer-to-reference widening of the output buffer.
+        let mut stream_oxide =
+            unsafe { StreamOxide::<Compressor>::try_new(&mut stream) }.unwrap();
+        assert_eq!(stream_oxide.next_out.as_mut().unwrap().len(), out.len());
+    }
+
+    #[test]
+    fn miri_witness_mz_adler32_input_provenance() {
+        let data = *b"adler witness";
+
+        // Under Miri this trips the raw-pointer-to-reference widening in `mz_adler32`.
+        let checksum = unsafe { mz_adler32(MZ_ADLER32_INIT as c_ulong, data.as_ptr(), data.len()) };
+        assert_eq!(checksum as u32, mz_adler32_oxide(MZ_ADLER32_INIT, &data));
+    }
+
+    #[test]
+    fn miri_witness_mz_crc32_input_provenance() {
+        let data = *b"crc witness";
+
+        // Under Miri this trips the raw-pointer-to-reference widening in `mz_crc32`.
+        let checksum = unsafe { mz_crc32(MZ_CRC32_INIT, data.as_ptr(), data.len()) };
+        assert_eq!(checksum as u32, mz_crc32_oxide(MZ_CRC32_INIT as u32, &data));
+    }
+}
