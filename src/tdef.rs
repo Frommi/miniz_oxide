@@ -170,18 +170,16 @@ unmangle!(
                         return tdefl_status::TDEFL_STATUS_BAD_PARAM;
                     }
 
-                    let empty_in = [];
                     let in_slice = if in_buf_size == 0 {
-                        &empty_in[..]
+                        &[]
                     } else {
                         slice::from_raw_parts(in_buf as *const u8, in_buf_size)
                     };
 
                     let res = match compressor_wrap.callback {
                         None => {
-                            let mut empty_out = [];
                             let out_slice = if out_buf_size == 0 {
-                                &mut empty_out[..]
+                                &mut []
                             } else if out_buf.is_null() {
                                 if let Some(size) = in_size {
                                     *size = 0
