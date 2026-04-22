@@ -170,19 +170,17 @@ unmangle!(
                         return tdefl_status::TDEFL_STATUS_BAD_PARAM;
                     }
 
-                    let in_slice = (in_buf as *const u8)
-                        .as_ref()
-                        .map_or(&[][..], |in_buf| slice::from_raw_parts(in_buf, in_buf_size));
+                    let in_slice = if in_buf_size == 0 {
+                        &[]
+                    } else {
+                        slice::from_raw_parts(in_buf as *const u8, in_buf_size)
+                    };
 
                     let res = match compressor_wrap.callback {
-                        None => match (out_buf as *mut u8).as_mut() {
-                            Some(out_buf) => compress(
-                                compressor,
-                                in_slice,
-                                slice::from_raw_parts_mut(out_buf, out_buf_size),
-                                flush,
-                            ),
-                            None => {
+                        None => {
+                            let out_slice = if out_buf_size == 0 {
+                                &mut []
+                            } else if out_buf.is_null() {
                                 if let Some(size) = in_size {
                                     *size = 0
                                 }
@@ -190,8 +188,12 @@ unmangle!(
                                     *size = 0
                                 }
                                 return tdefl_status::TDEFL_STATUS_BAD_PARAM;
-                            }
-                        },
+                            } else {
+                                slice::from_raw_parts_mut(out_buf as *mut u8, out_buf_size)
+                            };
+
+                            compress(compressor, in_slice, out_slice, flush)
+                        }
                         Some(ref func) => {
                             if out_buf_size > 0 || !out_buf.is_null() {
                                 if let Some(size) = in_size {
@@ -205,7 +207,7 @@ unmangle!(
                             let res =
                                 compress_to_output(compressor, in_slice, flush, |out: &[u8]| {
                                     (func.put_buf_func)(
-                                        &(out[0]) as *const u8 as *const c_void,
+                                        out.as_ptr().cast::<c_void>(),
                                         out.len() as i32,
                                         func.put_buf_user,
                                     ) != 0
@@ -493,5 +495,45 @@ mod test {
             let dec = decompress_to_vec(out_slice).unwrap();
             assert!(dec.as_slice() == &data[..]);
         }
+    }
+
+    #[test]
+    fn miri_witness_tdefl_compress_mem_to_heap_input_provenance() {
+        let data = b"miri witness";
+        let mut out_len = 0;
+        // Under Miri this trips the raw-pointer-to-reference widening in `tdefl_compress`.
+        let out_data = unsafe {
+            tdefl_compress_mem_to_heap(data.as_ptr().cast::<c_void>(), data.len(), &mut out_len, 0)
+        };
+        assert!(!out_data.is_null());
+        unsafe {
+            crate::miniz_def_free_func(ptr::null_mut(), out_data);
+        }
+    }
+
+    #[test]
+    fn miri_witness_tdefl_compress_output_provenance() {
+        let mut compressor = Compressor::default();
+        let init = unsafe { tdefl_init(Some(&mut compressor), None, ptr::null_mut(), 0) };
+        assert!(init == tdefl_status::TDEFL_STATUS_OKAY);
+
+        let mut in_size = 0;
+        let mut out_size = 64;
+        let mut out = [0_u8; 64];
+        // Under Miri this trips the raw-pointer-to-reference widening of the output buffer.
+        let status = unsafe {
+            tdefl_compress(
+                Some(&mut compressor),
+                ptr::null(),
+                Some(&mut in_size),
+                out.as_mut_ptr() as *mut c_void,
+                Some(&mut out_size),
+                tdefl_flush::TDEFL_FINISH,
+            )
+        };
+
+        assert!(status == tdefl_status::TDEFL_STATUS_DONE);
+        assert_eq!(in_size, 0);
+        assert!(out_size <= out.len());
     }
 }

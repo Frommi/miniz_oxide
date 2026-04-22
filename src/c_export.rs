@@ -231,15 +231,23 @@ impl<'io, ST: StateType> StreamOxide<'io, ST> {
             return Err(MZError::Param);
         }
 
-        let in_slice = stream
-            .next_in
-            .as_ref()
-            .map(|ptr| slice::from_raw_parts(ptr, stream.avail_in as usize));
+        let in_slice = if stream.next_in.is_null() {
+            None
+        } else {
+            Some(slice::from_raw_parts(
+                stream.next_in,
+                stream.avail_in as usize,
+            ))
+        };
 
-        let out_slice = stream
-            .next_out
-            .as_mut()
-            .map(|ptr| slice::from_raw_parts_mut(ptr, stream.avail_out as usize));
+        let out_slice = if stream.next_out.is_null() {
+            None
+        } else {
+            Some(slice::from_raw_parts_mut(
+                stream.next_out,
+                stream.avail_out as usize,
+            ))
+        };
 
         Ok(StreamOxide {
             next_in: in_slice,
@@ -282,10 +290,12 @@ unmangle!(
     ///
     /// Returns MZ_ADLER32_INIT if ptr is `ptr::null`.
     pub unsafe extern "C" fn mz_adler32(adler: c_ulong, ptr: *const u8, buf_len: usize) -> c_ulong {
-        ptr.as_ref().map_or(MZ_ADLER32_INIT as c_ulong, |r| {
-            let data = slice::from_raw_parts(r, buf_len);
+        if ptr.is_null() {
+            MZ_ADLER32_INIT as c_ulong
+        } else {
+            let data = slice::from_raw_parts(ptr, buf_len);
             mz_adler32_oxide(adler as u32, data) as c_ulong
-        })
+        }
     }
 
     /// Calculate crc-32 of the provided buffer with the initial CRC32 checksum of `crc`.
@@ -293,9 +303,66 @@ unmangle!(
     ///
     /// Returns MZ_CRC32_INIT if ptr is `ptr::null`.
     pub unsafe extern "C" fn mz_crc32(crc: c_ulong, ptr: *const u8, buf_len: size_t) -> c_ulong {
-        ptr.as_ref().map_or(MZ_CRC32_INIT, |r| {
-            let data = slice::from_raw_parts(r, buf_len);
+        if ptr.is_null() {
+            MZ_CRC32_INIT
+        } else {
+            let data = slice::from_raw_parts(ptr, buf_len);
             mz_crc32_oxide(crc as u32, data) as c_ulong
-        })
+        }
     }
 );
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::tdef::Compressor;
+
+    #[test]
+    fn miri_witness_stream_oxide_try_new_input_provenance() {
+        let data = *b"stream input";
+        let mut stream = mz_stream {
+            next_in: data.as_ptr(),
+            avail_in: data.len() as c_uint,
+            data_type: StateTypeEnum::DeflateType,
+            ..Default::default()
+        };
+
+        // Under Miri this trips the raw-pointer-to-reference widening of the input buffer.
+        let stream_oxide = unsafe { StreamOxide::<Compressor>::try_new(&mut stream) }.unwrap();
+        assert_eq!(stream_oxide.next_in.unwrap(), &data);
+    }
+
+    #[test]
+    fn miri_witness_stream_oxide_try_new_output_provenance() {
+        let mut out = [0_u8; 16];
+        let mut stream = mz_stream {
+            next_out: out.as_mut_ptr(),
+            avail_out: out.len() as c_uint,
+            data_type: StateTypeEnum::DeflateType,
+            ..Default::default()
+        };
+
+        // Under Miri this trips the raw-pointer-to-reference widening of the output buffer.
+        let mut stream_oxide =
+            unsafe { StreamOxide::<Compressor>::try_new(&mut stream) }.unwrap();
+        assert_eq!(stream_oxide.next_out.as_mut().unwrap().len(), out.len());
+    }
+
+    #[test]
+    fn miri_witness_mz_adler32_input_provenance() {
+        let data = *b"adler witness";
+
+        // Under Miri this trips the raw-pointer-to-reference widening in `mz_adler32`.
+        let checksum = unsafe { mz_adler32(MZ_ADLER32_INIT as c_ulong, data.as_ptr(), data.len()) };
+        assert_eq!(checksum as u32, mz_adler32_oxide(MZ_ADLER32_INIT, &data));
+    }
+
+    #[test]
+    fn miri_witness_mz_crc32_input_provenance() {
+        let data = *b"crc witness";
+
+        // Under Miri this trips the raw-pointer-to-reference widening in `mz_crc32`.
+        let checksum = unsafe { mz_crc32(MZ_CRC32_INIT, data.as_ptr(), data.len()) };
+        assert_eq!(checksum as u32, mz_crc32_oxide(MZ_CRC32_INIT as u32, &data));
+    }
+}
