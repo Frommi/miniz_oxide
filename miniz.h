@@ -1,14 +1,15 @@
-/* This library (excluding the miniz C code used for tests) is licensed under the MIT license. The library is based on the miniz C library, of which the parts used are dual-licensed under the MIT license and also the unlicense. The parts of miniz that are not covered by the unlicense is some Zip64 code which is only MIT licensed. This and other Zip functionality in miniz is not part of the miniz_oxidde and miniz_oxide_c_api rust libraries.*/
+/* This library is licensed under the MIT license. The library is based on the miniz C library by which Rich Geldreich is licensed under the MIT license. See LICENSE-MIT.md*/
+
 
 #pragma once
 
-/* Generated with cbindgen:0.20.0 */
+/* Generated with cbindgen:0.29.2 */
 
 /* DO NOT MODIFY THIS MANUALLY! This file was generated using cbindgen.
  * To generate this file:
  *   1. Get the latest cbindgen using `cargo install --force cbindgen`
  *      a. Alternatively, you can clone `https://github.com/eqrion/cbindgen` and use a tagged release
- *   2. Run `rustup run nightly cbindgen toolkit/library/rust/ --lockfile Cargo.lock --crate miniz_oxide_c_api -o miniz_h/miniz.h`
+ *   2. Run `rustup run nightly cbindgen --lockfile Cargo.lock --crate miniz_oxide_c_api -o miniz_h/miniz.h`
  */
 
 #include <stdarg.h>
@@ -19,12 +20,16 @@
 
 #define MZ_DEFLATED 8
 
+
+
 #define MZ_CRC32_INIT 0
 
 /**
  * Size of the buffer of lz77 encoded data.
  */
 #define LZ_CODE_BUF_SIZE (64 * 1024)
+
+#define LZ_CODE_BUF_MASK (LZ_CODE_BUF_SIZE - 1)
 
 /**
  * Size of the output buffer.
@@ -96,7 +101,7 @@
 /**
  * Should we try to parse a zlib header?
  *
- * If unset, [`decompress()`] will expect an RFC1951 deflate stream.  If set, it will expect an
+ * If unset, the function will expect an RFC1951 deflate stream.  If set, it will expect a
  * RFC1950 zlib wrapper around the deflate stream.
  */
 #define TINFL_FLAG_PARSE_ZLIB_HEADER 1
@@ -125,7 +130,7 @@
  *
  * If [`TINFL_FLAG_IGNORE_ADLER32`] is specified, it will override this.
  *
- * NOTE: Enabling/disabling this between calls to decompress will result in an incorect
+ * NOTE: Enabling/disabling this between calls to decompress will result in an incorrect
  * checksum.
  */
 #define TINFL_FLAG_COMPUTE_ADLER32 8
@@ -148,34 +153,28 @@
 
 #define MZ_DEFAULT_WINDOW_BITS 15
 
-typedef enum CAPICompressionLevel {
-  MZ_NO_COMPRESSION = 0,
-  MZ_BEST_SPEED = 1,
-  MZ_BEST_COMPRESSION = 9,
-  MZ_UBER_COMPRESSION = 10,
-  MZ_DEFAULT_LEVEL = 6,
-  MZ_DEFAULT_COMPRESSION = -1,
-} CAPICompressionLevel;
-
-typedef enum CAPICompressionStrategy {
-  MZ_DEFAULT_STRATEGY = 0,
-  MZ_FILTERED = 1,
-  MZ_HUFFMAN_ONLY = 2,
-  MZ_RLE = 3,
-  MZ_FIXED = 4,
-} CAPICompressionStrategy;
-
 /**
- * Deflate flush modes.
+ * Enum to keep track of what type the internal state is when moving over the C API boundary.
  */
-typedef enum CAPIFlush {
-  MZ_NO_FLUSH = 0,
-  MZ_PARTIAL_FLUSH = 1,
-  MZ_SYNC_FLUSH = 2,
-  MZ_FULL_FLUSH = 3,
-  MZ_FINISH = 4,
-  MZ_BLOCK = 5,
-} CAPIFlush;
+typedef enum StateTypeEnum {
+  None = 0,
+  InflateType,
+  DeflateType,
+} StateTypeEnum;
+
+typedef enum tdefl_status {
+  TDEFL_STATUS_BAD_PARAM = -2,
+  TDEFL_STATUS_PUT_BUF_FAILED = -1,
+  TDEFL_STATUS_OKAY = 0,
+  TDEFL_STATUS_DONE = 1,
+} tdefl_status;
+
+typedef enum tdefl_flush {
+  TDEFL_NO_FLUSH = 0,
+  TDEFL_SYNC_FLUSH = 2,
+  TDEFL_FULL_FLUSH = 3,
+  TDEFL_FINISH = 4,
+} tdefl_flush;
 
 typedef enum CAPIReturnStatus {
   MZ_PARAM_ERROR = -10000,
@@ -191,29 +190,36 @@ typedef enum CAPIReturnStatus {
 } CAPIReturnStatus;
 
 /**
- * Enum to keep track of what type the internal state is when moving over the C API boundary.
+ * Deflate flush modes.
  */
-typedef enum StateTypeEnum {
-  None = 0,
-  InflateType,
-  DeflateType,
-} StateTypeEnum;
+typedef enum CAPIFlush {
+  MZ_NO_FLUSH = 0,
+  MZ_PARTIAL_FLUSH = 1,
+  MZ_SYNC_FLUSH = 2,
+  MZ_FULL_FLUSH = 3,
+  MZ_FINISH = 4,
+  MZ_BLOCK = 5,
+} CAPIFlush;
 
-typedef enum tdefl_flush {
-  TDEFL_NO_FLUSH = 0,
-  TDEFL_SYNC_FLUSH = 2,
-  TDEFL_FULL_FLUSH = 3,
-  TDEFL_FINISH = 4,
-} tdefl_flush;
+typedef enum CAPICompressionStrategy {
+  MZ_DEFAULT_STRATEGY = 0,
+  MZ_FILTERED = 1,
+  MZ_HUFFMAN_ONLY = 2,
+  MZ_RLE = 3,
+  MZ_FIXED = 4,
+} CAPICompressionStrategy;
 
-typedef enum tdefl_status {
-  TDEFL_STATUS_BAD_PARAM = -2,
-  TDEFL_STATUS_PUT_BUF_FAILED = -1,
-  TDEFL_STATUS_OKAY = 0,
-  TDEFL_STATUS_DONE = 1,
-} tdefl_status;
+typedef enum CAPICompressionLevel {
+  MZ_NO_COMPRESSION = 0,
+  MZ_BEST_SPEED = 1,
+  MZ_BEST_COMPRESSION = 9,
+  MZ_UBER_COMPRESSION = 10,
+  MZ_DEFAULT_LEVEL = 6,
+  MZ_DEFAULT_COMPRESSION = -1,
+} CAPICompressionLevel;
 
 typedef enum tinfl_status {
+  TINFL_STATUS_UNKNOWN = -32,
   TINFL_STATUS_FAILED_CANNOT_MAKE_PROGRESS = -4,
   TINFL_STATUS_BAD_PARAM = -3,
   TINFL_STATUS_ADLER32_MISMATCH = -2,
@@ -392,7 +398,7 @@ struct tdefl_compressor *tdefl_allocate(void);
 /**
  * Deallocate the compressor. (Does nothing if the argument is null).
  *
- * This also calles the compressor's destructor, freeing the internal memory
+ * This also calls the compressor's destructor, freeing the internal memory
  * allocated by it.
  */
 void tdefl_deallocate(struct tdefl_compressor *c);
@@ -470,7 +476,7 @@ struct tinfl_decompressor *tinfl_decompressor_alloc(void);
 /**
  * Deallocate the compressor. (Does nothing if the argument is null).
  *
- * This also calles the compressor's destructor, freeing the internal memory
+ * This also calls the compressor's destructor, freeing the internal memory
  * allocated by it.
  */
 void tinfl_decompressor_free(struct tinfl_decompressor *c);
@@ -508,5 +514,5 @@ unsigned long mz_adler32(unsigned long adler, const uint8_t *ptr, uintptr_t buf_
 unsigned long mz_crc32(unsigned long crc, const uint8_t *ptr, size_t buf_len);
 
 #ifdef __cplusplus
-} // extern "C"
-#endif // __cplusplus
+}  // extern "C"
+#endif  // __cplusplus

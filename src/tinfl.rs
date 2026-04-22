@@ -5,7 +5,7 @@ use miniz_oxide::inflate::core::DecompressorOxide;
 // pub use miniz_oxide::inflate::core::DecompressorOxide as tinfl_decompressor;
 pub use miniz_oxide::inflate::core::{decompress, inflate_flags};
 use miniz_oxide::inflate::TINFLStatus;
-use std::{ptr, slice, usize};
+use std::{ptr, slice};
 
 pub const TINFL_DECOMPRESS_MEM_TO_MEM_FAILED: size_t = usize::MAX;
 

@@ -81,10 +81,10 @@ impl From<tdefl_flush> for TDEFLFlush {
 //     pub const TDEFL_FINISH: tdefl_flush = 4;
 // }
 
-/// Convert an i32 to a TDEFLFlush
-///
-/// Returns TDEFLFLush::None flush value is unknown.
-/// For use with c interface.
+// /// Convert an i32 to a TDEFLFlush
+// ///
+// /// Returns TDEFLFLush::None flush value is unknown.
+// /// For use with c interface.
 // pub fn i32_to_tdefl_flush(flush: i32) -> TDEFLFlush {
 //     match flush {
 //         2 => TDEFLFlush::Sync,

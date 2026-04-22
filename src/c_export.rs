@@ -343,8 +343,7 @@ mod test {
         };
 
         // Under Miri this trips the raw-pointer-to-reference widening of the output buffer.
-        let mut stream_oxide =
-            unsafe { StreamOxide::<Compressor>::try_new(&mut stream) }.unwrap();
+        let mut stream_oxide = unsafe { StreamOxide::<Compressor>::try_new(&mut stream) }.unwrap();
         assert_eq!(stream_oxide.next_out.as_mut().unwrap().len(), out.len());
     }
 
