@@ -1218,6 +1218,13 @@ fn apply_match(
 /// Currently we don't do this here, but this function does avoid having to jump through the
 /// big match loop on each state change(as rust does not have fallthrough or gotos at the moment),
 /// and already improves decompression speed a fair bit.
+/// How often, in output bytes, the optional stop callback is polled in the fast
+/// decompression loop. 16 KiB keeps the polling interval in the tens of
+/// microseconds at typical decompression speeds while staying off the
+/// per-symbol hot path.
+const STOP_CHECK_INTERVAL: usize = 16 * 1024;
+
+#[allow(clippy::too_many_arguments)]
 fn decompress_fast(
     r: &mut DecompressorOxide,
     in_iter: &mut InputWrapper,
@@ -1225,6 +1232,8 @@ fn decompress_fast(
     flags: u32,
     local_vars: &mut LocalVars,
     out_buf_size_mask: usize,
+    stop: Option<&dyn Fn() -> bool>,
+    next_stop_check: &mut usize,
 ) -> (TINFLStatus, State) {
     // Make a local copy of the most used variables, to avoid having to update and read from values
     // in a random memory location and to encourage more register use.
@@ -1233,6 +1242,19 @@ fn decompress_fast(
 
     let status: TINFLStatus = 'o: loop {
         state = State::DecodeLitlen;
+
+        // Poll the stop callback about every STOP_CHECK_INTERVAL output bytes.
+        // When no callback is set, next_stop_check is usize::MAX and this is a
+        // single never-taken comparison.
+        if out_buf.position() >= *next_stop_check {
+            if let Some(stop) = stop {
+                if stop() {
+                    break 'o TINFLStatus::Stopped;
+                }
+            }
+            *next_stop_check = out_buf.position() + STOP_CHECK_INTERVAL;
+        }
+
         loop {
             // This function assumes that there is at least 259 bytes left in the output buffer,
             // and that there is at least 14 bytes left in the input buffer. 14 input bytes:
@@ -1425,6 +1447,21 @@ pub fn decompress_with_limit(
     out_max: usize,
     flags: u32,
 ) -> (TINFLStatus, usize, usize) {
+    decompress_internal(r, in_buf, out, out_pos, out_max, flags, None)
+}
+
+/// Same as [`decompress_with_limit()`], but polls `stop` at each block boundary and
+/// roughly every [`STOP_CHECK_INTERVAL`] output bytes in the fast path, ending
+/// decompression with [`TINFLStatus::Stopped`] if it returns true.
+pub(crate) fn decompress_internal(
+    r: &mut DecompressorOxide,
+    in_buf: &[u8],
+    out: &mut [u8],
+    out_pos: usize,
+    out_max: usize,
+    flags: u32,
+    stop: Option<&dyn Fn() -> bool>,
+) -> (TINFLStatus, usize, usize) {
     let out_buf_size_mask = if flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0 {
         usize::MAX
     } else {
@@ -1455,6 +1492,12 @@ pub fn decompress_with_limit(
         dist: r.dist,
         counter: r.counter,
         num_extra: r.num_extra,
+    };
+
+    // usize::MAX disables position-based stop polling when no callback is set.
+    let mut next_stop_check = match stop {
+        Some(_) => out_pos + STOP_CHECK_INTERVAL,
+        None => usize::MAX,
     };
 
     let mut status = 'state_machine: loop {
@@ -1492,6 +1535,10 @@ pub fn decompress_with_limit(
 
             // Read the block header and jump to the relevant section depending on the block type.
             ReadBlockHeader => generate_state!(state, 'state_machine, {
+                // Poll the stop callback at each block boundary.
+                if stop.map_or(false, |stop| stop()) {
+                    break 'state_machine TINFLStatus::Stopped;
+                }
                 read_bits(&mut l, 3, &mut in_iter, flags, |l, bits| {
                     r.finish = (bits & 1) as u8;
                     r.block_type = ((bits >> 1) & 3) as u8;
@@ -1764,6 +1811,8 @@ pub fn decompress_with_limit(
                         flags,
                         &mut l,
                         out_buf_size_mask,
+                        stop,
+                        &mut next_stop_check,
                     );
 
                     state = new_state;

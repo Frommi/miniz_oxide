@@ -34,6 +34,8 @@ pub mod inflate;
 #[cfg(feature = "serde")]
 pub mod serde;
 mod shared;
+#[cfg(feature = "with-alloc")]
+pub mod stop;
 
 pub use crate::shared::update_adler32 as mz_adler32_oxide;
 pub use crate::shared::{MZ_ADLER32_INIT, MZ_DEFAULT_WINDOW_BITS};
