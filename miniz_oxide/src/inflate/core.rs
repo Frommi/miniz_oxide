@@ -283,6 +283,20 @@ pub struct DecompressorOxide {
     counter: u32,
     /// Number of extra bits for the last length or distance code.
     num_extra: u8,
+    /// Number of times the Huffman decode tables have been (re)built so far while decoding the
+    /// current stream. Reset to 0 whenever decoding (re)starts from [`State::Start`].
+    ///
+    /// See [`DecompressorOxide::set_max_huffman_table_rebuilds`] for why this is tracked.
+    huffman_table_rebuilds: u32,
+    /// Maximum value [`Self::huffman_table_rebuilds`] is allowed to reach before decompression
+    /// is aborted with [`TINFLStatus::HuffmanTableRebuildLimitExceeded`][crate::inflate::TINFLStatus::HuffmanTableRebuildLimitExceeded].
+    ///
+    /// Unlike most other fields on this struct, this is caller-configured state: it defaults to
+    /// `u32::MAX` (no limit, preserving prior behavior) and is *not* reset by [`Self::init`] or
+    /// by the `Start` state, so it only needs to be set once per `DecompressorOxide` even if the
+    /// same instance is reused (e.g. via [`crate::inflate::stream::InflateState`] resets) to
+    /// decode multiple streams.
+    max_huffman_table_rebuilds: u32,
     /// Number of entries in each huffman table.
     table_sizes: [u16; MAX_HUFF_TABLES],
     /// Buffer of input data.
@@ -314,6 +328,58 @@ impl DecompressorOxide {
     pub fn init(&mut self) {
         // The rest of the data is reset or overwritten when used.
         self.state = core::State::Start;
+    }
+
+    /// Sets the maximum number of times decompression is allowed to (re)build the internal
+    /// Huffman decode tables while decoding a single deflate stream, and returns an early
+    /// failure ([`TINFLStatus::HuffmanTableRebuildLimitExceeded`]) if that budget is exceeded.
+    ///
+    /// # Background
+    ///
+    /// Every `BTYPE=1` (static Huffman) or `BTYPE=2` (dynamic Huffman) deflate block header
+    /// forces a full rebuild of the decoder's Huffman lookup tables, at a fixed cost that does
+    /// not depend on how many literal/match symbols (including zero) the block actually
+    /// encodes before its end-of-block marker. Since the DEFLATE format allows an arbitrarily
+    /// long chain of minimal, near-empty blocks (each one legally as short as 10 bits for a
+    /// static block containing nothing but an end-of-block code), a crafted input of a few
+    /// hundred KiB to a few MiB can force many millions of these rebuilds while producing
+    /// little or no decompressed output at all. This decouples decompression cost from output
+    /// size, which means the existing output-size limit (see [`decompress_with_limit`]) does
+    /// **not** bound this cost: the limit is only ever compared against bytes written, and such
+    /// an input may write close to nothing.
+    ///
+    /// This is a legal (if highly unusual) deflate stream, not a malformed one, so it cannot be
+    /// rejected outright without risking rejecting some legitimate, if degenerate, streams.
+    /// Setting a limit here lets a caller who cares about this attack vector bound the cost
+    /// explicitly, independently of the output-size limit.
+    ///
+    /// # Default
+    ///
+    /// Defaults to `u32::MAX`, i.e. no limit, which preserves prior behavior for callers that do
+    /// not opt in.
+    ///
+    /// # Picking a value
+    ///
+    /// Each deflate block triggers 2 rebuilds if static, or 3 if dynamic (one each for the
+    /// huffman-length, literal/length, and distance tables), so this is roughly `2-3x` the
+    /// number of blocks a stream is allowed to contain. What value is "reasonable" depends
+    /// entirely on the caller's own workload (in particular, how many legitimate blocks a
+    /// normal input for that workload might contain) traded off against how much worst-case CPU
+    /// time is acceptable; there is no value that is safe for every caller, so none is applied
+    /// by default.
+    ///
+    /// # Persistence across resets
+    ///
+    /// Unlike most of this struct's fields, this value is caller-configured, not decode state:
+    /// it is left untouched by [`Self::init`] and by the `Start` state, so it only needs to be
+    /// set once per instance even if reused (e.g. via [`crate::inflate::stream::InflateState`]
+    /// resets) to decode multiple streams. Note that the (feature-gated)
+    /// `from_block_boundary_state` constructor builds a fresh instance via [`Default`] and does
+    /// *not* carry over a previously configured limit; call this again afterwards if that
+    /// matters for your use case.
+    #[inline]
+    pub fn set_max_huffman_table_rebuilds(&mut self, max_huffman_table_rebuilds: u32) {
+        self.max_huffman_table_rebuilds = max_huffman_table_rebuilds;
     }
 
     /// Returns the adler32 checksum of the currently decompressed data.
@@ -413,6 +479,8 @@ impl Default for DecompressorOxide {
             dist: 0,
             counter: 0,
             num_extra: 0,
+            huffman_table_rebuilds: 0,
+            max_huffman_table_rebuilds: u32::MAX,
             table_sizes: [0; MAX_HUFF_TABLES],
             bit_buf: 0,
             // TODO:(oyvindln) Check that copies here are optimized out in release mode.
@@ -472,6 +540,7 @@ enum State {
     BadCodeSizeDistPrevLookup,
     InvalidLitlen,
     InvalidDist,
+    HuffmanTableRebuildLimitExceeded,
 }
 
 impl State {
@@ -489,6 +558,7 @@ impl State {
                 | BadCodeSizeDistPrevLookup
                 | InvalidLitlen
                 | InvalidDist
+                | HuffmanTableRebuildLimitExceeded
         )
     }
 
@@ -870,6 +940,17 @@ fn reverse_bits(n: u16) -> u16 {
 fn init_tree(r: &mut DecompressorOxide, l: &mut LocalVars) -> Option<Action> {
     loop {
         let bt = r.block_type as usize;
+
+        // This is the expensive part of decoding a block header: rebuilding a table below is an
+        // O(FAST_LOOKUP_SIZE + MAX_HUFF_TREE_SIZE) operation regardless of how many symbols the
+        // table actually encodes, and a single degenerate deflate stream can force an
+        // unbounded number of these rebuilds while producing little or no output (see
+        // `DecompressorOxide::set_max_huffman_table_rebuilds`). Check the caller's budget, if
+        // any, before doing any of that work.
+        r.huffman_table_rebuilds = r.huffman_table_rebuilds.saturating_add(1);
+        if r.huffman_table_rebuilds > r.max_huffman_table_rebuilds {
+            return Some(Action::Jump(HuffmanTableRebuildLimitExceeded));
+        }
 
         let code_sizes = match bt {
             LITLEN_TABLE => &mut r.code_size_literal[..],
@@ -1469,6 +1550,7 @@ pub fn decompress_with_limit(
                 r.z_header1 = 0;
                 r.z_adler32 = 1;
                 r.check_adler32 = 1;
+                r.huffman_table_rebuilds = 0;
                 if flags & TINFL_FLAG_PARSE_ZLIB_HEADER != 0 {
                     Action::Jump(State::ReadZlibCmf)
                 } else {
@@ -2016,6 +2098,12 @@ pub fn decompress_with_limit(
 
             // We are done.
             DoneForever => break TINFLStatus::Done,
+
+            // The caller-configured Huffman table rebuild budget (see
+            // `DecompressorOxide::set_max_huffman_table_rebuilds`) was exceeded.
+            HuffmanTableRebuildLimitExceeded => {
+                break TINFLStatus::HuffmanTableRebuildLimitExceeded
+            }
 
             // Anything else indicates failure.
             // BadZlibHeader | BadRawLength | BadDistOrLiteralTableLength | BlockTypeUnexpected |
