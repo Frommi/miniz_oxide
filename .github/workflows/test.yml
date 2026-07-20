@@ -87,7 +87,18 @@ jobs:
   fuzz:
     name: FuzzBuild
     runs-on: ubuntu-latest
+    env:
+      # The version of `cargo-fuzz` to install and use.
+      CARGO_FUZZ_VERSION: 0.13.2
     steps:
       - uses: actions/checkout@v5
-      - uses: rust-fuzz/setup-fuzz-action@v1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.tool_cache }}/cargo-fuzz
+          key: cargo-fuzz-bin-${{ env.CARGO_FUZZ_VERSION }}
+      - run: echo "${{ runner.tool_cache }}/cargo-fuzz/bin" >> $GITHUB_PATH
+      - run: cargo install --root "${{ runner.tool_cache }}/cargo-fuzz" --version ${{ env.CARGO_FUZZ_VERSION }} cargo-fuzz --locked
       - run: cargo fuzz build
