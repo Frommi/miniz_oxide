@@ -83,3 +83,13 @@ jobs:
         with:
           toolchain: stable
       - run: cargo test -p miniz_oxide_test
+
+  fuzz:
+    name: FuzzBuild
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: nightly
+      - run: cargo +nightly fuzz build

@@ -5,13 +5,13 @@ extern crate miniz_oxide_c_api;
 use std::os::raw::{c_int, c_ulong};
 
 extern "C" {
-    pub fn c_mz_compress(
+    pub fn mz_compress(
         dest: *mut u8,
         dest_len: *mut c_ulong,
         source: *const u8,
         source_len: c_ulong,
     ) -> c_int;
-    pub fn c_mz_uncompress(
+    pub fn mz_uncompress(
         dest: *mut u8,
         dest_len: *mut c_ulong,
         source: *const u8,
@@ -36,6 +36,7 @@ fuzz_target!(|data: &[u8]| {
     let mut c_decompressed_size: c_ulong = N as c_ulong;
     let mut c_decompressed_buf = [0u8; N];
 
+    //
     let rust_res = unsafe {
         miniz_oxide_c_api::mz_compress(
             rust_compressed_buf.as_mut_ptr(),
@@ -45,7 +46,7 @@ fuzz_target!(|data: &[u8]| {
         )
     };
     let c_res = unsafe {
-        c_mz_compress(
+        mz_compress(
             c_compressed_buf.as_mut_ptr(),
             &mut c_compressed_size,
             s.as_mut_ptr(),
@@ -69,7 +70,7 @@ fuzz_target!(|data: &[u8]| {
         )
     };
     let c_res = unsafe {
-        c_mz_uncompress(
+        mz_uncompress(
             c_decompressed_buf.as_mut_ptr(),
             &mut c_decompressed_size,
             c_compressed_buf.as_mut_ptr(),

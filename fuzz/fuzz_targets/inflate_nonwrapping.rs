@@ -6,7 +6,6 @@ extern crate flate2;
 use flate2::read::DeflateDecoder;
 use std::io::Read;
 
-
 fuzz_target!(|data: &[u8]| {
     // fuzzed code goes here
     let mut result = Vec::new();
