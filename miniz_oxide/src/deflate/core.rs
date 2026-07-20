@@ -2584,7 +2584,7 @@ pub const fn create_comp_flags_from_zip_params(level: i32, window_bits: i32, str
 
 /// Check if the window is
 const fn window_bits_from_flags(flags: u32) -> u8 {
-    if (flags & TDEFL_FORCE_ALL_RAW_BLOCKS & TDEFL_RLE_MATCHES) != 0
+    if (flags & (TDEFL_FORCE_ALL_RAW_BLOCKS | TDEFL_RLE_MATCHES)) != 0
         || (flags & MAX_PROBES_MASK) == 0
     {
         1
