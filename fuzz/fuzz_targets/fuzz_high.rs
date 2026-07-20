@@ -2,10 +2,7 @@
 #[macro_use]
 extern crate libfuzzer_sys;
 extern crate miniz_oxide_c_api;
-
-extern crate libc;
-
-use libc::*;
+use std::os::raw::{c_int, c_ulong};
 
 extern "C" {
     pub fn c_mz_compress(
