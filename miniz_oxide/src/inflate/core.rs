@@ -1651,7 +1651,12 @@ pub fn decompress_with_limit(
             // Read the 3-bit lengths of the huffman codes describing the huffman code lengths used
             // to decode the lengths of the main tables.
             ReadHufflenTableCodeSize => generate_state!(state, 'state_machine, {
-                if l.counter < r.table_sizes[HUFFLEN_TABLE].into() {
+                if r.table_sizes[HUFFLEN_TABLE] as usize > MAX_HUFF_SYMBOLS_2 {
+                    // A serde-deserialized instance can set `table_sizes[2]`
+                    // arbitrarily; guard `HUFFMAN_LENGTH_ORDER[..]` below
+                    // against an out-of-range `l.counter`. See #201.
+                    Action::Jump(BadDistOrLiteralTableLength)
+                } else if l.counter < r.table_sizes[HUFFLEN_TABLE].into() {
                     read_bits(&mut l, 3, &mut in_iter, flags, |l, bits| {
                         // These lengths are not stored in a normal ascending order, but rather one
                         // specified by the deflate specification intended to put the most used
@@ -1668,7 +1673,20 @@ pub fn decompress_with_limit(
             }),
 
             ReadLitlenDistTablesCodeSize => generate_state!(state, 'state_machine, {
-                if l.counter < u32::from(r.table_sizes[LITLEN_TABLE]) + u32::from(r.table_sizes[DIST_TABLE]) {
+                if r.table_sizes[LITLEN_TABLE] as usize > 286
+                    || r.table_sizes[DIST_TABLE] as usize > 30
+                    || r.block_type != HUFFLEN_TABLE as u8
+                {
+                    // Reject out-of-range table sizes and an unexpected block
+                    // type before the slices below. The normal state machine
+                    // only reaches this point from a dynamic block header that
+                    // set `block_type` to HUFFLEN_TABLE, and `ReadTableSizes`
+                    // bounds `table_sizes`; a serde-deserialized instance can
+                    // bypass both and land here with attacker-controlled
+                    // values, which used to panic (OOB slice / subtract
+                    // overflow). See #201.
+                    Action::Jump(BadDistOrLiteralTableLength)
+                } else if l.counter < u32::from(r.table_sizes[LITLEN_TABLE]) + u32::from(r.table_sizes[DIST_TABLE]) {
                     decode_huffman_code(
                         r, &mut l, HUFFLEN_TABLE,
                         flags, &mut in_iter, |r, l, symbol| {
@@ -1709,10 +1727,18 @@ pub fn decompress_with_limit(
                     init_tree(r, &mut l).unwrap_or(Action::End(TINFLStatus::Failed))
                 }
             }),
-
             ReadExtraBitsCodeSize => generate_state!(state, 'state_machine, {
                 let num_extra = l.num_extra.into();
                 read_bits(&mut l, num_extra, &mut in_iter, flags, |l, mut extra_bits| {
+                    // A serde-deserialized instance can enter this state with a
+                    // `dist` below 16, which would underflow below; treat it as
+                    // a bad code size. See #201.
+                    if l.dist < 16 {
+                        return Action::Jump(BadCodeSizeDistPrevLookup);
+                    }
+                    if l.dist == 16 && l.counter == 0 {
+                        return Action::Jump(BadCodeSizeDistPrevLookup);
+                    }
                     // Mask to avoid a bounds check.
                     // We can use 2 since the 2 first values are the same.
                     extra_bits += [3, 3, 11][(l.dist as usize - 16) & 2];
@@ -1725,8 +1751,13 @@ pub fn decompress_with_limit(
 
                     let fill_start = l.counter as usize;
                     let fill_end = l.counter as usize + extra_bits as usize;
-                    debug_assert!(fill_start < r.len_codes.len());
-                    debug_assert!(fill_end < r.len_codes.len());
+                    // `fill_end` must stay strictly below `len_codes.len()` (512)
+                    // because the slice below masks with `LEN_CODES_MASK` (511):
+                    // an end of exactly 512 would wrap to 0 and panic on a
+                    // reversed range. See #201.
+                    if fill_start >= fill_end || fill_end >= r.len_codes.len() {
+                        return Action::Jump(BadCodeSizeSum);
+                    }
 
                     r.len_codes[
                             fill_start & LEN_CODES_MASK..fill_end & LEN_CODES_MASK
@@ -2377,5 +2408,89 @@ mod test {
         for i in 0..512 {
             assert_eq!(reverse_bits(i), i.reverse_bits());
         }
+    }
+    // Regression for https://github.com/Frommi/miniz_oxide/issues/201
+    //
+    // A serde-deserialized `DecompressorOxide` can carry attacker-controlled
+    // `state`, `block_type`, `counter`, and `table_sizes` that bypass the
+    // state-machine invariants normally enforced during decoding. Feeding such
+    // an instance into `decompress` used to panic (out-of-range slice / subtract
+    // overflow) instead of returning a clean error. These tests feed the raw
+    // private fields directly (equivalent to a deserialized instance).
+    fn decompress_state(r: &mut DecompressorOxide) -> TINFLStatus {
+        let in_buf = [0u8; 0];
+        let mut out = [0u8; 64];
+        let (status, _, _) = decompress(r, &in_buf, &mut out, 0, 0);
+        status
+    }
+
+    #[test]
+    fn decompress_rejects_deserialized_out_of_range_litlen() {
+        let mut r = DecompressorOxide::new();
+        r.state = State::ReadLitlenDistTablesCodeSize;
+        r.block_type = HUFFLEN_TABLE as u8;
+        r.table_sizes[LITLEN_TABLE] = 500; // > 286, would OOB `code_size_literal[..500]`
+        r.table_sizes[DIST_TABLE] = 0;
+        r.counter = 500;
+        assert_eq!(decompress_state(&mut r), TINFLStatus::Failed);
+    }
+
+    #[test]
+    fn decompress_rejects_deserialized_block_type_underflow() {
+        let mut r = DecompressorOxide::new();
+        r.state = State::ReadLitlenDistTablesCodeSize;
+        r.block_type = 0; // would underflow on `block_type -= 1`
+        r.table_sizes[LITLEN_TABLE] = 286;
+        r.table_sizes[DIST_TABLE] = 30;
+        r.counter = 316;
+        assert_eq!(decompress_state(&mut r), TINFLStatus::Failed);
+    }
+
+    #[test]
+    fn decompress_rejects_deserialized_dist_table_32() {
+        let mut r = DecompressorOxide::new();
+        r.state = State::ReadLitlenDistTablesCodeSize;
+        r.block_type = HUFFLEN_TABLE as u8;
+        r.table_sizes[LITLEN_TABLE] = 286;
+        r.table_sizes[DIST_TABLE] = 32; // > 30, would break the dist copy
+        r.counter = 318;
+        assert_eq!(decompress_state(&mut r), TINFLStatus::Failed);
+    }
+
+    #[test]
+    fn decompress_rejects_deserialized_hufflen_table_size() {
+        let mut r = DecompressorOxide::new();
+        r.state = State::ReadHufflenTableCodeSize;
+        r.block_type = HUFFLEN_TABLE as u8;
+        r.table_sizes[HUFFLEN_TABLE] = 500; // > 19, would OOB `HUFFMAN_LENGTH_ORDER[..]`
+        assert_eq!(decompress_state(&mut r), TINFLStatus::Failed);
+    }
+    #[test]
+    fn decompress_rejects_deserialized_extra_bits_dist_below_16() {
+        let mut r = DecompressorOxide::new();
+        r.state = State::ReadExtraBitsCodeSize;
+        r.dist = 15; // would underflow on `(dist - 16)`
+        r.num_extra = 0; // `read_bits(0)` runs the callback even with empty input
+        assert_eq!(decompress_state(&mut r), TINFLStatus::Failed);
+    }
+
+    #[test]
+    fn decompress_rejects_deserialized_extra_bits_counter_zero() {
+        let mut r = DecompressorOxide::new();
+        r.state = State::ReadExtraBitsCodeSize;
+        r.dist = 16;
+        r.counter = 0; // would underflow on `counter - 1`
+        r.num_extra = 0;
+        assert_eq!(decompress_state(&mut r), TINFLStatus::Failed);
+    }
+
+    #[test]
+    fn decompress_rejects_deserialized_extra_bits_fill_end_wraps() {
+        let mut r = DecompressorOxide::new();
+        r.state = State::ReadExtraBitsCodeSize;
+        r.dist = 16;
+        r.counter = 509; // fill_end = 512 would wrap the masked range to 0
+        r.num_extra = 0;
+        assert_eq!(decompress_state(&mut r), TINFLStatus::Failed);
     }
 }
