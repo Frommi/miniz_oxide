@@ -1905,17 +1905,8 @@ pub fn decompress_with_limit(
                     Action::Jump(DistanceOutOfBounds)
                 } else {
                     let out_pos = out_buf.position();
-                    let source_pos = out_buf.position()
-                        .wrapping_sub(l.dist as usize) & out_buf_size_mask;
 
-                    let out_len = out_buf.bytes_left();
-                    let match_end_pos = out_buf.position() + l.counter as usize;
-
-                    if match_end_pos > out_len ||
-                        // miniz doesn't do this check here. Not sure how it makes sure
-                        // that this case doesn't happen.
-                        (source_pos >= out_pos && (source_pos - out_pos) < l.counter as usize)
-                    {
+                    if l.counter as usize > out_buf.bytes_left() {
                         // Not enough space for all of the data in the output buffer,
                         // so copy what we have space for.
                         if l.counter == 0 {
