@@ -421,6 +421,12 @@ unmangle!(
                     flags,
                 ) == 0
                 {
+                    if !buffer_user.buf.is_null() {
+                        crate::miniz_def_free_func(
+                            ptr::null_mut(),
+                            buffer_user.buf as *mut c_void,
+                        );
+                    }
                     ptr::null_mut()
                 } else {
                     *len = buffer_user.size;
@@ -495,6 +501,7 @@ mod test {
             let dec = decompress_to_vec(out_slice).unwrap();
             assert!(dec.as_slice() == &data[..]);
         }
+        unsafe { crate::miniz_def_free_func(ptr::null_mut(), out_data) };
     }
 
     #[test]
