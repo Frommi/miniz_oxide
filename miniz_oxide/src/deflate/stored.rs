@@ -1,8 +1,45 @@
 use crate::deflate::core::{
     flush_block, CallbackOxide, CompressorOxide, TDEFLFlush, TDEFLStatus, LZ_DICT_SIZE,
-    LZ_DICT_SIZE_MASK, MAX_MATCH_LEN, MIN_MATCH_LEN,
+    LZ_DICT_SIZE_MASK, MAX_MATCH_LEN,
 };
 use core::cmp;
+
+/// Maximum number of bytes buffered in a stored block before flushing.
+const STORED_BLOCK_SIZE: usize = 31 * 1024 + 1;
+
+fn copy_to_dict(d: &mut CompressorOxide, mut pos: usize, mut input: &[u8]) {
+    while !input.is_empty() {
+        let dst = pos & LZ_DICT_SIZE_MASK;
+        let len = cmp::min(input.len(), LZ_DICT_SIZE - dst);
+        d.dict.b.dict[dst..dst + len].copy_from_slice(&input[..len]);
+
+        // Mirror the start of the dictionary for reads that cross the ring boundary.
+        if dst < MAX_MATCH_LEN - 1 {
+            let mirrored = cmp::min(len, MAX_MATCH_LEN - 1 - dst);
+            d.dict.b.dict[LZ_DICT_SIZE + dst..LZ_DICT_SIZE + dst + mirrored]
+                .copy_from_slice(&input[..mirrored]);
+        }
+
+        pos += len;
+        input = &input[len..];
+    }
+}
+
+fn flush_stored_block(
+    d: &mut CompressorOxide,
+    callback: &mut CallbackOxide,
+    bytes_written: usize,
+    src_pos: usize,
+    lookahead_size: usize,
+    lookahead_pos: usize,
+) -> i32 {
+    d.lz.total_bytes = bytes_written as u32;
+    d.params.src_pos = src_pos;
+    d.dict.lookahead_size = lookahead_size;
+    d.dict.lookahead_pos = lookahead_pos;
+
+    flush_block(d, callback, TDEFLFlush::None).unwrap_or(TDEFLStatus::PutBufFailed as i32)
+}
 
 /// Compression function for stored blocks, split out from the main compression function.
 pub(crate) fn compress_stored(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool {
@@ -24,81 +61,60 @@ pub(crate) fn compress_stored(d: &mut CompressorOxide, callback: &mut CallbackOx
     // TODO: It's possible we don't need this or could do this elsewhere later
     // but just do this here to avoid causing issues for now.
     d.params.saved_match_len = 0;
-    let mut bytes_written = d.lz.total_bytes;
+    let mut bytes_written = d.lz.total_bytes as usize;
     let mut src_pos = d.params.src_pos;
     let mut lookahead_size = d.dict.lookahead_size;
     let mut lookahead_pos = d.dict.lookahead_pos;
 
-    // TODO: This mostly copied from the existing miniz code that was part of the main compression function
-    // but could be much simplified and optimized further to a simple copy.
-    while src_pos < in_buf.len() || (d.params.flush != TDEFLFlush::None && lookahead_size != 0) {
-        let src_buf_left = in_buf.len() - src_pos;
-        let num_bytes_to_process = cmp::min(src_buf_left, MAX_MATCH_LEN - lookahead_size);
+    // Retain enough lookahead to allow switching from stored to compressed mode.
+    let retain = if d.params.flush == TDEFLFlush::None {
+        MAX_MATCH_LEN - 1
+    } else {
+        0
+    };
+    let mut process = (lookahead_size + in_buf.len() - src_pos).saturating_sub(retain);
 
-        if lookahead_size + d.dict.size >= usize::from(MIN_MATCH_LEN) - 1
-            && num_bytes_to_process > 0
-        {
-            let dictb = &mut d.dict.b;
+    while process != 0 {
+        let block_space = STORED_BLOCK_SIZE - bytes_written;
+        let len = cmp::min(process, block_space);
+        let buffered = cmp::min(len, lookahead_size);
+        lookahead_size -= buffered;
 
-            let mut dst_pos = (lookahead_pos + lookahead_size) & LZ_DICT_SIZE_MASK;
+        let from_input = len - buffered;
+        copy_to_dict(
+            d,
+            lookahead_pos + buffered,
+            &in_buf[src_pos..src_pos + from_input],
+        );
+        src_pos += from_input;
+        lookahead_pos += len;
+        bytes_written += len;
+        d.dict.size = cmp::min(d.dict.size + len, LZ_DICT_SIZE);
+        process -= len;
 
-            lookahead_size += num_bytes_to_process;
-
-            for &c in &in_buf[src_pos..src_pos + num_bytes_to_process] {
-                // Add byte to input buffer.
-                dictb.dict[dst_pos] = c;
-                if dst_pos < MAX_MATCH_LEN - 1 {
-                    dictb.dict[LZ_DICT_SIZE + dst_pos] = c;
-                }
-
-                dst_pos = (dst_pos + 1) & LZ_DICT_SIZE_MASK;
+        if bytes_written == STORED_BLOCK_SIZE {
+            let result = flush_stored_block(
+                d,
+                callback,
+                bytes_written,
+                src_pos,
+                lookahead_size,
+                lookahead_pos,
+            );
+            if result != 0 {
+                return result > 0;
             }
-        } else {
-            let dictb = &mut d.dict.b;
-            for &c in &in_buf[src_pos..src_pos + num_bytes_to_process] {
-                let dst_pos = (lookahead_pos + lookahead_size) & LZ_DICT_SIZE_MASK;
-                dictb.dict[dst_pos] = c;
-                if dst_pos < MAX_MATCH_LEN - 1 {
-                    dictb.dict[LZ_DICT_SIZE + dst_pos] = c;
-                }
-
-                lookahead_size += 1;
-            }
-        }
-
-        src_pos += num_bytes_to_process;
-
-        d.dict.size = cmp::min(LZ_DICT_SIZE - lookahead_size, d.dict.size);
-        if d.params.flush == TDEFLFlush::None && lookahead_size < MAX_MATCH_LEN {
-            break;
-        }
-
-        let len_to_move = 1;
-
-        bytes_written += 1;
-
-        lookahead_pos += len_to_move;
-        lookahead_size -= len_to_move;
-        d.dict.size = cmp::min(d.dict.size + len_to_move, LZ_DICT_SIZE);
-
-        if bytes_written > 31 * 1024 {
-            d.lz.total_bytes = bytes_written;
-
-            d.params.src_pos = src_pos;
-            // These values are used in flush_block, so we need to write them back here.
-            d.dict.lookahead_size = lookahead_size;
-            d.dict.lookahead_pos = lookahead_pos;
-
-            let n = flush_block(d, callback, TDEFLFlush::None)
-                .unwrap_or(TDEFLStatus::PutBufFailed as i32);
-            if n != 0 {
-                return n > 0;
-            }
-            bytes_written = d.lz.total_bytes;
+            bytes_written = d.lz.total_bytes as usize;
         }
     }
 
-    d.lz.total_bytes = bytes_written;
+    let remaining = in_buf.len() - src_pos;
+    copy_to_dict(d, lookahead_pos + lookahead_size, &in_buf[src_pos..]);
+    src_pos += remaining;
+    lookahead_size += remaining;
+    d.dict.size = cmp::min(d.dict.size, LZ_DICT_SIZE - lookahead_size);
+
+    d.lz.total_bytes = bytes_written as u32;
     d.params.src_pos = src_pos;
     d.dict.lookahead_size = lookahead_size;
     d.dict.lookahead_pos = lookahead_pos;
