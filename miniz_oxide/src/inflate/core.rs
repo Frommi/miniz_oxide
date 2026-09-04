@@ -43,7 +43,7 @@ pub const TINFL_LZ_DICT_SIZE: usize = 32_768;
 
 /// A struct containing huffman code lengths and the huffman code tree used by the decompressor.
 #[cfg_attr(not(feature = "rustc-dep-of-std"), derive(Clone))]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 struct HuffmanTable {
     /// Fast lookup table for shorter huffman codes.
     ///
@@ -222,6 +222,7 @@ enum HuffmanTableType {
 #[derive(Clone)]
 #[cfg(feature = "block-boundary")]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "SerializedBlockBoundaryState"))]
 pub struct BlockBoundaryState {
     /// The number of bits from the last byte of input consumed,
     /// that are needed for decoding the next deflate block.
@@ -241,6 +242,34 @@ pub struct BlockBoundaryState {
     pub check_adler32: u32,
 }
 
+#[cfg(all(feature = "block-boundary", feature = "serde"))]
+#[derive(Deserialize)]
+struct SerializedBlockBoundaryState {
+    num_bits: u8,
+    bit_buf: u8,
+    z_header0: u32,
+    z_header1: u32,
+    check_adler32: u32,
+}
+
+#[cfg(all(feature = "block-boundary", feature = "serde"))]
+impl TryFrom<SerializedBlockBoundaryState> for BlockBoundaryState {
+    type Error = &'static str;
+
+    fn try_from(state: SerializedBlockBoundaryState) -> Result<Self, Self::Error> {
+        if state.num_bits > 7 || state.bit_buf >> state.num_bits != 0 {
+            return Err("invalid block boundary bit buffer");
+        }
+        Ok(BlockBoundaryState {
+            num_bits: state.num_bits,
+            bit_buf: state.bit_buf,
+            z_header0: state.z_header0,
+            z_header1: state.z_header1,
+            check_adler32: state.check_adler32,
+        })
+    }
+}
+
 #[cfg(feature = "block-boundary")]
 impl Default for BlockBoundaryState {
     fn default() -> Self {
@@ -257,7 +286,7 @@ impl Default for BlockBoundaryState {
 /// Main decompression struct.
 ///
 #[cfg_attr(not(feature = "rustc-dep-of-std"), derive(Clone))]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DecompressorOxide {
     /// Current state of the decompressor.
     state: core::State,
@@ -431,7 +460,7 @@ impl Default for DecompressorOxide {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[non_exhaustive]
 enum State {
     Start = 0,
