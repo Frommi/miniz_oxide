@@ -279,6 +279,11 @@ pub struct DecompressorOxide {
     check_adler32: u32,
     /// Last match distance.
     dist: u32,
+    /// Number of bytes of history (output of the current stream) available for matches,
+    /// saturating at the window size. Distances larger than this refer to before the start
+    /// of the output (RFC 1951 section 3.2.5) and are rejected.
+    #[cfg_attr(feature = "serde", serde(default = "full_history"))]
+    history: u32,
     /// Variable used for match length, symbols, and a number of other things.
     counter: u32,
     /// Number of extra bits for the last length or distance code.
@@ -392,9 +397,17 @@ impl DecompressorOxide {
             z_header1: st.z_header1,
             z_adler32: 1,
             check_adler32: st.check_adler32,
+            // The caller provides the preceding window in `out`.
+            history: TINFL_LZ_DICT_SIZE as u32,
             ..DecompressorOxide::default()
         }
     }
+}
+
+/// History assumed for decompressor state serialized before the `history` field existed.
+#[cfg(feature = "serde")]
+const fn full_history() -> u32 {
+    TINFL_LZ_DICT_SIZE as u32
 }
 
 impl Default for DecompressorOxide {
@@ -411,6 +424,7 @@ impl Default for DecompressorOxide {
             block_type: 0,
             check_adler32: 0,
             dist: 0,
+            history: 0,
             counter: 0,
             num_extra: 0,
             table_sizes: [0; MAX_HUFF_TABLES],
@@ -1222,9 +1236,9 @@ fn decompress_fast(
     r: &mut DecompressorOxide,
     in_iter: &mut InputWrapper,
     out_buf: &mut OutputBuffer,
-    flags: u32,
     local_vars: &mut LocalVars,
     out_buf_size_mask: usize,
+    dist_limit_offset: usize,
 ) -> (TINFLStatus, State) {
     // Make a local copy of the most used variables, to avoid having to update and read from values
     // in a random memory location and to encourage more register use.
@@ -1337,8 +1351,7 @@ fn decompress_fast(
             }
 
             let position = out_buf.position();
-            if (l.dist as usize > out_buf.position()
-                && (flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0))
+            if l.dist as usize > position.wrapping_add(dist_limit_offset)
                 || (l.dist as usize > out_buf.get_ref().len())
             {
                 // We encountered a distance that refers a position before
@@ -1445,6 +1458,19 @@ pub fn decompress_with_limit(
     let mut in_iter = InputWrapper::from_slice(in_buf);
 
     let mut state = r.state;
+
+    // Bytes of history before `out_pos`. With a non-wrapping buffer everything before `out_pos`
+    // is history; with a wrapping buffer only what this stream has produced so far is.
+    let history_before = if flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0 {
+        out_pos
+    } else if state == State::Start {
+        0
+    } else {
+        r.history as usize
+    };
+    // A match distance is valid iff `dist <= history_before + (position - out_pos)`, i.e.
+    // `dist <= position + dist_limit_offset` (the sum is never negative; wrapping is exact).
+    let dist_limit_offset = history_before.wrapping_sub(out_pos);
 
     let mut out_buf = OutputBuffer::from_slice_pos_and_max(out, out_pos, out_max);
 
@@ -1761,9 +1787,9 @@ pub fn decompress_with_limit(
                         r,
                         &mut in_iter,
                         &mut out_buf,
-                        flags,
                         &mut l,
                         out_buf_size_mask,
+                        dist_limit_offset,
                     );
 
                     state = new_state;
@@ -1897,8 +1923,8 @@ pub fn decompress_with_limit(
             }),
 
             HuffDecodeOuterLoop2 => generate_state!(state, 'state_machine, {
-                if (l.dist as usize > out_buf.position() &&
-                    (flags & TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF != 0)) || (l.dist as usize > out_buf.get_ref().len())
+                if l.dist as usize > out_buf.position().wrapping_add(dist_limit_offset)
+                    || (l.dist as usize > out_buf.get_ref().len())
                 {
                     // We encountered a distance that refers a position before
                     // the start of the decoded data, so we can't continue.
@@ -2051,6 +2077,9 @@ pub fn decompress_with_limit(
     }
 
     r.state = state;
+    r.history = history_before
+        .saturating_add(out_buf.position() - out_pos)
+        .min(TINFL_LZ_DICT_SIZE) as u32;
     r.bit_buf = l.bit_buf;
     r.num_bits = l.num_bits;
     r.dist = l.dist;
