@@ -1514,6 +1514,8 @@ pub(crate) struct ParamsOxide {
     pub flush: TDEFLFlush,
     pub flush_ofs: u32,
     pub flush_remaining: u32,
+    // The explicit flush that generated the buffered output, or None for an automatic block.
+    pub flush_complete: TDEFLFlush,
     pub finished: bool,
 
     pub adler32: u32,
@@ -1542,6 +1544,7 @@ impl ParamsOxide {
             flush: TDEFLFlush::None,
             flush_ofs: 0,
             flush_remaining: 0,
+            flush_complete: TDEFLFlush::None,
             finished: false,
             adler32: MZ_ADLER32_INIT,
             src_pos: 0,
@@ -1567,6 +1570,7 @@ impl ParamsOxide {
         self.flush = TDEFLFlush::None;
         self.flush_ofs = 0;
         self.flush_remaining = 0;
+        self.flush_complete = TDEFLFlush::None;
         self.finished = false;
         self.adler32 = MZ_ADLER32_INIT;
         self.src_pos = 0;
@@ -2391,10 +2395,12 @@ fn flush_output_buffer(c: &mut CallbackOxide, p: &mut ParamsOxide) -> (TDEFLStat
 ///
 /// Use [`TDEFLFlush::Finish`] on the final call to signal that the stream is finishing.
 ///
-/// Note that this function does not keep track of whether a flush marker has been output, so
-/// if called using [`TDEFLFlush::Sync`], the caller needs to ensure there is enough space in the
-/// output buffer if they want to avoid repeated flush markers.
-/// See #105 for details.
+/// When flushing, repeat the call with the same `flush` value and the remaining input until
+/// all input is consumed and the call leaves space in `out_buf` (or returns
+/// [`TDEFLStatus::Done`] when finishing).
+/// Use an output buffer larger than six bytes with [`TDEFLFlush::Sync`] or [`TDEFLFlush::Full`]
+/// to avoid repeatedly filling it with flush markers. A flush that exactly fills the output
+/// buffer can be followed by another marker on the next call. See #105 for details.
 ///
 /// # Returns
 /// Returns a tuple containing the current status of the compressor, the current position
@@ -2463,8 +2469,17 @@ fn compress_inner(
     if d.params.flush_remaining != 0 || d.params.finished {
         let res = flush_output_buffer(callback, &mut d.params);
         d.params.prev_return_status = res.0;
-        return res;
+        if d.params.flush_remaining != 0
+            || d.params.finished
+            || (flush != TDEFLFlush::None && d.params.flush_complete == flush)
+        {
+            return res;
+        }
+        // Draining an automatic block does not complete the requested flush: there may
+        // still be lookahead to compress, or just a flush marker to write. Keep going
+        // so that returning with spare output space really means the flush is done.
     }
+    d.params.flush_complete = TDEFLFlush::None;
 
     let one_probe = d.params.flags & MAX_PROBES_MASK == 1;
     let greedy = d.params.flags & TDEFL_GREEDY_PARSING_FLAG != 0;
@@ -2516,6 +2531,7 @@ fn compress_inner(
                 )
             }
             _ => {
+                d.params.flush_complete = d.params.flush;
                 d.params.finished = d.params.flush == TDEFLFlush::Finish;
                 if d.params.flush == TDEFLFlush::Full {
                     d.dict.b.hash.fill(0);
