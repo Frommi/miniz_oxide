@@ -155,6 +155,10 @@ unmangle!(
         // Pointer to the buffer to place the decompressed data into.
         let mut p_buf: *mut c_void =
             crate::miniz_def_alloc_func(ptr::null_mut(), MIN_BUFFER_CAPACITY, 1);
+        if p_buf.is_null() {
+            *p_out_len = 0;
+            return ptr::null_mut();
+        }
         // Capacity of the current output buffer.
         let mut out_buf_capacity = MIN_BUFFER_CAPACITY;
 
