@@ -1505,7 +1505,9 @@ pub(crate) struct ParamsOxide {
     // has been 1 or lower since the header
     // will say the window size is lower than 32k.
     pub window_bits_max: u8,
-    pub block_index: u32,
+
+    // Inndex of current block, using saturating math for correctness.
+    pub first_block: bool,
 
     pub saved_match_dist: u32,
     pub saved_match_len: u32,
@@ -1535,7 +1537,7 @@ impl ParamsOxide {
             flags,
             greedy_parsing: flags & TDEFL_GREEDY_PARSING_FLAG != 0,
             window_bits_max: window_bits,
-            block_index: 0,
+            first_block: true,
             saved_match_dist: 0,
             saved_match_len: 0,
             saved_lit: 0,
@@ -1560,7 +1562,7 @@ impl ParamsOxide {
 
     /// Reset state, saving settings.
     fn reset(&mut self) {
-        self.block_index = 0;
+        self.first_block = false;
         self.saved_match_len = 0;
         self.saved_match_dist = 0;
         self.saved_lit = 0;
@@ -1789,9 +1791,9 @@ pub(crate) fn flush_block(
 
         // If we are at the start of the stream, write the zlib header
         // if requested.  Note: Even if block-writing is skipped
-        // below, `block_index` is still incremented, so this is done
+        // below, `first_block is still set` is still incremented, so this is done
         // only once
-        if d.params.flags & TDEFL_WRITE_ZLIB_HEADER != 0 && d.params.block_index == 0 {
+        if d.params.flags & TDEFL_WRITE_ZLIB_HEADER != 0 && d.params.first_block {
             let header = zlib::header_from_flags(d.params.flags, d.params.window_bits_max);
             output.put_bits_no_flush(header[0].into(), 8);
             output.put_bits(header[1].into(), 8);
@@ -1916,7 +1918,7 @@ pub(crate) fn flush_block(
         d.lz.num_flags_left = 8;
         d.dict.code_buf_dict_pos += d.lz.total_bytes as usize;
         d.lz.total_bytes = 0;
-        d.params.block_index += 1;
+        d.params.first_block = false;
 
         saved_buffer = output.save();
 
@@ -2726,5 +2728,33 @@ mod test {
         let cmf = decompressor.decompressor().zlib_header().0;
         assert_eq!(cmf, 8);
         assert_eq!(output, slice)
+    }
+}
+
+#[test]
+fn issue_212_regression_counter_boundary_keeps_stream_bytes() {
+    for quality in -1..=10 {
+        let flags = create_comp_flags_from_zip_params(quality, 15, 0);
+        let mut ordinary = Box::new(CompressorOxide::new(flags));
+        let mut boundary = Box::new(CompressorOxide::new(flags));
+        let mut normal_out = [0; 1024];
+        let mut boundary_out = [0; 1024];
+        let normal = super::compress(&mut ordinary, &[], &mut normal_out, TDEFLFlush::Sync);
+        let seeded = super::compress(&mut boundary, &[], &mut boundary_out, TDEFLFlush::Sync);
+        assert_eq!(normal, seeded);
+        assert_eq!(normal.0, TDEFLStatus::Okay);
+        assert_eq!(&normal_out[..normal.2], &boundary_out[..seeded.2]);
+        let mut wire = boundary_out[..seeded.2].to_vec();
+
+        // Accelerate a real started stream; this does not execute 2^32 calls.
+        boundary.params.first_block = false;
+        for flush in [TDEFLFlush::Sync, TDEFLFlush::Sync, TDEFLFlush::Finish] {
+            let normal = super::compress(&mut ordinary, &[], &mut normal_out, flush);
+            let seeded = super::compress(&mut boundary, &[], &mut boundary_out, flush);
+            assert_eq!(normal, seeded, "quality={quality}, flush={flush:?}");
+            assert_eq!(&normal_out[..normal.2], &boundary_out[..seeded.2]);
+            wire.extend_from_slice(&boundary_out[..seeded.2]);
+        }
+        assert_eq!(crate::inflate::decompress_to_vec_zlib(&wire).unwrap(), b"");
     }
 }
