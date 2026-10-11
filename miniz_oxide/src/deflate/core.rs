@@ -1506,7 +1506,8 @@ pub(crate) struct ParamsOxide {
     // will say the window size is lower than 32k.
     pub window_bits_max: u8,
 
-    // Inndex of current block, using saturating math for correctness.
+    // Whether we have written out the header for the
+    // first block to the bitstream yet.
     pub first_block: bool,
 
     pub saved_match_dist: u32,
@@ -1562,7 +1563,7 @@ impl ParamsOxide {
 
     /// Reset state, saving settings.
     fn reset(&mut self) {
-        self.first_block = false;
+        self.first_block = true;
         self.saved_match_len = 0;
         self.saved_match_dist = 0;
         self.saved_lit = 0;
