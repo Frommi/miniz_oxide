@@ -21,6 +21,7 @@ const TINFL_STATUS_NEEDS_MORE_INPUT: i32 = 1;
 const TINFL_STATUS_HAS_MORE_OUTPUT: i32 = 2;
 #[cfg(feature = "block-boundary")]
 const TINFL_STATUS_BLOCK_BOUNDARY: i32 = 3;
+const TINFL_STATUS_HUFFMAN_REBUILD_LIMIT_EXCEEDED: i32 = -5;
 
 /// Return status codes.
 #[repr(i8)]
@@ -66,6 +67,19 @@ pub enum TINFLStatus {
     /// There is still pending data that didn't fit in the output buffer.
     HasMoreOutput = TINFL_STATUS_HAS_MORE_OUTPUT as i8,
 
+    /// The number of Huffman decode table (re)builds allowed by a limit configured via
+    /// [`DecompressorOxide::set_max_huffman_table_rebuilds`][core::DecompressorOxide::set_max_huffman_table_rebuilds]
+    /// was exceeded, and decompression was stopped early.
+    ///
+    /// Every `BTYPE=1`/`BTYPE=2` (static/dynamic Huffman) deflate block header forces a full
+    /// rebuild of the decoder's Huffman tables, independently of how many symbols (including
+    /// zero) the block actually encodes. Since DEFLATE allows chaining an arbitrarily long
+    /// sequence of minimal, near-empty blocks, decompression cost can be decoupled from output
+    /// size this way; unlike [`HasMoreOutput`][Self::HasMoreOutput], an output-size limit alone
+    /// does not bound this cost, since such inputs can produce little or no output at all. This
+    /// status is only ever returned if the caller has opted in to a rebuild limit.
+    HuffmanTableRebuildLimitExceeded = TINFL_STATUS_HUFFMAN_REBUILD_LIMIT_EXCEEDED as i8,
+
     /// Reached the end of a deflate block, and the start of the next block.
     ///
     /// At this point, you can suspend decompression and later resume with a new `DecompressorOxide`.
@@ -90,6 +104,7 @@ impl TINFLStatus {
             TINFL_STATUS_DONE => Some(Done),
             TINFL_STATUS_NEEDS_MORE_INPUT => Some(NeedsMoreInput),
             TINFL_STATUS_HAS_MORE_OUTPUT => Some(HasMoreOutput),
+            TINFL_STATUS_HUFFMAN_REBUILD_LIMIT_EXCEEDED => Some(HuffmanTableRebuildLimitExceeded),
             #[cfg(feature = "block-boundary")]
             TINFL_STATUS_BLOCK_BOUNDARY => Some(BlockBoundary),
             _ => None,
@@ -119,6 +134,9 @@ impl alloc::fmt::Display for DecompressError {
             TINFLStatus::Done => "", // Unreachable
             TINFLStatus::NeedsMoreInput => "Truncated input stream",
             TINFLStatus::HasMoreOutput => "Output size exceeded the specified limit",
+            TINFLStatus::HuffmanTableRebuildLimitExceeded => {
+                "Huffman table rebuild limit exceeded"
+            }
             #[cfg(feature = "block-boundary")]
             TINFLStatus::BlockBoundary => "Reached end of a deflate block",
         })
@@ -144,7 +162,7 @@ fn decompress_error(status: TINFLStatus, output: Vec<u8>) -> Result<Vec<u8>, Dec
 #[inline]
 #[cfg(feature = "with-alloc")]
 pub fn decompress_to_vec(input: &[u8]) -> Result<Vec<u8>, DecompressError> {
-    decompress_to_vec_inner(input, 0, usize::MAX)
+    decompress_to_vec_inner(input, 0, usize::MAX, u32::MAX)
 }
 
 /// Decompress the deflate-encoded data (with a zlib wrapper) in `input` to a vector.
@@ -161,6 +179,7 @@ pub fn decompress_to_vec_zlib(input: &[u8]) -> Result<Vec<u8>, DecompressError> 
         input,
         inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER,
         usize::MAX,
+        u32::MAX,
     )
 }
 
@@ -179,7 +198,35 @@ pub fn decompress_to_vec_with_limit(
     input: &[u8],
     max_size: usize,
 ) -> Result<Vec<u8>, DecompressError> {
-    decompress_to_vec_inner(input, 0, max_size)
+    decompress_to_vec_inner(input, 0, max_size, u32::MAX)
+}
+
+/// Decompress the deflate-encoded data in `input` to a vector, bounding both the output size
+/// and the number of times the decompressor is allowed to rebuild its internal Huffman decode
+/// tables.
+///
+/// The vector is grown to at most `max_size` bytes, exactly like
+/// [`decompress_to_vec_with_limit`]. In addition, decompression stops early with
+/// [`TINFLStatus::HuffmanTableRebuildLimitExceeded`] if more than `max_huffman_table_rebuilds`
+/// deflate block headers are processed.
+///
+/// This second limit exists because a deflate stream can legally consist of an arbitrarily
+/// long chain of minimal, near-empty blocks that each force an expensive Huffman table rebuild
+/// while producing little or no output. Such an input can be very cheap to store (well under a
+/// couple MiB) yet expensive to decompress (multiple CPU seconds or more), all while never
+/// coming close to triggering `max_size` since so little (or nothing) is ever written to the
+/// output. See [`DecompressorOxide::set_max_huffman_table_rebuilds`][core::DecompressorOxide::set_max_huffman_table_rebuilds]
+/// for more details, and for guidance on picking a value for `max_huffman_table_rebuilds`.
+///
+/// Returns a [`Result`] containing the [`Vec`] of decompressed data on success, and a [struct][DecompressError] on failure.
+#[inline]
+#[cfg(feature = "with-alloc")]
+pub fn decompress_to_vec_with_limits(
+    input: &[u8],
+    max_size: usize,
+    max_huffman_table_rebuilds: u32,
+) -> Result<Vec<u8>, DecompressError> {
+    decompress_to_vec_inner(input, 0, max_size, max_huffman_table_rebuilds)
 }
 
 /// Decompress the deflate-encoded data (with a zlib wrapper) in `input` to a vector.
@@ -196,7 +243,35 @@ pub fn decompress_to_vec_zlib_with_limit(
     input: &[u8],
     max_size: usize,
 ) -> Result<Vec<u8>, DecompressError> {
-    decompress_to_vec_inner(input, inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER, max_size)
+    decompress_to_vec_inner(
+        input,
+        inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER,
+        max_size,
+        u32::MAX,
+    )
+}
+
+/// Decompress the deflate-encoded data (with a zlib wrapper) in `input` to a vector, bounding
+/// both the output size and the number of times the decompressor is allowed to rebuild its
+/// internal Huffman decode tables.
+///
+/// See [`decompress_to_vec_with_limits`] for details on `max_huffman_table_rebuilds` and why it
+/// exists.
+///
+/// Returns a [`Result`] containing the [`Vec`] of decompressed data on success, and a [struct][DecompressError] on failure.
+#[inline]
+#[cfg(feature = "with-alloc")]
+pub fn decompress_to_vec_zlib_with_limits(
+    input: &[u8],
+    max_size: usize,
+    max_huffman_table_rebuilds: u32,
+) -> Result<Vec<u8>, DecompressError> {
+    decompress_to_vec_inner(
+        input,
+        inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER,
+        max_size,
+        max_huffman_table_rebuilds,
+    )
 }
 
 /// Backend of various to-[`Vec`] decompressions.
@@ -207,11 +282,13 @@ fn decompress_to_vec_inner(
     mut input: &[u8],
     flags: u32,
     max_output_size: usize,
+    max_huffman_table_rebuilds: u32,
 ) -> Result<Vec<u8>, DecompressError> {
     let flags = flags | inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
     let mut ret: Vec<u8> = vec![0; input.len().saturating_mul(2).min(max_output_size)];
 
     let mut decomp = Box::<DecompressorOxide>::default();
+    decomp.set_max_huffman_table_rebuilds(max_huffman_table_rebuilds);
 
     let mut out_pos = 0;
     loop {

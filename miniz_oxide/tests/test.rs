@@ -625,3 +625,145 @@ fn issue_137_reject_incomplete_litlen_tree() {
         "incomplete litlen Huffman tree should be rejected"
     );
 }
+
+/// Regression tests for the Huffman-table-rebuild algorithmic complexity DoS: every deflate
+/// block header (`BTYPE=1`/`BTYPE=2`) forces a full rebuild of the decoder's Huffman tables at a
+/// cost that does not depend on how many symbols the block encodes. A legal (if degenerate)
+/// deflate stream can chain an unbounded number of minimal, near-empty blocks to force this
+/// rebuild cost over and over while producing little or no output, which decouples
+/// decompression cost from output size and defeats the existing output-size limit
+/// (`decompress_to_vec_with_limit`). `DecompressorOxide::set_max_huffman_table_rebuilds` /
+/// `decompress_to_vec_with_limits` add a second, opt-in limit to bound this.
+mod huffman_table_rebuild_dos {
+    use miniz_oxide::deflate::compress_to_vec;
+    use miniz_oxide::inflate::core::{decompress, DecompressorOxide};
+    use miniz_oxide::inflate::{decompress_to_vec, decompress_to_vec_with_limits, TINFLStatus};
+
+    /// Bit writer matching DEFLATE's bit order: bits are packed into bytes starting from the
+    /// least-significant bit, and multi-bit fields (other than Huffman codes) are written with
+    /// their least-significant bit first, exactly as `miniz_oxide::inflate::core` consumes them.
+    struct BitWriter {
+        bytes: Vec<u8>,
+        cur: u8,
+        nbits: u8,
+    }
+
+    impl BitWriter {
+        fn new() -> Self {
+            BitWriter {
+                bytes: Vec::new(),
+                cur: 0,
+                nbits: 0,
+            }
+        }
+
+        fn write_bit(&mut self, bit: u32) {
+            self.cur |= ((bit & 1) as u8) << self.nbits;
+            self.nbits += 1;
+            if self.nbits == 8 {
+                self.bytes.push(self.cur);
+                self.cur = 0;
+                self.nbits = 0;
+            }
+        }
+
+        fn write_bits_lsb_first(&mut self, mut value: u32, count: u8) {
+            for _ in 0..count {
+                self.write_bit(value & 1);
+                value >>= 1;
+            }
+        }
+
+        fn finish(mut self) -> Vec<u8> {
+            if self.nbits > 0 {
+                self.bytes.push(self.cur);
+            }
+            self.bytes
+        }
+    }
+
+    /// Builds `n` back-to-back minimal `BTYPE=1` (static Huffman) deflate blocks, each of which
+    /// encodes nothing but the end-of-block marker. Each block is exactly 10 bits: 1 bit BFINAL,
+    /// 2 bits BTYPE (value 1), and the fixed 7-bit all-zero end-of-block code for symbol 256.
+    /// This is a legal, if highly unusual, deflate stream: it decompresses to zero bytes of
+    /// output while still forcing `n` full Huffman-table rebuilds.
+    fn build_minimal_static_blocks(n: usize) -> Vec<u8> {
+        let mut w = BitWriter::new();
+        for i in 0..n {
+            let bfinal = if i + 1 == n { 1 } else { 0 };
+            w.write_bits_lsb_first(bfinal, 1); // BFINAL
+            w.write_bits_lsb_first(1, 2); // BTYPE = 1 (static Huffman)
+            w.write_bits_lsb_first(0, 7); // fixed code for symbol 256 (end-of-block) is 0000000
+        }
+        w.finish()
+    }
+
+    /// Without opting in to a rebuild limit, a chain of minimal empty blocks remains exactly as
+    /// legal as it was before this change, and decompresses successfully to zero bytes. This
+    /// pins down that the fix does not reject any input that used to be accepted.
+    #[test]
+    fn unbounded_chain_of_empty_blocks_still_decompresses_successfully() {
+        let payload = build_minimal_static_blocks(2_000);
+        let result = decompress_to_vec(&payload).unwrap();
+        assert!(result.is_empty());
+    }
+
+    /// Core-level API: with a small rebuild budget configured, decompression of a long chain of
+    /// empty blocks stops early (with the new status) after consuming only a small fraction of
+    /// the (deliberately large) input, rather than running to completion.
+    #[test]
+    fn core_api_stops_early_once_rebuild_budget_is_exceeded() {
+        let n = 50_000;
+        let payload = build_minimal_static_blocks(n);
+
+        let mut r = DecompressorOxide::new();
+        // A static block does 2 rebuilds (dist + litlen tables), so this allows ~50 blocks
+        // out of the 50_000 present in `payload`.
+        r.set_max_huffman_table_rebuilds(100);
+        let mut out = vec![0u8; 1024];
+        let (status, in_consumed, out_consumed) = decompress(&mut r, &payload, &mut out, 0, 0);
+
+        assert_eq!(status, TINFLStatus::HuffmanTableRebuildLimitExceeded);
+        assert_eq!(out_consumed, 0);
+        assert!(
+            in_consumed < payload.len() / 100,
+            "expected decompression to stop after a small fraction of the input; \
+             in_consumed={in_consumed} payload.len()={}",
+            payload.len()
+        );
+    }
+
+    /// High-level `decompress_to_vec_with_limits` API: same attack, exercised through the
+    /// convenience wrapper most callers would actually use.
+    #[test]
+    fn decompress_to_vec_with_limits_rejects_the_attack_payload() {
+        let payload = build_minimal_static_blocks(50_000);
+
+        let result = decompress_to_vec_with_limits(&payload, usize::MAX, 100);
+        match result {
+            Err(err) => assert_eq!(err.status, TINFLStatus::HuffmanTableRebuildLimitExceeded),
+            Ok(_) => panic!("expected the huffman table rebuild limit to reject this input"),
+        }
+    }
+
+    /// Setting a generous (but finite) rebuild limit must not affect legitimate decompression:
+    /// compress a normal, repetitive payload and confirm the round trip is byte-for-byte
+    /// identical with the limit engaged.
+    #[test]
+    fn rebuild_limit_does_not_affect_legitimate_decompression() {
+        let mut input = Vec::new();
+        for _ in 0..10_000 {
+            input.extend_from_slice(b"hello world, this is a normal, legitimate payload! ");
+        }
+
+        for level in [0u8, 1, 6, 9] {
+            let compressed = compress_to_vec(&input, level);
+            let decompressed = decompress_to_vec_with_limits(&compressed, usize::MAX, 1_000)
+                .unwrap_or_else(|e| panic!("level {level}: unexpected failure: {:?}", e.status));
+            assert_eq!(
+                decompressed, input,
+                "level {level}: round trip mismatch with rebuild limit engaged"
+            );
+        }
+    }
+}
