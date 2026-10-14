@@ -25,7 +25,7 @@ simd-adler32 requires std support (and it's 'std' feature to be enabled, which i
 
 The default setup uses the [adler2](https://crates.io/crates/adler2) crate which features no unsafe code. (a fork of the [adler](https://github.com/jonas-schievink/adler) crate as that crate is archived and no longer maintained.)
 
-The 'serde' feature enables serialization of the decompressor struct, or a subset of it at block boundaries, allowing compression to be suspended and resumed. This is still an experimental feature that may be expanded in the future the format may still change.
+The 'serde' feature enables serialization of the decompressor struct and serialization or deserialization of a subset of its state at block boundaries. Together with the last 32 KiB of output, the block boundary state allows decompression to be suspended and safely resumed. This is still an experimental feature that may be expanded in the future and the format may still change.
 
 ## Usage
 Simple compression/decompression:
