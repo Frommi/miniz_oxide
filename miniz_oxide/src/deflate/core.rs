@@ -2073,9 +2073,17 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
             }
         } else {
             // Try to find a match for the bytes at the current position.
+            //
+            // The dictionary can hold up to LZ_DICT_SIZE (32 KiB) of history, but when a smaller
+            // window size was requested the stream's zlib header advertises only that window.
+            // A back-reference farther than the advertised window makes the stream invalid for
+            // other decoders (they reject it as corrupt) even though miniz's own inflate accepts
+            // it, so cap the search distance at the window size (issue #215).
+            let window_size = 1usize << d.params.window_bits_max;
+            let max_dist = cmp::min(d.dict.size, window_size);
             let dist_len = d.dict.find_match(
                 lookahead_pos,
-                d.dict.size,
+                max_dist,
                 lookahead_size as u32,
                 cur_match_dist,
                 cur_match_len,
@@ -2206,6 +2214,12 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
             break;
         }
 
+        // A requested window smaller than the dictionary must also bound match distances here:
+        // the zlib header advertises one window size, so emitting a farther back-reference makes
+        // the stream invalid for other decoders (issue #215). d.dict.size grows as matches are
+        // consumed, so keep it as the per-iteration bound and only cap it by the window size.
+        let max_window_dist = 1usize << d.params.window_bits_max;
+
         while lookahead_size >= 4 {
             let mut cur_match_len = 1;
 
@@ -2218,7 +2232,7 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
             d.dict.b.hash[hash as usize] = lookahead_pos as u16;
 
             let mut cur_match_dist = (lookahead_pos - probe_pos) as u16;
-            if cur_match_dist as usize <= d.dict.size {
+            if cur_match_dist as usize <= d.dict.size && cur_match_dist as usize <= max_window_dist {
                 probe_pos &= LZ_DICT_SIZE_MASK;
 
                 let trigram = d.dict.read_unaligned_u32(probe_pos) & 0xFF_FFFF;
