@@ -383,28 +383,6 @@ const fn change_window_bits_from_format(window_bits: u8, data_format: DataFormat
     }
 }
 
-/// Limit compression settings by window_bits as a simple way to implement smaller window sizes
-fn limit_level_by_window_bits(
-    window_bits: u8,
-    current_level: i32,
-    current_strategy: CompressionStrategy,
-) -> (i32, CompressionStrategy) {
-    if window_bits < 12 {
-        // If less than 12, use RLE (i.e window size of 1) unless huffman only or stored blocks are requested.
-        if current_strategy != CompressionStrategy::HuffmanOnly && current_level != 0 {
-            (1, CompressionStrategy::RLE)
-        } else {
-            (current_level, current_strategy)
-        }
-    // If less than 15 but 12 or more, use fast mode that uses a 4k window size.
-    } else if window_bits < MZ_DEFAULT_WINDOW_BITS as u8 {
-        (cmp::min(current_level, 1), current_strategy)
-    // If window bits is the full 15 just use the requested settings.
-    } else {
-        (current_level, current_strategy)
-    }
-}
-
 impl CompressorOxide {
     /// Create a new `CompressorOxide` with the given flags.
     ///
@@ -446,10 +424,9 @@ impl CompressorOxide {
     ) -> CompressorOxide {
         let window_bits = cmp::min(window_bits, 15);
         let level = cmp::min(level, 10);
-        let (level, strategy) = limit_level_by_window_bits(window_bits, level as i32, strategy);
 
         let flags = create_comp_flags_from_zip_params(
-            level,
+            level.into(),
             change_window_bits_from_format(window_bits, data_format),
             strategy as i32,
         );
@@ -1506,6 +1483,9 @@ pub(crate) struct ParamsOxide {
     // will say the window size is lower than 32k.
     pub window_bits_max: u8,
 
+    // The maximum distance a match can be (1 << window size)
+    pub max_match_dist: u16,
+
     // Whether we have written out the header for the
     // first block to the bitstream yet.
     pub first_block: bool,
@@ -1538,6 +1518,7 @@ impl ParamsOxide {
             flags,
             greedy_parsing: flags & TDEFL_GREEDY_PARSING_FLAG != 0,
             window_bits_max: window_bits,
+            max_match_dist: cmp::min(1usize << window_bits, LZ_DICT_SIZE) as u16,
             first_block: true,
             saved_match_dist: 0,
             saved_match_len: 0,
@@ -2072,10 +2053,11 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
                 }
             }
         } else {
+            let max_dist = cmp::min(d.dict.size, d.params.max_match_dist as usize);
             // Try to find a match for the bytes at the current position.
             let dist_len = d.dict.find_match(
                 lookahead_pos,
-                d.dict.size,
+                max_dist,
                 lookahead_size as u32,
                 cur_match_dist,
                 cur_match_len,
@@ -2477,7 +2459,12 @@ fn compress_inner(
 
     let compress_success = if raw {
         compress_stored(d, callback)
-    } else if one_probe && greedy && !filter_or_rle {
+        // Don't use compress_fast with lower than def window_bits for now as it's not adapted to it.
+    } else if one_probe
+        && greedy
+        && !filter_or_rle
+        && d.params.window_bits_max == MZ_DEFAULT_WINDOW_BITS as u8
+    {
         compress_fast(d, callback)
     } else {
         compress_normal(d, callback)
@@ -2677,58 +2664,6 @@ mod test {
 
         let decoded = decompress_to_vec(&encoded[..]).unwrap();
         assert_eq!(&decoded[..], &slice[..]);
-    }
-
-    #[test]
-    fn zlib_window_bits() {
-        use super::TDEFL_RLE_MATCHES;
-        use crate::deflate::CompressionLevel;
-        use crate::inflate::stream::{inflate, InflateState};
-        use crate::DataFormat;
-        use alloc::boxed::Box;
-        let slice = [
-            1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 1, 2, 6, 1, 2, 3, 1, 2, 3, 2, 3, 1, 2, 3, 35, 22, 22, 2,
-            6, 2, 6,
-        ];
-        let mut encoded = vec![];
-
-        // Create compressor with small window bits param
-        let mut d = CompressorOxide::with_params(
-            DataFormat::Zlib,
-            CompressionLevel::DefaultCompression.into(),
-            CompressionStrategy::Default,
-            1,
-        );
-
-        assert!((d.params.flags & TDEFL_RLE_MATCHES) != 0);
-
-        let (status, in_consumed) =
-            compress_to_output(&mut d, &slice, TDEFLFlush::Finish, |out: &[u8]| {
-                encoded.extend_from_slice(out);
-                true
-            });
-
-        assert_eq!(status, TDEFLStatus::Done);
-        assert_eq!(in_consumed, slice.len());
-
-        let mut output = vec![0; slice.len()];
-
-        let mut decompressor = Box::new(InflateState::new(DataFormat::Zlib));
-
-        let mut out_slice = output.as_mut_slice();
-        // Feed 1 byte at a time and no back buffer to test that RLE encoding has been used.
-        for i in 0..encoded.len() {
-            let result = inflate(
-                &mut decompressor,
-                &encoded[i..i + 1],
-                out_slice,
-                crate::MZFlush::None,
-            );
-            out_slice = &mut out_slice[result.bytes_written..];
-        }
-        let cmf = decompressor.decompressor().zlib_header().0;
-        assert_eq!(cmf, 8);
-        assert_eq!(output, slice)
     }
 }
 
