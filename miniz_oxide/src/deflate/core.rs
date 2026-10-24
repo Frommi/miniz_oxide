@@ -504,7 +504,7 @@ impl CompressorOxide {
 
     /// Set the compression level of the compressor.
     ///
-    /// Changing compression level after compression has started will likely result in failure.
+    /// The level can be changed after compression has started.
     /// # Notes
     /// The compression strategy will be reset to the default one when this is called.
     ///
@@ -519,7 +519,7 @@ impl CompressorOxide {
 
     /// Set the compression level of the compressor using an integer value.
     ///
-    /// Changing compression level after compression has started will likely result in failure.
+    /// The level can be changed after compression has started.
     /// # Notes
     /// The compression strategy will be reset to the default one when this is called.
     ///
@@ -537,7 +537,7 @@ impl CompressorOxide {
     /// Changing the `DataFormat` after compression has started will result in
     /// a corrupted stream.
     ///
-    /// Changing compression level after compression has started will likely result in failure.
+    /// The level can be changed after compression has started.
     ///
     /// # Notes
     /// This function mainly intended for setting the initial settings after e.g creating with
@@ -1802,12 +1802,12 @@ pub(crate) fn flush_block(
 
         if d.lz.total_bytes > 0 || flush == TDEFLFlush::Finish {
             // TODO: Don't think this second condition should be here but need to verify.
-            let use_raw_block = (d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0)
+            // A block without LZ codes holds bytes buffered by `compress_stored`, which may
+            // remain after switching to a compressing level.
+            let no_codes = d.lz.code_position == 1;
+            let use_raw_block = no_codes
+                && (d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0 || d.lz.total_bytes > 0)
                 && (d.dict.lookahead_pos - d.dict.code_buf_dict_pos) <= d.dict.size;
-            debug_assert_eq!(
-                use_raw_block,
-                d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0
-            );
 
             debug_assert!(d.params.flush_remaining == 0);
             d.params.flush_ofs = 0;
@@ -1982,7 +1982,11 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
 
     while src_pos < in_buf.len() || (d.params.flush != TDEFLFlush::None && lookahead_size != 0) {
         let in_buf_left = &in_buf[src_pos..];
-        let num_bytes_to_process = cmp::min(in_buf_left.len(), MAX_MATCH_LEN - lookahead_size);
+        // `compress_fast` may have left more than `MAX_MATCH_LEN` bytes of lookahead.
+        let num_bytes_to_process = cmp::min(
+            in_buf_left.len(),
+            MAX_MATCH_LEN.saturating_sub(lookahead_size),
+        );
         let bytes_to_process = &in_buf_left[..num_bytes_to_process];
 
         if lookahead_size + d.dict.size >= usize::from(MIN_MATCH_LEN) - 1
@@ -2061,7 +2065,8 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
             // If TDEFL_RLE_MATCHES is set, we only look for repeating sequences of the current byte.
             if d.dict.size != 0 {
                 let c = d.dict.b.dict[(cur_pos.wrapping_sub(1)) & LZ_DICT_SIZE_MASK];
-                cur_match_len = d.dict.b.dict[cur_pos..(cur_pos + lookahead_size)]
+                let max_len = cmp::min(lookahead_size, MAX_MATCH_LEN);
+                cur_match_len = d.dict.b.dict[cur_pos..(cur_pos + max_len)]
                     .iter()
                     .take_while(|&x| *x == c)
                     .count() as u32;
@@ -2217,7 +2222,9 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
             let mut probe_pos = usize::from(d.dict.b.hash[hash as usize]);
             d.dict.b.hash[hash as usize] = lookahead_pos as u16;
 
-            let mut cur_match_dist = (lookahead_pos - probe_pos) as u16;
+            // Entries left by other levels can be ahead of `lookahead_pos`; the wrapped
+            // distance is then rejected below.
+            let mut cur_match_dist = lookahead_pos.wrapping_sub(probe_pos) as u16;
             if cur_match_dist as usize <= d.dict.size {
                 probe_pos &= LZ_DICT_SIZE_MASK;
 
@@ -2474,10 +2481,31 @@ fn compress_inner(
     let filter_or_rle = d.params.flags & (TDEFL_FILTER_MATCHES | TDEFL_FORCE_ALL_RAW_BLOCKS) != 0;
 
     let raw = d.params.flags & TDEFL_FORCE_ALL_RAW_BLOCKS != 0;
+    let fast = one_probe && greedy && !filter_or_rle;
+
+    // After a change of compression level, the previous level may have left data that this
+    // one cannot continue: a byte held back by `compress_normal` while it decides on a lazy
+    // match, or a block of the other kind (stored bytes or LZ codes). Finish those first.
+    if (raw || fast) && d.params.saved_match_len != 0 {
+        record_literal(&mut d.huff, &mut d.lz, d.params.saved_lit);
+        d.params.saved_match_len = 0;
+    }
+    let has_codes = d.lz.code_position > 1;
+    if (raw && has_codes) || (!raw && !has_codes && d.lz.total_bytes > 0) {
+        match flush_block(d, callback, TDEFLFlush::None) {
+            Err(_) => {
+                d.params.prev_return_status = TDEFLStatus::PutBufFailed;
+                return (d.params.prev_return_status, 0, d.params.out_buf_ofs);
+            }
+            // The output buffer is full, or the output callback failed.
+            Ok(n) if n != 0 => return (d.params.prev_return_status, 0, d.params.out_buf_ofs),
+            Ok(_) => {}
+        }
+    }
 
     let compress_success = if raw {
         compress_stored(d, callback)
-    } else if one_probe && greedy && !filter_or_rle {
+    } else if fast {
         compress_fast(d, callback)
     } else {
         compress_normal(d, callback)
