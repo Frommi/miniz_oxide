@@ -609,6 +609,81 @@ fn change_compression_level_after_start() {
     assert_eq!(data[..], decomp);
 }
 
+/// Compress `data` as a zlib stream, switching from level `first` to `second` after `split`
+/// bytes and giving the compressor at most `out_chunk` bytes of output space per call, and
+/// check that it decompresses to `data`.
+fn check_level_switch(data: &[u8], split: usize, first: u8, second: u8, out_chunk: usize) {
+    use miniz_oxide::deflate::core::{self, TDEFLFlush, TDEFLStatus};
+
+    let mut state =
+        core::CompressorOxide::new(core::create_comp_flags_from_zip_params(first.into(), 15, 0));
+    let mut out = vec![0; data.len() + 1024];
+    let mut out_pos = 0usize;
+    for (mut part, flush) in [
+        (&data[..split], TDEFLFlush::None),
+        (&data[split..], TDEFLFlush::Finish),
+    ] {
+        loop {
+            let end = out_pos.saturating_add(out_chunk).min(out.len());
+            let (status, read, written) =
+                core::compress(&mut state, part, &mut out[out_pos..end], flush);
+            part = &part[read..];
+            out_pos += written;
+            match status {
+                TDEFLStatus::Done => break,
+                TDEFLStatus::Okay if flush == TDEFLFlush::None && part.is_empty() => {
+                    if out_pos < end {
+                        break;
+                    }
+                }
+                TDEFLStatus::Okay => {}
+                _ => panic!("level {first} -> {second} after {split} bytes: {status:?}"),
+            }
+        }
+        state.set_compression_level_raw(second);
+    }
+    let decompressed = decompress_to_vec_zlib(&out[..out_pos]).unwrap_or_else(|e| {
+        panic!(
+            "level {first} -> {second} after {split} bytes: {:?}",
+            e.status
+        )
+    });
+    assert!(
+        decompressed == data,
+        "level {first} -> {second} after {split} bytes"
+    );
+}
+
+fn level_switch_data(len: usize) -> Vec<u8> {
+    let mut data = Vec::with_capacity(len);
+    let mut i = 0u32;
+    while data.len() < len {
+        data.extend_from_slice(format!("{} {} {}, ", i % 97, i % 13, i % 1031).as_bytes());
+        i += 1;
+    }
+    data.truncate(len);
+    data
+}
+
+#[test]
+fn change_compression_level_between_all_levels() {
+    // Text with short matches, plus a long run so that a compressed block covers more input
+    // than the window or a block of `compress_stored`.
+    let mut data = level_switch_data(60_000);
+    data[1000..45_000].fill(b'a');
+    for first in 0..=10 {
+        for second in 0..=10 {
+            for split in [999, 1000, 1001, 5000, 50_000] {
+                check_level_switch(&data, split, first, second, usize::MAX);
+            }
+        }
+    }
+    // Output space for a few bytes at a time, so that the switch happens with output pending.
+    for (first, second) in [(0, 1), (0, 6), (1, 0), (6, 0), (1, 6), (6, 1)] {
+        check_level_switch(&data, 50_000, first, second, 7);
+    }
+}
+
 /// Issue #137: reject zlib streams with incomplete literal/length Huffman trees.
 /// The corrupt input has a dynamic Huffman block whose litlen code is not a
 /// complete prefix code. zlib rejects this; miniz_oxide previously accepted it.

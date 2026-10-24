@@ -57,10 +57,6 @@ pub(crate) fn compress_stored(d: &mut CompressorOxide, callback: &mut CallbackOx
     // only adds to hash table when switching over to actual compression but that
     // would need a bunch of more work.
 
-    // Make sure this is cleared in case compression level is switched later.
-    // TODO: It's possible we don't need this or could do this elsewhere later
-    // but just do this here to avoid causing issues for now.
-    d.params.saved_match_len = 0;
     let mut bytes_written = d.lz.total_bytes as usize;
     let mut src_pos = d.params.src_pos;
     let mut lookahead_size = d.dict.lookahead_size;
