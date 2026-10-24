@@ -10,8 +10,8 @@ use super::super::*;
 use super::deflate_flags::*;
 use super::CompressionLevel;
 use crate::deflate::buffer::{
-    update_hash, HashBuffers, LocalBuf, LZ_CODE_BUF_MASK, LZ_CODE_BUF_SIZE, LZ_DICT_FULL_SIZE,
-    LZ_HASH_BITS, LZ_HASH_SHIFT, LZ_HASH_SIZE, OUT_BUF_SIZE,
+    hash, update_hash, HashBuffers, LocalBuf, LZ_CODE_BUF_MASK, LZ_CODE_BUF_SIZE,
+    LZ_DICT_FULL_SIZE, LZ_HASH_SHIFT, LZ_HASH_SIZE, OUT_BUF_SIZE,
 };
 use crate::deflate::stored::compress_stored;
 use crate::deflate::zlib;
@@ -329,8 +329,8 @@ pub enum TDEFLStatus {
 }
 
 const MAX_HUFF_SYMBOLS: usize = 288;
-/// Size of hash chain for fast compression mode.
-const LEVEL1_HASH_SIZE_MASK: u32 = 4095;
+/// Size of hash values in the single-probe hash table used by `compress_fast`.
+const LEVEL1_HASH_BITS: u32 = 12;
 /// The number of huffman tables used by the compressor.
 /// Literal/length, Distances and Length of the huffman codes for the other two tables.
 const MAX_HUFF_TABLES: usize = 3;
@@ -2209,13 +2209,12 @@ fn compress_fast(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool 
         while lookahead_size >= 4 {
             let mut cur_match_len = 1;
 
-            let first_trigram = d.dict.read_unaligned_u32(cur_pos) & 0xFF_FFFF;
+            let first_bytes = d.dict.read_unaligned_u32(cur_pos);
+            let first_trigram = first_bytes & 0xFF_FFFF;
 
-            let hash = (first_trigram ^ (first_trigram >> (24 - (LZ_HASH_BITS - 8))))
-                & LEVEL1_HASH_SIZE_MASK;
-
-            let mut probe_pos = usize::from(d.dict.b.hash[hash as usize]);
-            d.dict.b.hash[hash as usize] = lookahead_pos as u16;
+            let h = hash(first_bytes, LEVEL1_HASH_BITS);
+            let mut probe_pos = usize::from(d.dict.b.hash[h]);
+            d.dict.b.hash[h] = lookahead_pos as u16;
 
             let mut cur_match_dist = (lookahead_pos - probe_pos) as u16;
             if cur_match_dist as usize <= d.dict.size {
