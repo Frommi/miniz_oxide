@@ -7,7 +7,7 @@ use core::cmp;
 /// Maximum number of bytes buffered in a stored block before flushing.
 const STORED_BLOCK_SIZE: usize = 31 * 1024 + 1;
 
-fn copy_to_dict(d: &mut CompressorOxide, mut pos: usize, mut input: &[u8]) {
+pub(crate) fn copy_to_dict(d: &mut CompressorOxide, mut pos: usize, mut input: &[u8]) {
     while !input.is_empty() {
         let dst = pos & LZ_DICT_SIZE_MASK;
         let len = cmp::min(input.len(), LZ_DICT_SIZE - dst);
