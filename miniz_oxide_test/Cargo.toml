@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 miniz_oxide = { path = "../miniz_oxide" , package = "miniz_oxide", features = ["serde", "simd"]}
+flate2 = {version = "1.0", default-features = false, features = ["zlib"] }
 
 [dev-dependencies]
 rmp-serde = "1.3.0"
