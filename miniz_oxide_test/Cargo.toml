@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-miniz_oxide = { path = "../miniz_oxide" , package = "miniz_oxide", features = ["serde", "simd"]}
+miniz_oxide = { path = "../miniz_oxide" , package = "miniz_oxide", features = ["block-boundary", "serde", "simd"]}
 flate2 = {version = "1.0", default-features = false, features = ["zlib"] }
 
 [dev-dependencies]

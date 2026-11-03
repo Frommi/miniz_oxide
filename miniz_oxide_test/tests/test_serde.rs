@@ -1,56 +1,76 @@
 use miniz_oxide::{
     deflate::compress_to_vec,
     inflate::{
-        core::{decompress, inflate_flags, DecompressorOxide},
+        core::{decompress, inflate_flags, BlockBoundaryState, DecompressorOxide},
         decompress_to_vec, TINFLStatus,
     },
 };
 
-/// Test pause and resume of DecompressorOxide state
+#[test]
+fn serde_serializes_full_inflate_state() {
+    assert!(rmp_serde::to_vec(&DecompressorOxide::default()).is_ok());
+}
+
+/// Test pause and resume of decompression at a block boundary.
 #[test]
 fn serde_resume_inflate_state() {
-    let data = include_bytes!("../../miniz_oxide/tests/test_data/numbers.deflate");
-    let decompressed_fully = decompress_to_vec(data.as_slice()).unwrap();
+    let first_block: &[u8] = b"first block";
+    let second_block: &[u8] = b"second block";
+    let data = stored_blocks(first_block, second_block);
+    let expected = [first_block, second_block].concat();
 
-    let (decomp, in_pos, out_buf) = {
-        let decomp = Box::<DecompressorOxide>::default();
-        let out_buf = Vec::new();
-        let result = decompress_to_vec_partial(decomp, &data[..], out_buf, 32 * 1024);
+    let mut decomp = Box::<DecompressorOxide>::default();
+    let mut out_buf = vec![0; expected.len()];
+    let flags = inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF
+        | inflate_flags::TINFL_FLAG_STOP_ON_BLOCK_BOUNDARY;
+    let (status, in_pos, out_pos) = decompress(&mut decomp, &data, &mut out_buf, 0, flags);
+    assert_eq!(status, TINFLStatus::BlockBoundary);
 
-        match result {
-            PartialResult::Ok(_) => panic!("expected partial read"),
-            PartialResult::Err(err) => panic!("expected partial read, err: {err:?}"),
-
-            PartialResult::Partial(in_pos, decomp, out_buf) => {
-                println!("partial read len={}", out_buf.len());
-                (decomp, in_pos, out_buf)
-            }
-        }
-    };
-    println!("save at in_pos={in_pos}");
+    let state = decomp.block_boundary_state().unwrap();
 
     // here the 'save' and 'restore' happens
-    let (in_pos, decomp) = serde_serialize_deserialize_decompressor((in_pos, decomp));
+    let (in_pos, state) = serde_serialize_deserialize_state((in_pos, state));
+    let mut decomp = DecompressorOxide::from_block_boundary_state(&state);
+    let (status, in_consumed, out_consumed) = decompress(
+        &mut decomp,
+        &data[in_pos..],
+        &mut out_buf,
+        out_pos,
+        inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF,
+    );
 
-    println!("resume at in_pos={in_pos}");
+    assert_eq!(status, TINFLStatus::Done);
+    assert_eq!(in_pos + in_consumed, data.len());
+    assert_eq!(out_pos + out_consumed, expected.len());
+    assert_eq!(out_buf, expected);
+}
 
-    let result = decompress_to_vec_partial(decomp, &data[in_pos..], out_buf, 1_000_000);
+#[test]
+fn serde_rejects_invalid_block_boundary_state() {
+    let invalid_num_bits = rmp_serde::to_vec(&(8_u8, 0_u8, 0_u32, 0_u32, 1_u32)).unwrap();
+    assert!(rmp_serde::from_slice::<BlockBoundaryState>(&invalid_num_bits).is_err());
 
-    let out_buf = match result {
-        PartialResult::Partial(_, _, _) => panic!("expected full read"),
-        PartialResult::Err(err) => panic!("expected full read, err: {err:?}"),
+    let invalid_bit_buf = rmp_serde::to_vec(&(1_u8, 2_u8, 0_u32, 0_u32, 1_u32)).unwrap();
+    assert!(rmp_serde::from_slice::<BlockBoundaryState>(&invalid_bit_buf).is_err());
+}
 
-        PartialResult::Ok(out_buf) => out_buf,
-    };
-
-    assert_eq!(out_buf, decompressed_fully);
+fn stored_blocks(first: &[u8], second: &[u8]) -> Vec<u8> {
+    let mut compressed = Vec::new();
+    for (header, block) in [(0x00, first), (0x01, second)] {
+        let len = u16::try_from(block.len()).unwrap();
+        compressed.push(header);
+        compressed.extend_from_slice(&len.to_le_bytes());
+        compressed.extend_from_slice(&(!len).to_le_bytes());
+        compressed.extend_from_slice(block);
+    }
+    compressed
 }
 
 /// Saves the state and 'resumes' it
-pub fn serde_serialize_deserialize_decompressor(
-    decomp: (usize, Box<DecompressorOxide>),
-) -> (usize, Box<DecompressorOxide>) {
-    let decompressor_state_msgpack = rmp_serde::to_vec(&decomp).unwrap();
+pub fn serde_serialize_deserialize_state(
+    state: (usize, BlockBoundaryState),
+) -> (usize, BlockBoundaryState) {
+    let decompressor_state_msgpack = rmp_serde::to_vec(&state).unwrap();
     let decompressor_state_compressed = compress_to_vec(&decompressor_state_msgpack, 7);
 
     dbg!(decompressor_state_msgpack.len());
@@ -58,80 +78,4 @@ pub fn serde_serialize_deserialize_decompressor(
 
     let decompressor_state_msgpack = decompress_to_vec(&decompressor_state_compressed).unwrap();
     rmp_serde::from_slice(&decompressor_state_msgpack).unwrap()
-}
-
-#[derive(Clone)]
-enum PartialResult<T, E> {
-    /// out_buf
-    Ok(T),
-
-    /// input_pos, decomp, out_buf
-    Partial(usize, Box<DecompressorOxide>, T),
-    Err(E),
-}
-
-/// Decompressed partially to out_buf.
-///
-/// Assumes that out_buf contains already decompressed data.
-fn decompress_to_vec_partial(
-    decomp: Box<DecompressorOxide>,
-    input: &[u8],
-    out_buf: Vec<u8>,
-    pause_output_size: usize,
-) -> PartialResult<Vec<u8>, TINFLStatus> {
-    decompress_to_vec_partial_inner(decomp, input, out_buf, 0, pause_output_size)
-}
-
-fn decompress_to_vec_partial_inner<'b>(
-    mut decomp: Box<DecompressorOxide>,
-    input: &[u8],
-    mut out_buf: Vec<u8>,
-    flags: u32,
-    pause_output_size: usize,
-) -> PartialResult<Vec<u8>, TINFLStatus> {
-    let flags = flags | inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
-    let mut out_pos = out_buf.len();
-    let mut in_pos = 0;
-
-    let additional = out_buf.len().max(16);
-    let new_size = out_buf
-        .len()
-        .saturating_add(additional)
-        .min(pause_output_size);
-    out_buf.resize(new_size, 0);
-
-    loop {
-        // Wrap the whole output slice so we know we have enough of the
-        // decompressed data for matches.
-        let (status, in_consumed, out_consumed) =
-            decompress(&mut decomp, &input[in_pos..], &mut out_buf, out_pos, flags);
-        out_pos += out_consumed;
-
-        match status {
-            TINFLStatus::Done => {
-                out_buf.truncate(out_pos);
-                return PartialResult::Ok(out_buf);
-            }
-
-            TINFLStatus::HasMoreOutput => {
-                // in_consumed is not expected to be out of bounds,
-                // but the check eliminates a panicking code path
-                if in_consumed > input.len() {
-                    return PartialResult::Err(TINFLStatus::HasMoreOutput);
-                }
-                in_pos += in_consumed;
-
-                // if the buffer has already reached the size limit, return partial result
-                if out_buf.len() >= pause_output_size {
-                    out_buf.truncate(out_pos);
-                    return PartialResult::Partial(in_pos, decomp, out_buf);
-                }
-                // calculate the new length, capped at `pause_output_size`
-                let new_len = out_buf.len().saturating_mul(2).min(pause_output_size);
-                out_buf.resize(new_len, 0);
-            }
-
-            _ => return PartialResult::Err(status),
-        }
-    }
 }
