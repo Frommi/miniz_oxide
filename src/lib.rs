@@ -21,7 +21,7 @@ mod libc {
     use std::alloc::{
         alloc as rust_alloc, dealloc as rust_dealloc, realloc as rust_realloc, Layout,
     };
-    use std::mem;
+    use std::{mem, ptr};
 
     pub type c_void = u8;
     pub type c_int = i32;
@@ -31,22 +31,34 @@ mod libc {
     pub type size_t = usize;
 
     pub unsafe fn malloc(a: size_t) -> *mut c_void {
-        let size = a + mem::size_of::<size_t>();
+        let size = match a.checked_add(mem::size_of::<size_t>()) {
+            Some(size) => size,
+            None => return ptr::null_mut(),
+        };
         let layout = match Layout::from_size_align(size, mem::align_of::<size_t>()) {
             Ok(n) => n,
-            Err(_) => return 0 as *mut c_void,
+            Err(_) => return ptr::null_mut(),
         };
         let ptr = rust_alloc(layout) as *mut size_t;
+        if ptr.is_null() {
+            return ptr::null_mut();
+        }
         *ptr.offset(0) = size;
         ptr.offset(1) as *mut c_void
     }
 
     pub unsafe fn realloc(ptr: *mut c_void, a: size_t) -> *mut c_void {
-        let new_size = a + mem::size_of::<size_t>();
+        let new_size = match a.checked_add(mem::size_of::<size_t>()) {
+            Some(size) => size,
+            None => return ptr::null_mut(),
+        };
         let ptr = (ptr as *mut size_t).offset(-1);
         let old_size = *ptr.offset(0);
         let layout = Layout::from_size_align_unchecked(old_size, mem::size_of::<size_t>());
         let ptr = rust_realloc(ptr as *mut _, layout, new_size) as *mut size_t;
+        if ptr.is_null() {
+            return ptr::null_mut();
+        }
         *ptr.offset(0) = new_size;
         ptr.offset(1) as *mut c_void
     }

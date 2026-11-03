@@ -320,6 +320,9 @@ unmangle!(
             let compressor =
                 crate::miniz_def_alloc_func(ptr::null_mut(), 1, mem::size_of::<Compressor>())
                     as *mut Compressor;
+            if compressor.is_null() {
+                return false.into();
+            }
 
             ptr::write(
                 compressor,
@@ -422,10 +425,7 @@ unmangle!(
                 ) == 0
                 {
                     if !buffer_user.buf.is_null() {
-                        crate::miniz_def_free_func(
-                            ptr::null_mut(),
-                            buffer_user.buf as *mut c_void,
-                        );
+                        crate::miniz_def_free_func(ptr::null_mut(), buffer_user.buf as *mut c_void);
                     }
                     ptr::null_mut()
                 } else {

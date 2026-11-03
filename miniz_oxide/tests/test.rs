@@ -625,3 +625,61 @@ fn issue_137_reject_incomplete_litlen_tree() {
         "incomplete litlen Huffman tree should be rejected"
     );
 }
+
+/// RFC 1951 section 3.2.5: "a distance cannot refer past the beginning of the output stream".
+/// `43 b0 00` is a fixed-Huffman block with one match (length 10, distance 10) and no
+/// preceding output. The one-shot API rejected it, but the streaming API and the core API with
+/// a wrapping buffer returned ten zero bytes from the (zeroed or stale) window instead.
+#[test]
+fn reject_distance_before_start_of_output() {
+    use miniz_oxide::inflate::core::{decompress, DecompressorOxide};
+    use miniz_oxide::inflate::stream::{inflate, InflateState, MinReset};
+    use miniz_oxide::{DataFormat, MZFlush};
+
+    let data = [0x43, 0xb0, 0x00];
+    assert!(decompress_to_vec(&data).is_err());
+
+    // Streaming API (used by flate2's rust backend).
+    let mut state = InflateState::new_boxed(DataFormat::Raw);
+    let mut out = [0u8; 64];
+    let res = inflate(&mut state, &data, &mut out, MZFlush::None);
+    assert_eq!(res.status, Err(MZError::Data));
+    assert_eq!(res.bytes_written, 0);
+
+    // Core API with a wrapping 32 KiB window.
+    let mut r = DecompressorOxide::new();
+    let mut window = vec![0u8; 32768];
+    let (status, _, written) = decompress(&mut r, &data, &mut window, 0, 0);
+    assert_eq!(status, TINFLStatus::Failed);
+    assert_eq!(written, 0);
+
+    // A reused stream must not read the previous stream's data out of its window.
+    // Length 15, distance 32768, no preceding output.
+    let far = [0x43, 0xbb, 0xff, 0x1f, 0x00];
+    let mut state = InflateState::new_boxed(DataFormat::Raw);
+    let first = compress_to_vec(b"secret secret secret", 6);
+    assert!(inflate(&mut state, &first, &mut out, MZFlush::None)
+        .status
+        .is_ok());
+    state.reset_as(MinReset);
+    let res = inflate(&mut state, &far, &mut out, MZFlush::None);
+    assert_eq!(res.status, Err(MZError::Data));
+    assert_eq!(res.bytes_written, 0);
+
+    // Distances back into the current stream's own output are still accepted, also across calls.
+    let ok = compress_to_vec(&b"abcdefgh".repeat(5000), 6);
+    let mut state = InflateState::new_boxed(DataFormat::Raw);
+    let mut got = Vec::new();
+    for chunk in ok.chunks(7) {
+        let mut pos = 0;
+        loop {
+            let res = inflate(&mut state, &chunk[pos..], &mut out, MZFlush::None);
+            got.extend_from_slice(&out[..res.bytes_written]);
+            pos += res.bytes_consumed;
+            if res.status.is_err() || (pos == chunk.len() && res.bytes_written < out.len()) {
+                break;
+            }
+        }
+    }
+    assert_eq!(got, b"abcdefgh".repeat(5000));
+}

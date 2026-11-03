@@ -123,3 +123,22 @@ fn c_api() {
 
     assert_eq!(data[..], decompressed[0..decompressed_size as usize]);
 }
+
+#[cfg(feature = "libc_stub")]
+#[test]
+fn libc_stub_rejects_allocation_size_overflow() {
+    use std::ptr;
+
+    use miniz_oxide_c_api::{miniz_def_alloc_func, miniz_def_free_func, miniz_def_realloc_func};
+
+    unsafe {
+        assert!(miniz_def_alloc_func(ptr::null_mut(), usize::MAX, 1).is_null());
+        assert!(miniz_def_alloc_func(ptr::null_mut(), usize::MAX, 2).is_null());
+
+        let allocation = miniz_def_alloc_func(ptr::null_mut(), 1, 1);
+        assert!(!allocation.is_null());
+        assert!(miniz_def_realloc_func(ptr::null_mut(), allocation, usize::MAX, 1).is_null());
+        assert!(miniz_def_realloc_func(ptr::null_mut(), allocation, usize::MAX, 2).is_null());
+        miniz_def_free_func(ptr::null_mut(), allocation);
+    }
+}

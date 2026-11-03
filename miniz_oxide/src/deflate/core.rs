@@ -383,28 +383,6 @@ const fn change_window_bits_from_format(window_bits: u8, data_format: DataFormat
     }
 }
 
-/// Limit compression settings by window_bits as a simple way to implement smaller window sizes
-fn limit_level_by_window_bits(
-    window_bits: u8,
-    current_level: i32,
-    current_strategy: CompressionStrategy,
-) -> (i32, CompressionStrategy) {
-    if window_bits < 12 {
-        // If less than 12, use RLE (i.e window size of 1) unless huffman only or stored blocks are requested.
-        if current_strategy != CompressionStrategy::HuffmanOnly && current_level != 0 {
-            (1, CompressionStrategy::RLE)
-        } else {
-            (current_level, current_strategy)
-        }
-    // If less than 15 but 12 or more, use fast mode that uses a 4k window size.
-    } else if window_bits < MZ_DEFAULT_WINDOW_BITS as u8 {
-        (cmp::min(current_level, 1), current_strategy)
-    // If window bits is the full 15 just use the requested settings.
-    } else {
-        (current_level, current_strategy)
-    }
-}
-
 impl CompressorOxide {
     /// Create a new `CompressorOxide` with the given flags.
     ///
@@ -446,10 +424,9 @@ impl CompressorOxide {
     ) -> CompressorOxide {
         let window_bits = cmp::min(window_bits, 15);
         let level = cmp::min(level, 10);
-        let (level, strategy) = limit_level_by_window_bits(window_bits, level as i32, strategy);
 
         let flags = create_comp_flags_from_zip_params(
-            level,
+            level.into(),
             change_window_bits_from_format(window_bits, data_format),
             strategy as i32,
         );
@@ -1505,7 +1482,13 @@ pub(crate) struct ParamsOxide {
     // has been 1 or lower since the header
     // will say the window size is lower than 32k.
     pub window_bits_max: u8,
-    pub block_index: u32,
+
+    // The maximum distance a match can be (1 << window size)
+    pub max_match_dist: u16,
+
+    // Whether we have written out the header for the
+    // first block to the bitstream yet.
+    pub first_block: bool,
 
     pub saved_match_dist: u32,
     pub saved_match_len: u32,
@@ -1535,7 +1518,8 @@ impl ParamsOxide {
             flags,
             greedy_parsing: flags & TDEFL_GREEDY_PARSING_FLAG != 0,
             window_bits_max: window_bits,
-            block_index: 0,
+            max_match_dist: cmp::min(1usize << window_bits, LZ_DICT_SIZE) as u16,
+            first_block: true,
             saved_match_dist: 0,
             saved_match_len: 0,
             saved_lit: 0,
@@ -1560,7 +1544,7 @@ impl ParamsOxide {
 
     /// Reset state, saving settings.
     fn reset(&mut self) {
-        self.block_index = 0;
+        self.first_block = true;
         self.saved_match_len = 0;
         self.saved_match_dist = 0;
         self.saved_lit = 0;
@@ -1789,9 +1773,9 @@ pub(crate) fn flush_block(
 
         // If we are at the start of the stream, write the zlib header
         // if requested.  Note: Even if block-writing is skipped
-        // below, `block_index` is still incremented, so this is done
+        // below, `first_block is still set` is still incremented, so this is done
         // only once
-        if d.params.flags & TDEFL_WRITE_ZLIB_HEADER != 0 && d.params.block_index == 0 {
+        if d.params.flags & TDEFL_WRITE_ZLIB_HEADER != 0 && d.params.first_block {
             let header = zlib::header_from_flags(d.params.flags, d.params.window_bits_max);
             output.put_bits_no_flush(header[0].into(), 8);
             output.put_bits(header[1].into(), 8);
@@ -1916,7 +1900,7 @@ pub(crate) fn flush_block(
         d.lz.num_flags_left = 8;
         d.dict.code_buf_dict_pos += d.lz.total_bytes as usize;
         d.lz.total_bytes = 0;
-        d.params.block_index += 1;
+        d.params.first_block = false;
 
         saved_buffer = output.save();
 
@@ -1964,7 +1948,11 @@ fn record_match(h: &mut HuffmanOxide, lz: &mut LZOxide, match_len: u32, mut matc
     h.count[0][(LEN_SYM[match_len as usize] as usize & 31) + LEN_SYM_OFFSET] += 1;
 }
 
-fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool {
+fn compress_normal<const PREFIX: bool>(
+    d: &mut CompressorOxide,
+    callback: &mut CallbackOxide,
+    token_limit: usize,
+) -> bool {
     let in_buf = match callback.in_buf {
         None => return true,
         Some(in_buf) => in_buf,
@@ -1978,6 +1966,11 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
     let mut saved_match_len = d.params.saved_match_len;
 
     while src_pos < in_buf.len() || (d.params.flush != TDEFLFlush::None && lookahead_size != 0) {
+        if PREFIX
+            && (d.lz.code_position >= token_limit || d.lz.code_position > LZ_CODE_BUF_SIZE - 8)
+        {
+            break;
+        }
         let in_buf_left = &in_buf[src_pos..];
         let num_bytes_to_process = cmp::min(in_buf_left.len(), MAX_MATCH_LEN - lookahead_size);
         let bytes_to_process = &in_buf_left[..num_bytes_to_process];
@@ -2069,10 +2062,11 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
                 }
             }
         } else {
+            let max_dist = cmp::min(d.dict.size, d.params.max_match_dist as usize);
             // Try to find a match for the bytes at the current position.
             let dist_len = d.dict.find_match(
                 lookahead_pos,
-                d.dict.size,
+                max_dist,
                 lookahead_size as u32,
                 cur_match_dist,
                 cur_match_len,
@@ -2134,7 +2128,7 @@ fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> boo
         let fat = ((d.lz.code_position * 115) >> 7) >= d.lz.total_bytes as usize;
         let buf_fat = (d.lz.total_bytes > 31 * 1024) && fat;
 
-        if lz_buf_tight || buf_fat {
+        if !PREFIX && (lz_buf_tight || buf_fat) {
             d.params.src_pos = src_pos;
             // These values are used in flush_block, so we need to write them back here.
             d.dict.lookahead_size = lookahead_size;
@@ -2415,6 +2409,187 @@ pub fn compress(
     )
 }
 
+/// Encodes an independent raw DEFLATE prefix, returning (status, consumed, written).
+/// Experimental level-6/default-strategy interface: at most 64 KiB input, at least
+/// two output bytes. Every call resets history and retains allocations. `Done`
+/// refers to the returned prefix, not necessarily the entire input slice.
+/// Zero consumed bytes are possible if only the empty stream fits.
+pub fn compress_prefix(
+    d: &mut CompressorOxide,
+    input: &[u8],
+    output: &mut [u8],
+) -> (TDEFLStatus, usize, usize) {
+    if input.len() > 65536
+        || output.len() < 2
+        || d.params.flags != create_comp_flags_from_zip_params(6, 0, 0)
+    {
+        return (TDEFLStatus::BadParam, 0, 0);
+    }
+    d.reset();
+    d.params.flush = TDEFLFlush::Finish;
+    let mut unused = [];
+    let mut callback = CallbackOxide::new_callback_buf(input, &mut unused);
+    let capacity = output.len().min(d.params.local_buf.b.len() - 16);
+    let mut target = capacity * 9 / 8;
+    loop {
+        compress_normal::<true>(d, &mut callback, target.max(1));
+        let header = match prepare_header(d, capacity) {
+            Ok(header) => header,
+            Err(_) => return (TDEFLStatus::PutBufFailed, 0, 0),
+        };
+        let bits = total_bits(&d.huff, &header);
+        // shortcut: one token buffer; extend to multiple blocks if large pclusters need it.
+        if bits <= capacity.saturating_sub(8) * 8
+            && d.lz.total_bytes as usize != input.len()
+            && d.lz.code_position <= LZ_CODE_BUF_SIZE - 8
+        {
+            let old = d.lz.code_position;
+            let estimated = (old as u64 * capacity as u64 * 8 / bits.max(1) as u64)
+                .min(LZ_CODE_BUF_SIZE as u64) as usize;
+            target = estimated.saturating_add(old / 16 + 16).max(old + 1);
+            continue;
+        }
+        let (end, used, final_bits) = if bits <= capacity * 8 {
+            (
+                d.lz.code_position - usize::from(d.lz.num_flags_left == 8),
+                d.lz.total_bytes as usize,
+                bits,
+            )
+        } else {
+            choose_prefix(d, &header, capacity)
+        };
+        let flag = d.lz.codes[d.lz.flag_position];
+        if d.lz.num_flags_left != 8 {
+            d.lz.codes[d.lz.flag_position] >>= d.lz.num_flags_left;
+        }
+        let mut out = OutputBufferOxide {
+            inner: &mut d.params.local_buf.b,
+            inner_pos: header.pos,
+            bit_buffer: header.bit_buffer,
+            bits_in: header.bits_in,
+            local: true,
+        };
+        let result = compress_lz_codes(&d.huff, &mut out, &d.lz.codes, end);
+        d.lz.codes[d.lz.flag_position] = flag;
+        if result.is_err() {
+            return (TDEFLStatus::PutBufFailed, 0, 0);
+        }
+        out.pad_to_bytes();
+        let written = out.inner_pos;
+        debug_assert_eq!(written, (final_bits + 7) / 8);
+        debug_assert!(written <= capacity);
+        output[..written].copy_from_slice(&d.params.local_buf.b[..written]);
+        d.params.finished = true;
+        d.params.prev_return_status = TDEFLStatus::Done;
+        return (TDEFLStatus::Done, used, written);
+    }
+}
+
+fn prepare_header(d: &mut CompressorOxide, capacity: usize) -> Result<SavedOutputBufferOxide> {
+    let mut out = OutputBufferOxide {
+        inner: &mut d.params.local_buf.b,
+        inner_pos: 0,
+        bit_buffer: 0,
+        bits_in: 0,
+        local: true,
+    };
+    out.put_bits(1, 1); // BFINAL: the returned prefix is a complete independent stream.
+    if d.lz.total_bytes < 48 {
+        d.huff.start_static_block(&mut out);
+    } else {
+        d.huff.start_dynamic_block(&mut out)?;
+        if out.inner_pos * 8 + out.bits_in as usize + d.huff.code_sizes[0][256] as usize
+            > capacity * 8
+        {
+            out.inner_pos = 0;
+            out.bits_in = 0;
+            out.bit_buffer = 0;
+            out.put_bits(1, 1);
+            d.huff.start_static_block(&mut out);
+        }
+    }
+    Ok(out.save())
+}
+
+fn total_bits(huff: &HuffmanOxide, header: &SavedOutputBufferOxide) -> usize {
+    let mut bits = header.pos * 8 + header.bits_in as usize + huff.code_sizes[0][256] as usize;
+    for symbol in 0..286 {
+        if symbol == 256 {
+            continue;
+        }
+        let extra = if (265..285).contains(&symbol) {
+            (symbol - 261) / 4
+        } else {
+            0
+        };
+        bits += huff.count[0][symbol] as usize * (huff.code_sizes[0][symbol] as usize + extra);
+    }
+    for symbol in 0usize..30 {
+        bits += huff.count[1][symbol] as usize
+            * (huff.code_sizes[1][symbol] as usize + symbol.saturating_sub(2) / 2);
+    }
+    bits
+}
+
+fn choose_prefix(
+    d: &CompressorOxide,
+    header: &SavedOutputBufferOxide,
+    capacity: usize,
+) -> (usize, usize, usize) {
+    let mut bits = header.pos * 8 + header.bits_in as usize + d.huff.code_sizes[0][256] as usize;
+    let mut flags = 1u32;
+    let mut i = 0;
+    let mut used = 0;
+    let mut accepted_end = 0;
+    let end = d.lz.code_position - usize::from(d.lz.num_flags_left == 8);
+    while i < end {
+        if flags == 1 {
+            let byte = if i == d.lz.flag_position {
+                d.lz.codes[i] >> d.lz.num_flags_left
+            } else {
+                d.lz.codes[i]
+            };
+            flags = u32::from(byte) | 0x100;
+            i += 1;
+        }
+        let value = d.lz.codes[i] as usize;
+        let (cost, len, width) = if flags & 1 == 0 {
+            (d.huff.code_sizes[0][value] as usize, 1, 1)
+        } else {
+            let distance = u16::from_le_bytes([d.lz.codes[i + 1], d.lz.codes[i + 2]]) as usize;
+            let sym = LEN_SYM[value] as usize + LEN_SYM_OFFSET;
+            let (dist_sym, dist_extra) = if distance < 512 {
+                (
+                    SMALL_DIST_SYM[distance] as usize,
+                    SMALL_DIST_EXTRA[distance >> 2] as usize,
+                )
+            } else {
+                (
+                    LARGE_DIST_SYM[distance >> 8] as usize,
+                    LARGE_DIST_EXTRA[distance >> 8] as usize,
+                )
+            };
+            (
+                d.huff.code_sizes[0][sym] as usize
+                    + LEN_EXTRA[value] as usize
+                    + d.huff.code_sizes[1][dist_sym] as usize
+                    + dist_extra,
+                value + MIN_MATCH_LEN as usize,
+                3,
+            )
+        };
+        if bits + cost > capacity * 8 {
+            break;
+        }
+        bits += cost;
+        used += len;
+        i += width;
+        accepted_end = i;
+        flags >>= 1;
+    }
+    (accepted_end, used, bits)
+}
+
 /// Main compression function. Callbacks output.
 ///
 /// # Returns
@@ -2474,10 +2649,15 @@ fn compress_inner(
 
     let compress_success = if raw {
         compress_stored(d, callback)
-    } else if one_probe && greedy && !filter_or_rle {
+        // Don't use compress_fast with lower than def window_bits for now as it's not adapted to it.
+    } else if one_probe
+        && greedy
+        && !filter_or_rle
+        && d.params.window_bits_max == MZ_DEFAULT_WINDOW_BITS as u8
+    {
         compress_fast(d, callback)
     } else {
-        compress_normal(d, callback)
+        compress_normal::<false>(d, callback, 0)
     };
 
     if !compress_success {
@@ -2598,12 +2778,109 @@ const fn window_bits_from_flags(flags: u32) -> u8 {
 #[cfg(test)]
 mod test {
     use super::{
-        compress_to_output, create_comp_flags_from_zip_params, read_u16_le, write_u16_le,
-        CompressionStrategy, CompressorOxide, TDEFLFlush, TDEFLStatus, DEFAULT_FLAGS,
-        MZ_DEFAULT_WINDOW_BITS,
+        compress, compress_prefix, compress_to_output, create_comp_flags_from_zip_params,
+        read_u16_le, write_u16_le, CompressionStrategy, CompressorOxide, TDEFLFlush, TDEFLStatus,
+        DEFAULT_FLAGS, MZ_DEFAULT_WINDOW_BITS,
     };
-    use crate::inflate::decompress_to_vec;
-    use alloc::vec;
+    use crate::inflate::core::{
+        decompress, inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF, DecompressorOxide,
+    };
+    use crate::inflate::{decompress_to_vec, TINFLStatus};
+    use alloc::{vec, vec::Vec};
+
+    #[test]
+    fn independent_prefixes_fit_and_reset_history() {
+        let mut seed = 7u32;
+        let random: Vec<_> = (0..65536)
+            .map(|_| {
+                seed ^= seed << 13;
+                seed ^= seed >> 17;
+                seed ^= seed << 5;
+                seed as u8
+            })
+            .collect();
+        let zeros = vec![0; 65536];
+        let repeated: Vec<_> = (0..65536).map(|i| (i % 251) as u8).collect();
+        let flags = create_comp_flags_from_zip_params(6, 0, 0);
+        let mut reused = CompressorOxide::new(flags);
+        assert_eq!(
+            compress(&mut reused, &random, &mut [0; 1], TDEFLFlush::Finish).0,
+            TDEFLStatus::Okay
+        );
+        for input in [
+            &random[..0],
+            &random[..1],
+            &random[..49],
+            &random[..],
+            &zeros[..],
+            &repeated[..],
+        ] {
+            for capacity in [2, 3, 16, 64, 4096, 65536] {
+                let mut output = vec![0xa5; capacity + 1];
+                let result = compress_prefix(&mut reused, input, &mut output[..capacity]);
+                let (status, used, written) = result;
+                assert_eq!(status, TDEFLStatus::Done);
+                assert!(used <= input.len() && written <= capacity);
+                assert!(output[written..].iter().all(|&byte| byte == 0xa5));
+                if capacity == 2 {
+                    assert_eq!(used, 0);
+                }
+
+                let mut decoded = vec![0; input.len().max(1)];
+                let decoded_result = decompress(
+                    &mut DecompressorOxide::new(),
+                    &output[..written],
+                    &mut decoded,
+                    0,
+                    TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF,
+                );
+                assert_eq!(decoded_result, (TINFLStatus::Done, written, used));
+                assert_eq!(&decoded[..used], &input[..used]);
+
+                let mut fresh = CompressorOxide::new(flags);
+                let mut expected = vec![0; capacity];
+                assert_eq!(compress_prefix(&mut fresh, input, &mut expected), result);
+                assert_eq!(&output[..written], &expected[..written]);
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_bounds_and_flags_do_not_write_output() {
+        let input = b"independent prefix";
+        let flags = create_comp_flags_from_zip_params(6, 0, 0);
+        let mut encoder = CompressorOxide::new(flags);
+        let mut output = [0xa5; 64];
+        let rejected = (TDEFLStatus::BadParam, 0, 0);
+        for capacity in 0..2 {
+            assert_eq!(
+                compress_prefix(&mut encoder, input, &mut output[..capacity]),
+                rejected
+            );
+        }
+        assert_eq!(
+            compress_prefix(&mut encoder, &vec![0; 65537], &mut output),
+            rejected
+        );
+        for (level, window_bits, strategy) in [(5, 0, 0), (6, 15, 0), (6, 0, 1)] {
+            let mut unsupported = CompressorOxide::new(create_comp_flags_from_zip_params(
+                level,
+                window_bits,
+                strategy,
+            ));
+            assert_eq!(
+                compress_prefix(&mut unsupported, input, &mut output),
+                rejected
+            );
+        }
+        assert_eq!(output, [0xa5; 64]);
+        let (status, used, written) = compress_prefix(&mut encoder, input, &mut output);
+        assert_eq!((status, used), (TDEFLStatus::Done, input.len()));
+        assert_eq!(
+            crate::inflate::decompress_to_vec(&output[..written]).unwrap(),
+            input
+        );
+    }
 
     #[test]
     fn u16_to_slice() {
@@ -2675,56 +2952,32 @@ mod test {
         let decoded = decompress_to_vec(&encoded[..]).unwrap();
         assert_eq!(&decoded[..], &slice[..]);
     }
+}
 
-    #[test]
-    fn zlib_window_bits() {
-        use super::TDEFL_RLE_MATCHES;
-        use crate::deflate::CompressionLevel;
-        use crate::inflate::stream::{inflate, InflateState};
-        use crate::DataFormat;
-        use alloc::boxed::Box;
-        let slice = [
-            1, 2, 3, 4, 1, 2, 3, 1, 2, 3, 1, 2, 6, 1, 2, 3, 1, 2, 3, 2, 3, 1, 2, 3, 35, 22, 22, 2,
-            6, 2, 6,
-        ];
-        let mut encoded = vec![];
+#[test]
+fn issue_212_regression_counter_boundary_keeps_stream_bytes() {
+    for quality in -1..=10 {
+        let flags = create_comp_flags_from_zip_params(quality, 15, 0);
+        let mut ordinary = Box::new(CompressorOxide::new(flags));
+        let mut boundary = Box::new(CompressorOxide::new(flags));
+        let mut normal_out = [0; 1024];
+        let mut boundary_out = [0; 1024];
+        let normal = super::compress(&mut ordinary, &[], &mut normal_out, TDEFLFlush::Sync);
+        let seeded = super::compress(&mut boundary, &[], &mut boundary_out, TDEFLFlush::Sync);
+        assert_eq!(normal, seeded);
+        assert_eq!(normal.0, TDEFLStatus::Okay);
+        assert_eq!(&normal_out[..normal.2], &boundary_out[..seeded.2]);
+        let mut wire = boundary_out[..seeded.2].to_vec();
 
-        // Create compressor with small window bits param
-        let mut d = CompressorOxide::with_params(
-            DataFormat::Zlib,
-            CompressionLevel::DefaultCompression.into(),
-            CompressionStrategy::Default,
-            1,
-        );
-
-        assert!((d.params.flags & TDEFL_RLE_MATCHES) != 0);
-
-        let (status, in_consumed) =
-            compress_to_output(&mut d, &slice, TDEFLFlush::Finish, |out: &[u8]| {
-                encoded.extend_from_slice(out);
-                true
-            });
-
-        assert_eq!(status, TDEFLStatus::Done);
-        assert_eq!(in_consumed, slice.len());
-
-        let mut output = vec![0; slice.len()];
-
-        let mut decompressor = Box::new(InflateState::new(DataFormat::Zlib));
-
-        let mut out_slice = output.as_mut_slice();
-        // Feed 1 byte at a time and no back buffer to test that RLE encoding has been used.
-        for i in 0..encoded.len() {
-            let result = inflate(
-                &mut decompressor,
-                &encoded[i..i + 1],
-                out_slice,
-                crate::MZFlush::None,
-            );
-            out_slice = &mut out_slice[result.bytes_written..];
+        // Accelerate a real started stream; this does not execute 2^32 calls.
+        boundary.params.first_block = false;
+        for flush in [TDEFLFlush::Sync, TDEFLFlush::Sync, TDEFLFlush::Finish] {
+            let normal = super::compress(&mut ordinary, &[], &mut normal_out, flush);
+            let seeded = super::compress(&mut boundary, &[], &mut boundary_out, flush);
+            assert_eq!(normal, seeded, "quality={quality}, flush={flush:?}");
+            assert_eq!(&normal_out[..normal.2], &boundary_out[..seeded.2]);
+            wire.extend_from_slice(&boundary_out[..seeded.2]);
         }
-        let cmf = decompressor.decompressor().zlib_header().0;
-        assert_eq!(cmf, 8);
-        assert_eq!(output, slice)
+        assert_eq!(crate::inflate::decompress_to_vec_zlib(&wire).unwrap(), b"");
     }
 }

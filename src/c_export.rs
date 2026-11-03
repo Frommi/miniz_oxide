@@ -268,7 +268,10 @@ unmangle!(
         items: size_t,
         size: size_t,
     ) -> *mut c_void {
-        libc::malloc(items * size)
+        match items.checked_mul(size) {
+            Some(size) => libc::malloc(size),
+            None => ptr::null_mut(),
+        }
     }
 
     /// Default free function using `free`.
@@ -282,7 +285,10 @@ unmangle!(
         items: size_t,
         size: size_t,
     ) -> *mut c_void {
-        libc::realloc(address, items * size)
+        match items.checked_mul(size) {
+            Some(size) => libc::realloc(address, size),
+            None => ptr::null_mut(),
+        }
     }
 
     /// Calculate adler32 checksum of the provided buffer with the initial adler32 checksum of `adler`.
