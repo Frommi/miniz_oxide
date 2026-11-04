@@ -25,6 +25,12 @@ pub const fn update_hash(current_hash: u16, byte: u8) -> u16 {
     ((current_hash << LZ_HASH_SHIFT) ^ byte as u16) & (LZ_HASH_SIZE as u16 - 1)
 }
 
+/// `bits`-bit hash of `bytes`; callers mask off the bytes that are not part of the key.
+#[inline]
+pub const fn hash(bytes: u32, bits: u32) -> usize {
+    (bytes.wrapping_mul(0x9E37_79B1) >> (32 - bits)) as usize
+}
+
 #[derive(Clone)]
 pub struct HashBuffers {
     pub dict: Box<[u8; LZ_DICT_FULL_SIZE]>,
